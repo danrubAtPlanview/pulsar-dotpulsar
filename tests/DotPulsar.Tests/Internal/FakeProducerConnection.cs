@@ -17,6 +17,7 @@ namespace DotPulsar.Tests.Internal;
 using DotPulsar.Internal;
 using DotPulsar.Internal.Abstractions;
 using DotPulsar.Internal.PulsarApi;
+using System.Buffers;
 using System.Collections.Concurrent;
 
 // A connection and a connection pool that accept producers and messages, so a producer can be tested without a broker.
@@ -145,7 +146,14 @@ public sealed class FakeProducerConnection
             metadata.TxnidLeastBits)
         {
             NumMessages = command.NumMessages,
-            NumMessagesInBatch = metadata.HasNumMessagesInBatch ? metadata.NumMessagesInBatch : 1
+            NumMessagesInBatch = metadata.HasNumMessagesInBatch ? metadata.NumMessagesInBatch : 1,
+            IsChunk = command.IsChunk,
+            Uuid = metadata.HasUuid ? metadata.Uuid : null,
+            ChunkId = metadata.HasChunkId ? metadata.ChunkId : null,
+            NumChunksFromMsg = metadata.HasNumChunksFromMsg ? metadata.NumChunksFromMsg : null,
+            TotalChunkMsgSize = metadata.HasTotalChunkMsgSize ? metadata.TotalChunkMsgSize : null,
+            SkipSizeCheck = package.SkipSizeCheck,
+            Payload = package.Payload.ToArray()
         };
 
         _sent.Enqueue(message);
@@ -186,4 +194,15 @@ public sealed record SentMessage(
     // The number of messages of the command, and the number of messages in the batch of the metadata. One for a message that is not a batch.
     public int NumMessages { get; init; }
     public int NumMessagesInBatch { get; init; }
+
+    // The chunk fields of the metadata, and the is_chunk field of the command. The fields of the metadata are null if they are not set.
+    public bool IsChunk { get; init; }
+    public string? Uuid { get; init; }
+    public int? ChunkId { get; init; }
+    public int? NumChunksFromMsg { get; init; }
+    public int? TotalChunkMsgSize { get; init; }
+
+    // Whether the connection does not check the size of the message, and the payload that was written
+    public bool SkipSizeCheck { get; init; }
+    public byte[] Payload { get; init; } = [];
 }

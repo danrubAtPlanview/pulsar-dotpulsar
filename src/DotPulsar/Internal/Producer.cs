@@ -184,12 +184,19 @@ public sealed class Producer<TMessage> : IProducer<TMessage>, IRegisterEvent
             _options.BatchingMaxBytes,
             _options.BatchingMaxPublishDelay,
             _options.InitialSequenceId,
-            _options.SendTimeout);
+            _options.SendTimeout,
+            IsChunkingEnabled(topic),
+            _options.ChunkMaxMessageSize);
         var process = new ProducerProcess(correlationId, stateManager, producer);
         _processManager.Add(process);
         process.Start();
         return producer;
     }
+
+    // Upstream: ProducerImpl#isChunkingEnabled
+    // Chunking is only done on persistent topics, so the option does nothing on a non-persistent topic
+    private bool IsChunkingEnabled(string topic)
+        => _options.EnableChunking && !topic.StartsWith("non-persistent://", StringComparison.Ordinal);
 
     public async ValueTask DisposeAsync()
     {

@@ -14,10 +14,12 @@
 
 namespace DotPulsar.Tests.Internal;
 
+using DotPulsar.Exceptions;
 using DotPulsar.Internal;
 using DotPulsar.Internal.Abstractions;
 using DotPulsar.Internal.Exceptions;
 using DotPulsar.Internal.PulsarApi;
+using System.Buffers;
 
 [Trait("Category", "Unit")]
 public sealed class ConnectionTests
@@ -260,6 +262,81 @@ public sealed class ConnectionTests
 
         //Assert
         exception.ShouldBeOfType<ConnectionDisposedException>();
+    }
+
+    // Upstream: ProducerImpl#getMessageSizeError
+    [Fact]
+    public async Task Send_GivenMessageLargerThanMaxMessageSize_ShouldThrowTooLargeMessageExceptionAndNotWriteIt()
+    {
+        //Arrange
+        var stream = CreateStreamOfProducer();
+        await using var uut = Connect(stream);
+        uut.MaxMessageSize = 200;
+        var package = await CreateSendPackage(uut, 300);
+
+        //Act
+        var exception = await Record.ExceptionAsync(() => uut.Send(package, new TaskCompletionSource<BaseCommand>(), Current.CancellationToken));
+
+        //Assert
+        var tooLarge = exception.ShouldBeOfType<TooLargeMessageException>();
+        tooLarge.MaxMessageSize.ShouldBe(200);
+        tooLarge.MessageSize.ShouldBeGreaterThan(300);
+        stream.Sent.ShouldNotContain(command => command.Type == BaseCommand.Types.Type.Send);
+    }
+
+    [Fact]
+    public async Task Send_GivenMessageThatFitsInMaxMessageSize_ShouldWriteIt()
+    {
+        //Arrange
+        var stream = CreateStreamOfProducer();
+        await using var uut = Connect(stream);
+        uut.MaxMessageSize = 1000;
+        var package = await CreateSendPackage(uut, 300);
+
+        //Act
+        await uut.Send(package, new TaskCompletionSource<BaseCommand>(), Current.CancellationToken);
+
+        //Assert
+        stream.Sent.ShouldContain(command => command.Type == BaseCommand.Types.Type.Send);
+    }
+
+    // Upstream: ProducerImpl#getMessageSizeError (it is not checked when chunking is enabled)
+    [Fact]
+    public async Task Send_GivenPackageThatSkipsTheSizeCheck_ShouldWriteMessageLargerThanMaxMessageSize()
+    {
+        //Arrange
+        var stream = CreateStreamOfProducer();
+        await using var uut = Connect(stream);
+        uut.MaxMessageSize = 200;
+        var package = await CreateSendPackage(uut, 300);
+        package.SkipSizeCheck = true;
+
+        //Act
+        await uut.Send(package, new TaskCompletionSource<BaseCommand>(), Current.CancellationToken);
+
+        //Assert
+        stream.Sent.ShouldContain(command => command.Type == BaseCommand.Types.Type.Send);
+    }
+
+    private static FakePulsarStream CreateStreamOfProducer()
+        => new(command => command.Type == BaseCommand.Types.Type.Producer
+            ? new BaseCommand { Type = BaseCommand.Types.Type.ProducerSuccess, ProducerSuccess = new CommandProducerSuccess { RequestId = command.Producer.RequestId, ProducerName = "producer" } }
+            : null);
+
+    // The producer is registered with the connection, because a message is only sent for a producer that the connection knows
+    private static async Task<SendPackage> CreateSendPackage(Connection connection, int payloadLength)
+    {
+        var channel = Substitute.For<IChannel>();
+        channel.SenderLock().Returns(Substitute.For<IDisposable>());
+        var command = new CommandProducer { Topic = "persistent://public/default/test" };
+        _ = await connection.Send(command, channel, Current.CancellationToken);
+
+        return new SendPackage
+        {
+            Command = new CommandSend { ProducerId = command.ProducerId, SequenceId = 1, NumMessages = 1 },
+            Metadata = new MessageMetadata { SequenceId = 1, ProducerName = "producer", PublishTime = 1 },
+            Payload = new ReadOnlySequence<byte>(new byte[payloadLength])
+        };
     }
 
     private static Connection Connect(IPulsarStream stream, TimeSpan? closeOnInactiveInterval = null)

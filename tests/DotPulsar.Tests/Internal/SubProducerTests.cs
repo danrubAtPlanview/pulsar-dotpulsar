@@ -18,6 +18,7 @@ using DotPulsar.Abstractions;
 using DotPulsar.Exceptions;
 using DotPulsar.Internal;
 using DotPulsar.Internal.Abstractions;
+using DotPulsar.Internal.Chunking;
 using DotPulsar.Internal.Events;
 using DotPulsar.Internal.PulsarApi;
 using DotPulsar.Tests.Internal.Transactions;
@@ -402,6 +403,12 @@ public class SubProducerTests
 
             return Task.CompletedTask;
         }
+
+        public ChunkedSendState? PlanChunking(MessageMetadata metadata, ReadOnlySequence<byte> payload, int chunkMaxMessageSize)
+            => throw new NotSupportedException();
+
+        public Task SendChunk(ChunkedSendState state, int chunkId, TaskCompletionSource<BaseCommand> responseTcs, CancellationToken cancellationToken)
+            => throw new NotSupportedException();
 
         public ValueTask ClosedByClient(CancellationToken cancellationToken) => new();
 

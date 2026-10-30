@@ -254,7 +254,9 @@ public sealed class Connection : IConnection
         {
             var sequence = Serializer.Serialize(command.Command!.AsBaseCommand(), command.Metadata!, command.Payload);
 
-            if (sequence.Length > MaxMessageSize)
+            // Upstream: ProducerImpl#getMessageSizeError
+            // The size of a chunk, and of a message that is sent by a producer with chunking enabled, is not checked, because the frame that the broker accepts is larger than the maximum message size by a padding.
+            if (!command.SkipSizeCheck && sequence.Length > MaxMessageSize)
                 throw new TooLargeMessageException((int) sequence.Length, MaxMessageSize);
 
             using (await _lock.Lock(cancellationToken).ConfigureAwait(false))

@@ -17,6 +17,7 @@ namespace DotPulsar.Internal;
 using DotPulsar.Abstractions;
 using DotPulsar.Exceptions;
 using DotPulsar.Internal.Abstractions;
+using DotPulsar.Internal.Chunking;
 using DotPulsar.Internal.PulsarApi;
 using System.Buffers;
 
@@ -35,6 +36,12 @@ public sealed class NotReadyChannel<TMessage> : IConsumerChannel<TMessage>, IPro
         => throw GetException();
 
     public Task Send(MessageMetadata metadata, ReadOnlySequence<byte> payload, TaskCompletionSource<BaseCommand> responseTcs, CancellationToken cancellationToken)
+        => throw GetException();
+
+    public ChunkedSendState? PlanChunking(MessageMetadata metadata, ReadOnlySequence<byte> payload, int chunkMaxMessageSize)
+        => throw GetException();
+
+    public Task SendChunk(ChunkedSendState state, int chunkId, TaskCompletionSource<BaseCommand> responseTcs, CancellationToken cancellationToken)
         => throw GetException();
 
     public Task<BaseCommand?> Send(CommandAck command, CancellationToken cancellationToken)

@@ -18,6 +18,7 @@ using DotPulsar.Abstractions;
 using DotPulsar.Exceptions;
 using DotPulsar.Internal.Abstractions;
 using DotPulsar.Internal.Batching;
+using DotPulsar.Internal.Chunking;
 using DotPulsar.Internal.Events;
 using DotPulsar.Internal.Exceptions;
 using DotPulsar.Internal.Extensions;
@@ -36,6 +37,8 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
     private readonly IState<ProducerState> _state;
     private readonly IProducerChannelFactory _factory;
     private readonly int _partition;
+    private readonly bool _enableChunking;
+    private readonly int _chunkMaxMessageSize;
     private readonly BatcherType _batcherType;
     private readonly IBatchMessageContainer<SendOp>? _container;
     private readonly List<PreparedBatchGroup> _groups;
@@ -74,7 +77,9 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
         uint batchingMaxBytes,
         TimeSpan batchingMaxPublishDelay,
         ulong initialSequenceId,
-        TimeSpan sendTimeout)
+        TimeSpan sendTimeout,
+        bool enableChunking = false,
+        int chunkMaxMessageSize = 0)
     {
         _sendQueue = new AsyncQueueWithCursor<SendOp>(maxPendingMessages);
         _correlationId = correlationId;
@@ -84,6 +89,8 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
         _state = state;
         _factory = factory;
         _partition = partition;
+        _enableChunking = enableChunking;
+        _chunkMaxMessageSize = chunkMaxMessageSize;
         _batcherType = batcherType;
         _container = enableBatching ? BatchMessageContainerFactory.Create<SendOp>(batcherType, batchingMaxMessages, batchingMaxBytes, batchingMaxPublishDelay) : null;
         _groups = [];
@@ -233,6 +240,10 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
                     await CreateGroups(sendOp, channel.MaxMessageSize, cancellationToken).ConfigureAwait(false);
                     continue;
                 }
+
+                // The message is a group of one when it is planned, so it is planned once, and it is split in the same chunks after a reconnect
+                if (_enableChunking && !TryPlanChunking(channel, sendOp))
+                    continue;
             }
 
             PreparedBatch? batch;
@@ -251,25 +262,12 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
                 _sendingHead = sendOp;
             }
 
-            var tcs = new TaskCompletionSource<BaseCommand>();
-            _ = tcs.Task.ContinueWith(task =>
-            {
-                try
-                {
-                    responseQueue.Enqueue(task);
-                }
-                catch
-                {
-                    // Ignore
-                }
-            }, TaskContinuationOptions.NotOnCanceled | TaskContinuationOptions.ExecuteSynchronously);
-
             bool success;
 
             try
             {
                 // Use CancellationToken.None here because otherwise it will throw exceptions on all fault actions even retry.
-                success = await _executor.TryExecuteOnce(() => SendGroup(channel, sendOp, tcs, cancellationToken), CancellationToken.None).ConfigureAwait(false);
+                success = await _executor.TryExecuteOnce(() => SendGroup(channel, sendOp, responseQueue, cancellationToken), CancellationToken.None).ConfigureAwait(false);
             }
             finally
             {
@@ -294,8 +292,30 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
         await responseProcessorTask.ConfigureAwait(false);
     }
 
-    private Task SendGroup(IProducerChannel channel, SendOp head, TaskCompletionSource<BaseCommand> tcs, CancellationToken cancellationToken)
+    // The responses of the broker are put in the response queue, in the order they are completed
+    private static TaskCompletionSource<BaseCommand> CreateResponse(AsyncQueue<Task<BaseCommand>> responseQueue)
     {
+        var tcs = new TaskCompletionSource<BaseCommand>();
+        _ = tcs.Task.ContinueWith(static (task, state) =>
+        {
+            try
+            {
+                ((AsyncQueue<Task<BaseCommand>>) state!).Enqueue(task);
+            }
+            catch
+            {
+                // Ignore
+            }
+        }, responseQueue, CancellationToken.None, TaskContinuationOptions.NotOnCanceled | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        return tcs;
+    }
+
+    private Task SendGroup(IProducerChannel channel, SendOp head, AsyncQueue<Task<BaseCommand>> responseQueue, CancellationToken cancellationToken)
+    {
+        if (head.Chunking is { } state)
+            return SendChunks(channel, head, state, responseQueue, cancellationToken);
+
+        var tcs = CreateResponse(responseQueue);
         var send = head.BatchCount > 1 ? channel.Send(head.Batch!.Metadata, head.Batch.Payload, tcs, cancellationToken) : channel.Send(head.Metadata, head.Data, tcs, cancellationToken);
 
         // A send that is completed at once is returned as it is, so nothing is allocated for it
@@ -313,6 +333,52 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
             // Upstream: ProducerImpl#processOpSendMsg
             // The message or the batch is not written, so no receipt will come. The messages of the group fail, and the producer is not faulted.
             FailGroupAtCursor(head, exception);
+        }
+    }
+
+    // Upstream: ProducerImpl#sendAsync
+    // Splits the message in chunks, which are sent when the message is written, and makes the message a group of one. The cursor is at the message.
+    // Returns false if the message is not written, because it is removed from the queue, and it must not be written.
+    private bool TryPlanChunking(IProducerChannel channel, SendOp sendOp)
+    {
+        try
+        {
+            var state = channel.PlanChunking(sendOp.Metadata, sendOp.Data, _chunkMaxMessageSize);
+
+            // The message has chunk fields already, so it is sent as it is
+            if (state is null)
+                return true;
+
+            using (EnterQueueSync())
+            {
+                if (sendOp.IsRemoved)
+                    return false;
+
+                sendOp.MakeChunked(state);
+            }
+
+            return true;
+        }
+        catch (Exception exception)
+        {
+            // Upstream: ProducerImpl#sendAsync (InvalidMessageException)
+            // The message is not written, so no receipt will come. Only this message fails, and the messages behind it are written.
+            RemoveCurrentItemUnlessRemoved(sendOp);
+            _ = sendOp.ReceiptTcs.TrySetException(exception);
+            return false;
+        }
+    }
+
+    // Writes the chunks that the broker has not acknowledged, which are all of them unless the message is written again after a reconnect. The broker answers every chunk with a receipt of its own.
+    private async Task SendChunks(IProducerChannel channel, SendOp head, ChunkedSendState state, AsyncQueue<Task<BaseCommand>> responseQueue, CancellationToken cancellationToken)
+    {
+        for (var chunkId = state.ReceiptedChunks; chunkId < state.TotalChunks; ++chunkId)
+        {
+            // The send timeout has failed the message, so the rest of it is not written
+            if (head.IsRemoved)
+                return;
+
+            await channel.SendChunk(state, chunkId, CreateResponse(responseQueue), cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -622,6 +688,7 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
         var receiptSequenceId = sendReceipt.SequenceId;
         SendOp? single = null;
         PreparedBatch? batch;
+        ChunkedSendState? chunked = null;
         int count;
 
         using (EnterQueueSync())
@@ -644,11 +711,26 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
 
             batch = sendOp.Batch;
             count = Math.Max(sendOp.BatchCount, 1);
+
+            // Upstream: ProducerImpl#ackReceived
+            // The broker answers every chunk of a message with the sequence id of the message. The message stays at the head of the queue until the last chunk is answered, so the answers of the other chunks match it.
+            if (sendOp.Chunking is { IsChunked: true } state)
+            {
+                sendReceipt.MessageId.Partition = _partition;
+
+                if (!state.RecordReceipt(sendReceipt.MessageId))
+                    return;
+
+                chunked = state;
+            }
+
             Dequeue(sendOp, count, out single);
         }
 
         // The messages are completed when the queue is not synchronized, because the continuations of them might run here
-        if (single is not null)
+        if (chunked is not null)
+            _ = single!.ReceiptTcs.TrySetResult(CreateChunkedMessageId(chunked));
+        else if (single is not null)
             _ = single.ReceiptTcs.TrySetResult(BatchMessageIds.Create(sendReceipt.MessageId, _partition, Topic, 1, 0));
         else
         {
@@ -661,6 +743,16 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
         }
 
         batch?.Return();
+    }
+
+    // Upstream: ChunkMessageIdImpl
+    // The id of a chunked message is the id of its last chunk, and it knows the ids of all the chunks
+    private MessageId CreateChunkedMessageId(ChunkedSendState state)
+    {
+        var first = state.FirstChunkMessageId;
+        var last = state.LastChunkMessageId;
+        var firstChunkMessageId = new MessageId(first.LedgerId, first.EntryId, _partition, -1, Topic);
+        return new MessageId(last.LedgerId, last.EntryId, _partition, -1, Topic, firstChunkMessageId, state.ChunkMessageIds);
     }
 
     // Upstream: ProducerImpl#recoverNotAllowedError

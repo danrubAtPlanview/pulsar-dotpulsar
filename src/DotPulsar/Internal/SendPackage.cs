@@ -22,4 +22,7 @@ public sealed class SendPackage
     public CommandSend? Command { get; set; }
     public MessageMetadata? Metadata { get; set; }
     public ReadOnlySequence<byte> Payload { get; set; }
+
+    // Whether the size of the message is not checked before it is sent
+    public bool SkipSizeCheck { get; set; }
 }

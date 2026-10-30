@@ -15,6 +15,7 @@
 namespace DotPulsar.Internal;
 
 using DotPulsar.Internal.Abstractions;
+using DotPulsar.Internal.Chunking;
 using DotPulsar.Internal.PulsarApi;
 using Google.Protobuf;
 using Microsoft.Extensions.ObjectPool;
@@ -80,33 +81,8 @@ public sealed class ProducerChannel : IProducerChannel
                 resetSchema = true;
             }
 
-            sendPackage.Command ??= new CommandSend { ProducerId = _id };
-
-            sendPackage.Command.SequenceId = metadata.SequenceId;
-
-            // Upstream: Commands#newSend
-            // The command is pooled, so both are always set or cleared, and the values of an earlier send can never leak into this one.
-            sendPackage.Command.NumMessages = metadata.HasNumMessagesInBatch && metadata.NumMessagesInBatch > 1 ? metadata.NumMessagesInBatch : 1;
-
-            if (metadata.HasHighestSequenceId)
-                sendPackage.Command.HighestSequenceId = metadata.HighestSequenceId;
-            else
-                sendPackage.Command.ClearHighestSequenceId();
-
-            // The command is pooled, and the broker handles a message as transactional if both of the ids are set, even if they are zero.
-            // Both ids are therefore always either copied from the metadata or cleared, so the ids of an earlier message can never leak into this one.
-            if (metadata.HasTxnidMostBits && metadata.HasTxnidLeastBits)
-            {
-                sendPackage.Command.TxnidMostBits = metadata.TxnidMostBits;
-                sendPackage.Command.TxnidLeastBits = metadata.TxnidLeastBits;
-            }
-            else
-            {
-                sendPackage.Command.ClearTxnidMostBits();
-                sendPackage.Command.ClearTxnidLeastBits();
-            }
-
-            sendPackage.Metadata = metadata;
+            // The size of a frame that carries a chunk is not checked, because the frame is larger than the maximum message size by the fields of the chunk
+            PrepareCommand(sendPackage, metadata, metadata.NumChunksFromMsg > 1);
 
             if (_compressorFactory is null || metadata.Compression != CompressionType.None)
                 sendPackage.Payload = payload;
@@ -118,6 +94,8 @@ public sealed class ProducerChannel : IProducerChannel
                 sendPackage.Payload = compressor.Compress(payload);
                 resetCompression = true;
             }
+
+            // TODO(WP9-producer): Encrypt sendPackage.Payload here, after it has been compressed. A message that is split in chunks is encrypted in SendChunk, one chunk at a time.
 
             await _connection.Send(sendPackage, responseTcs, cancellationToken).ConfigureAwait(false);
         }
@@ -134,5 +112,95 @@ public sealed class ProducerChannel : IProducerChannel
 
             _sendPackagePool.Return(sendPackage);
         }
+    }
+
+    // Upstream: ProducerImpl#sendAsync, #updateMessageMetadata
+    // Prepares a message to be sent by a producer with chunking enabled. The metadata of the message is copied, so it is not changed, and the message is compressed once and not each time it is sent.
+    // The state that is returned says how many chunks the message is split in, which is one if it fits in a frame. Null is returned for a message that has chunk fields already, which is sent as it is.
+    public ChunkedSendState? PlanChunking(MessageMetadata metadata, ReadOnlySequence<byte> payload, int chunkMaxMessageSize)
+    {
+        if (metadata.HasNumChunksFromMsg)
+            return null;
+
+        var plannedMetadata = metadata.Clone();
+        plannedMetadata.PublishTime = (ulong) DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        plannedMetadata.ProducerName = _name;
+
+        if (plannedMetadata.SchemaVersion is null && _schemaVersion is not null)
+            plannedMetadata.SchemaVersion = ByteString.CopyFrom(_schemaVersion);
+
+        if (_compressorFactory is not null && plannedMetadata.Compression == CompressionType.None)
+        {
+            plannedMetadata.Compression = _compressorFactory.CompressionType;
+            plannedMetadata.UncompressedSize = (uint) payload.Length;
+            using var compressor = _compressorFactory.Create();
+            payload = compressor.Compress(payload);
+        }
+
+        // TODO(WP9-producer): The bytes that encryption adds to every chunk must be subtracted from the size of the chunks here, by passing them as the last argument
+        return ChunkedSendState.Plan(plannedMetadata, payload, MaxMessageSize, chunkMaxMessageSize, 0);
+    }
+
+    // Upstream: ProducerImpl#serializeAndSendMessage
+    // Sends one chunk of a message. The metadata and the payload of the message are already complete, so they are not changed, except for the id of the chunk. The size of the frame is not checked.
+    public async Task SendChunk(ChunkedSendState state, int chunkId, TaskCompletionSource<BaseCommand> responseTcs, CancellationToken cancellationToken)
+    {
+        var sendPackage = _sendPackagePool.Get();
+
+        try
+        {
+            var metadata = state.Metadata;
+
+            if (state.IsChunked)
+                metadata.ChunkId = chunkId;
+
+            PrepareCommand(sendPackage, metadata, true);
+            sendPackage.Payload = state.GetChunk(chunkId);
+
+            // TODO(WP9-producer): Encrypt sendPackage.Payload here, which is the chunk. Every chunk is encrypted on its own, with its own encryption parameters in the metadata, and the metadata is serialized before the chunk is sent.
+
+            await _connection.Send(sendPackage, responseTcs, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _sendPackagePool.Return(sendPackage);
+        }
+    }
+
+    private void PrepareCommand(SendPackage sendPackage, MessageMetadata metadata, bool skipSizeCheck)
+    {
+        sendPackage.Command ??= new CommandSend { ProducerId = _id };
+
+        sendPackage.Command.SequenceId = metadata.SequenceId;
+
+        // Upstream: Commands#newSend
+        // The command is pooled, so these are always set or cleared, and the values of an earlier send can never leak into this one.
+        sendPackage.Command.NumMessages = metadata.HasNumMessagesInBatch && metadata.NumMessagesInBatch > 1 ? metadata.NumMessagesInBatch : 1;
+
+        if (metadata.HasHighestSequenceId)
+            sendPackage.Command.HighestSequenceId = metadata.HighestSequenceId;
+        else
+            sendPackage.Command.ClearHighestSequenceId();
+
+        if (metadata.IsChunk())
+            sendPackage.Command.IsChunk = true;
+        else
+            sendPackage.Command.ClearIsChunk();
+
+        // The command is pooled, and the broker handles a message as transactional if both of the ids are set, even if they are zero.
+        // Both ids are therefore always either copied from the metadata or cleared, so the ids of an earlier message can never leak into this one.
+        if (metadata.HasTxnidMostBits && metadata.HasTxnidLeastBits)
+        {
+            sendPackage.Command.TxnidMostBits = metadata.TxnidMostBits;
+            sendPackage.Command.TxnidLeastBits = metadata.TxnidLeastBits;
+        }
+        else
+        {
+            sendPackage.Command.ClearTxnidMostBits();
+            sendPackage.Command.ClearTxnidLeastBits();
+        }
+
+        sendPackage.Metadata = metadata;
+        sendPackage.SkipSizeCheck = skipSizeCheck;
     }
 }

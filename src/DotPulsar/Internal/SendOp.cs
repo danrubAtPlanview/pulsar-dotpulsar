@@ -15,6 +15,7 @@
 namespace DotPulsar.Internal;
 
 using DotPulsar.Internal.Batching;
+using DotPulsar.Internal.Chunking;
 using DotPulsar.Internal.PulsarApi;
 using DotPulsar.Internal.Transactions;
 using System.Buffers;
@@ -28,6 +29,7 @@ public sealed class SendOp : IBatchItem, IDisposable
     // There is one of these for every message, so the size of it matters (the allocations per message are a performance goal). The task that is awaited before the op is written and
     // the group of the op are therefore kept in one field, because the group is not made before the op is written. It is the registration gate while the op is not in a group (null if it has none),
     // '_single' for a group of one op, the batch for the first op of a group of more than one op, '_member' for the other ops of such a group, and '_removed' for an op that has been removed from the queue.
+    // The state of the chunks of the op, if the op is split in chunks, is the group of the op, which is a group of one op.
     private object? _gateOrGroup;
 
     public SendOp(
@@ -69,6 +71,7 @@ public sealed class SendOp : IBatchItem, IDisposable
             null => 0,
             Task => 0,
             PreparedBatch batch => batch.Count,
+            ChunkedSendState => 1,
             _ => ReferenceEquals(_gateOrGroup, _single) ? 1 : ReferenceEquals(_gateOrGroup, _member) ? -1 : -2
         };
 
@@ -79,8 +82,15 @@ public sealed class SendOp : IBatchItem, IDisposable
     public PreparedBatch? Batch
         => _gateOrGroup as PreparedBatch;
 
+    // How the op is split in chunks, and which of the chunks the broker has acknowledged. Null if the op is not split, or if that is not planned yet.
+    public ChunkedSendState? Chunking
+        => _gateOrGroup as ChunkedSendState;
+
     public void MakeGroupOfOne()
         => _gateOrGroup = _single;
+
+    public void MakeChunked(ChunkedSendState chunking)
+        => _gateOrGroup = chunking;
 
     public void MakeFirstOfGroup(PreparedBatch batch)
         => _gateOrGroup = batch;

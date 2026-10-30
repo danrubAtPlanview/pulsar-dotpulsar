@@ -317,6 +317,140 @@ public sealed class RequestResponseHandlerTests
         GetNumberOfRequests(uut).ShouldBe(1);
     }
 
+    // Upstream: ProducerImpl#ackReceived
+    // The chunks of a message are sent with the same sequence id, and the broker answers them in the order they were sent
+    [Fact]
+    public async Task Incoming_GivenReceiptsForChunksWithTheSameSequenceId_ShouldCompleteTheChunksInTheOrderTheyWereSent()
+    {
+        //Arrange
+        using var uut = new RequestResponseHandler();
+        var chunks = Enumerable.Range(0, 3).Select(_ => new TaskCompletionSource<BaseCommand>(TaskCreationOptions.RunContinuationsAsynchronously)).ToArray();
+        var receipts = Enumerable.Range(0, 3).Select(_ => CreateSendReceipt(3, 5)).ToArray();
+        foreach (var chunk in chunks)
+        {
+            uut.Outgoing(new CommandSend { ProducerId = 3, SequenceId = 5, IsChunk = true }, chunk);
+        }
+
+        //Act
+        uut.Incoming(receipts[0]);
+        var firstCompleted = chunks.Select(chunk => chunk.Task.IsCompleted).ToArray();
+        uut.Incoming(receipts[1]);
+        uut.Incoming(receipts[2]);
+
+        //Assert
+        firstCompleted.ShouldBe([true, false, false]);
+        for (var i = 0; i < 3; ++i)
+        {
+            (await chunks[i].Task.WaitAsync(TimeSpan.FromSeconds(10), Current.CancellationToken)).ShouldBeSameAs(receipts[i]);
+        }
+    }
+
+    [Fact]
+    public void Outgoing_GivenSecondChunkWithTheSameSequenceId_ShouldNotCancelTheFirstChunk()
+    {
+        //Arrange
+        using var uut = new RequestResponseHandler();
+        var first = new TaskCompletionSource<BaseCommand>(TaskCreationOptions.RunContinuationsAsynchronously);
+        uut.Outgoing(new CommandSend { ProducerId = 3, SequenceId = 5, IsChunk = true }, first);
+
+        //Act
+        uut.Outgoing(new CommandSend { ProducerId = 3, SequenceId = 5, IsChunk = true }, new TaskCompletionSource<BaseCommand>(TaskCreationOptions.RunContinuationsAsynchronously));
+
+        //Assert
+        first.Task.IsCompleted.ShouldBeFalse();
+        GetNumberOfRequests(uut).ShouldBe(0, "the chunks are not registered with the requests that are replaced by a request with the same key");
+    }
+
+    [Fact]
+    public async Task Incoming_GivenSendErrorForChunk_ShouldCompleteTheOldestChunk()
+    {
+        //Arrange
+        using var uut = new RequestResponseHandler();
+        var first = new TaskCompletionSource<BaseCommand>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var second = new TaskCompletionSource<BaseCommand>(TaskCreationOptions.RunContinuationsAsynchronously);
+        uut.Outgoing(new CommandSend { ProducerId = 3, SequenceId = 5, IsChunk = true }, first);
+        uut.Outgoing(new CommandSend { ProducerId = 3, SequenceId = 5, IsChunk = true }, second);
+        var response = CreateSendError(3, 5);
+
+        //Act
+        uut.Incoming(response);
+
+        //Assert
+        (await first.Task.WaitAsync(TimeSpan.FromSeconds(10), Current.CancellationToken)).ShouldBeSameAs(response);
+        second.Task.IsCompleted.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Incoming_GivenReceiptForAnotherSequenceIdOrProducer_ShouldNotCompleteTheChunks()
+    {
+        //Arrange
+        using var uut = new RequestResponseHandler();
+        var chunk = new TaskCompletionSource<BaseCommand>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var plain = new TaskCompletionSource<BaseCommand>(TaskCreationOptions.RunContinuationsAsynchronously);
+        uut.Outgoing(new CommandSend { ProducerId = 3, SequenceId = 5, IsChunk = true }, chunk);
+        uut.Outgoing(new CommandSend { ProducerId = 3, SequenceId = 6 }, plain);
+
+        //Act
+        uut.Incoming(CreateSendReceipt(3, 6));
+        uut.Incoming(CreateSendReceipt(4, 5));
+
+        //Assert
+        await plain.Task.WaitAsync(TimeSpan.FromSeconds(10), Current.CancellationToken);
+        chunk.Task.IsCompleted.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Incoming_GivenMoreReceiptsThanChunks_ShouldIgnoreTheOthers()
+    {
+        //Arrange
+        using var uut = new RequestResponseHandler();
+        var chunk = new TaskCompletionSource<BaseCommand>(TaskCreationOptions.RunContinuationsAsynchronously);
+        uut.Outgoing(new CommandSend { ProducerId = 3, SequenceId = 5, IsChunk = true }, chunk);
+        uut.Incoming(CreateSendReceipt(3, 5));
+        await chunk.Task.WaitAsync(TimeSpan.FromSeconds(10), Current.CancellationToken);
+
+        //Act
+        var exception = Record.Exception(() => uut.Incoming(CreateSendReceipt(3, 5)));
+
+        //Assert
+        exception.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task Incoming_GivenCloseProducer_ShouldCancelTheChunksOfThatProducerOnly()
+    {
+        //Arrange
+        using var uut = new RequestResponseHandler();
+        var closed = new TaskCompletionSource<BaseCommand>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var other = new TaskCompletionSource<BaseCommand>(TaskCreationOptions.RunContinuationsAsynchronously);
+        uut.Outgoing(new CommandSend { ProducerId = 3, SequenceId = 5, IsChunk = true }, closed);
+        uut.Outgoing(new CommandSend { ProducerId = 4, SequenceId = 5, IsChunk = true }, other);
+
+        //Act
+        uut.Incoming(new CommandCloseProducer { ProducerId = 3 });
+
+        //Assert
+        await Should.ThrowAsync<TaskCanceledException>(closed.Task.WaitAsync(TimeSpan.FromSeconds(10), Current.CancellationToken));
+        other.Task.IsCompleted.ShouldBeFalse();
+        uut.Incoming(CreateSendReceipt(4, 5));
+        await other.Task.WaitAsync(TimeSpan.FromSeconds(10), Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Dispose_GivenPendingChunks_ShouldCancelThem()
+    {
+        //Arrange
+        var uut = new RequestResponseHandler();
+        var chunk = new TaskCompletionSource<BaseCommand>(TaskCreationOptions.RunContinuationsAsynchronously);
+        uut.Outgoing(new CommandSend { ProducerId = 3, SequenceId = 5, IsChunk = true }, chunk);
+
+        //Act
+        uut.Dispose();
+
+        //Assert
+        await Should.ThrowAsync<TaskCanceledException>(chunk.Task.WaitAsync(TimeSpan.FromSeconds(10), Current.CancellationToken));
+    }
+
     private static int GetNumberOfRequests(RequestResponseHandler handler)
     {
         var field = typeof(RequestResponseHandler).GetField("_requests", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;

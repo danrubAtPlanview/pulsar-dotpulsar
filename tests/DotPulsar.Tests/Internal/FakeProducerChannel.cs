@@ -15,6 +15,7 @@
 namespace DotPulsar.Tests.Internal;
 
 using DotPulsar.Internal.Abstractions;
+using DotPulsar.Internal.Chunking;
 using DotPulsar.Internal.PulsarApi;
 using DotPulsar.Tests.Internal.Batching;
 using System.Buffers;
@@ -25,6 +26,7 @@ public sealed class FakeProducerChannel : IProducerChannel
 {
     private readonly ConcurrentQueue<SentEntry> _entries = new();
     private long _nextEntryId;
+    private int _planCount;
 
     // Decides the answer to an entry. By default it is a receipt. Returning null leaves the entry unanswered, so it can be answered by the test.
     public Func<SentEntry, BaseCommand?>? Respond { get; set; }
@@ -35,7 +37,13 @@ public sealed class FakeProducerChannel : IProducerChannel
     // The write of an entry is not completed before this task is. Null means that it is completed at once.
     public Task? WriteGate { get; set; }
 
+    // Decides if planning the chunks of a message fails
+    public Func<MessageMetadata, Exception?>? FailPlanning { get; set; }
+
     public int MaxMessageSize { get; set; } = 5 * 1024 * 1024;
+
+    // The number of times the chunks of a message were planned
+    public int PlanCount => Volatile.Read(ref _planCount);
 
     public IReadOnlyList<SentEntry> Entries => _entries.ToArray();
 
@@ -46,6 +54,39 @@ public sealed class FakeProducerChannel : IProducerChannel
     {
         LastGivenMetadata = metadata;
         var entry = new SentEntry(metadata.Clone(), payload.ToArray(), responseTcs);
+
+        var exception = Fail?.Invoke(entry);
+        if (exception is not null)
+            return Task.FromException(exception);
+
+        _entries.Enqueue(entry);
+
+        return WriteGate is null ? Answer(entry, responseTcs) : AnswerAfterWrite(entry, responseTcs, WriteGate);
+    }
+
+    public ChunkedSendState? PlanChunking(MessageMetadata metadata, ReadOnlySequence<byte> payload, int chunkMaxMessageSize)
+    {
+        _ = Interlocked.Increment(ref _planCount);
+
+        var exception = FailPlanning?.Invoke(metadata);
+        if (exception is not null)
+            throw exception;
+
+        if (metadata.HasNumChunksFromMsg)
+            return null;
+
+        var plannedMetadata = metadata.Clone();
+        plannedMetadata.ProducerName = "fake-producer";
+        return ChunkedSendState.Plan(plannedMetadata, payload, MaxMessageSize, chunkMaxMessageSize, 0);
+    }
+
+    // The entry is a copy of the chunk as it is given to the channel, because the metadata of the state is changed for the next chunk
+    public Task SendChunk(ChunkedSendState state, int chunkId, TaskCompletionSource<BaseCommand> responseTcs, CancellationToken cancellationToken)
+    {
+        if (state.IsChunked)
+            state.Metadata.ChunkId = chunkId;
+
+        var entry = new SentEntry(state.Metadata.Clone(), state.GetChunk(chunkId).ToArray(), responseTcs);
 
         var exception = Fail?.Invoke(entry);
         if (exception is not null)

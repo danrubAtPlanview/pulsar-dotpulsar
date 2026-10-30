@@ -14,6 +14,7 @@
 
 namespace DotPulsar.Internal.Abstractions;
 
+using DotPulsar.Internal.Chunking;
 using DotPulsar.Internal.PulsarApi;
 using System.Buffers;
 
@@ -21,5 +22,7 @@ public interface IProducerChannel : IAsyncDisposable
 {
     int MaxMessageSize { get; }
     Task Send(MessageMetadata metadata, ReadOnlySequence<byte> payload, TaskCompletionSource<BaseCommand> responseTcs, CancellationToken cancellationToken);
+    ChunkedSendState? PlanChunking(MessageMetadata metadata, ReadOnlySequence<byte> payload, int chunkMaxMessageSize);
+    Task SendChunk(ChunkedSendState state, int chunkId, TaskCompletionSource<BaseCommand> responseTcs, CancellationToken cancellationToken);
     ValueTask ClosedByClient(CancellationToken cancellationToken);
 }

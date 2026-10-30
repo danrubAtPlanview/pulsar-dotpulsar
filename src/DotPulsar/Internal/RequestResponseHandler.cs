@@ -24,12 +24,15 @@ public sealed class RequestResponseHandler : IDisposable
     private readonly RequestId _requestId;
     private readonly Awaiter<IRequest, BaseCommand> _requests;
     private readonly EnumLookup<BaseCommand.Types.Type, Func<BaseCommand, IRequest>> _getResponseIdentifier;
+    private readonly Dictionary<(ulong ProducerId, ulong SequenceId), Queue<TaskCompletionSource<BaseCommand>>> _chunkRequests;
+    private int _chunkRequestCount;
 
     public RequestResponseHandler()
     {
         _connectRequest = new ConnectRequest();
         _requestId = new RequestId();
         _requests = new Awaiter<IRequest, BaseCommand>();
+        _chunkRequests = [];
 
         _getResponseIdentifier = new EnumLookup<BaseCommand.Types.Type, Func<BaseCommand, IRequest>>(cmd => null!);
         _getResponseIdentifier.Set(BaseCommand.Types.Type.Connected, cmd => _connectRequest);
@@ -54,7 +57,10 @@ public sealed class RequestResponseHandler : IDisposable
     }
 
     public void Dispose()
-        => _requests.Dispose();
+    {
+        _requests.Dispose();
+        CancelChunkRequests(null);
+    }
 
     public Task<BaseCommand> Outgoing(CommandProducer command)
     {
@@ -99,6 +105,27 @@ public sealed class RequestResponseHandler : IDisposable
 
     public void Outgoing(CommandSend command, TaskCompletionSource<BaseCommand> tcs)
     {
+        // Upstream: ProducerImpl#ackReceived
+        // The chunks of a message are sent with the same sequence id, so they can not be told apart by the response. The broker answers them in the order they were sent, so they are answered in that order.
+        if (command.IsChunk)
+        {
+            lock (_chunkRequests)
+            {
+                var key = (command.ProducerId, command.SequenceId);
+
+                if (!_chunkRequests.TryGetValue(key, out var queue))
+                {
+                    queue = new Queue<TaskCompletionSource<BaseCommand>>();
+                    _chunkRequests.Add(key, queue);
+                    Volatile.Write(ref _chunkRequestCount, _chunkRequests.Count);
+                }
+
+                queue.Enqueue(tcs);
+            }
+
+            return;
+        }
+
         var request = new SendRequest(command.ProducerId, command.SequenceId);
         _requests.AddTaskCompletionSource(request, tcs);
 
@@ -205,6 +232,9 @@ public sealed class RequestResponseHandler : IDisposable
 
     public void Incoming(BaseCommand command)
     {
+        if (Volatile.Read(ref _chunkRequestCount) != 0 && TryCompleteChunkRequest(command))
+            return;
+
         var identifier = _getResponseIdentifier.Get(command.Type)(command);
 
         if (identifier is not null)
@@ -234,5 +264,62 @@ public sealed class RequestResponseHandler : IDisposable
             if (request.SenderIsProducer(command.ProducerId))
                 _requests.Cancel(request);
         }
+
+        CancelChunkRequests(command.ProducerId);
+    }
+
+    // Completes the oldest request for the chunk that the broker has answered. Returns false if the command does not answer a chunk.
+    private bool TryCompleteChunkRequest(BaseCommand command)
+    {
+        (ulong, ulong) key;
+
+        if (command.Type == BaseCommand.Types.Type.SendReceipt)
+            key = (command.SendReceipt.ProducerId, command.SendReceipt.SequenceId);
+        else if (command.Type == BaseCommand.Types.Type.SendError)
+            key = (command.SendError.ProducerId, command.SendError.SequenceId);
+        else
+            return false;
+
+        TaskCompletionSource<BaseCommand> tcs;
+
+        lock (_chunkRequests)
+        {
+            if (!_chunkRequests.TryGetValue(key, out var queue))
+                return false;
+
+            tcs = queue.Dequeue();
+
+            if (queue.Count == 0)
+            {
+                _ = _chunkRequests.Remove(key);
+                Volatile.Write(ref _chunkRequestCount, _chunkRequests.Count);
+            }
+        }
+
+        _ = tcs.TrySetResult(command);
+        return true;
+    }
+
+    // Cancels the requests of the chunks of the producer, or of every producer if the id is null
+    private void CancelChunkRequests(ulong? producerId)
+    {
+        List<TaskCompletionSource<BaseCommand>> canceled = [];
+
+        lock (_chunkRequests)
+        {
+            foreach (var key in _chunkRequests.Keys.ToArray())
+            {
+                if (producerId is not null && key.ProducerId != producerId)
+                    continue;
+
+                canceled.AddRange(_chunkRequests[key]);
+                _ = _chunkRequests.Remove(key);
+            }
+
+            Volatile.Write(ref _chunkRequestCount, _chunkRequests.Count);
+        }
+
+        foreach (var tcs in canceled)
+            _ = tcs.TrySetCanceled();
     }
 }
