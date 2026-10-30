@@ -119,6 +119,71 @@ public sealed class ProducerChannelTests
         commands[0].HasHighestSequenceId.ShouldBeFalse();
     }
 
+    // Additional coverage
+    [Fact]
+    public async Task Send_GivenChannelWithSchemaVersion_ShouldSendTheSchemaVersionAndNotKeepItOnTheMetadata()
+    {
+        //Arrange
+        var sent = new List<byte[]?>();
+        var uut = CreateChannelWithSchemaVersion([1, 2, 3, 4], sent);
+        var metadata = new MessageMetadata { SequenceId = 1 };
+
+        //Act
+        await uut.Send(metadata, ReadOnlySequence<byte>.Empty, new TaskCompletionSource<BaseCommand>(), Current.CancellationToken);
+
+        //Assert
+        sent.ShouldHaveSingleItem().ShouldBe([1, 2, 3, 4]);
+        metadata.HasSchemaVersion.ShouldBeFalse("the metadata can be sent again by another channel with another schema version");
+    }
+
+    // Additional coverage
+    [Fact]
+    public async Task Send_GivenChannelWithSchemaVersionAndMetadataWithOtherSchemaVersion_ShouldSendTheSchemaVersionOfTheMetadata()
+    {
+        //Arrange
+        var sent = new List<byte[]?>();
+        var uut = CreateChannelWithSchemaVersion([1, 2, 3, 4], sent);
+        var metadata = new MessageMetadata { SequenceId = 1, SchemaVersion = Google.Protobuf.ByteString.CopyFrom(9, 8) };
+
+        //Act
+        await uut.Send(metadata, ReadOnlySequence<byte>.Empty, new TaskCompletionSource<BaseCommand>(), Current.CancellationToken);
+
+        //Assert
+        sent.ShouldHaveSingleItem().ShouldBe([9, 8]);
+        metadata.SchemaVersion.ToByteArray().ShouldBe([9, 8]);
+    }
+
+    // Additional coverage
+    [Fact]
+    public async Task Send_GivenChannelWithoutSchemaVersion_ShouldSendNoSchemaVersion()
+    {
+        //Arrange
+        var sent = new List<byte[]?>();
+        var uut = CreateChannelWithSchemaVersion(null, sent);
+
+        //Act
+        await uut.Send(new MessageMetadata { SequenceId = 1 }, ReadOnlySequence<byte>.Empty, new TaskCompletionSource<BaseCommand>(), Current.CancellationToken);
+
+        //Assert
+        sent.ShouldHaveSingleItem().ShouldBeNull();
+    }
+
+    // Additional coverage
+    [Fact]
+    public void PlanChunking_GivenChannelWithSchemaVersion_ShouldSetItOnTheCopyOfTheMetadataOnly()
+    {
+        //Arrange
+        var uut = CreateChannelWithSchemaVersion([1, 2, 3, 4], []);
+        var metadata = new MessageMetadata { SequenceId = 1 };
+
+        //Act
+        var state = uut.PlanChunking(metadata, new ReadOnlySequence<byte>(new byte[10]), 0);
+
+        //Assert
+        state.ShouldNotBeNull().Metadata.SchemaVersion.ToByteArray().ShouldBe([1, 2, 3, 4]);
+        metadata.HasSchemaVersion.ShouldBeFalse();
+    }
+
     [Fact]
     public void MaxMessageSize_GivenConnectionWithMaxMessageSize_ShouldReturnIt()
     {
@@ -132,6 +197,21 @@ public sealed class ProducerChannelTests
 
         //Assert
         actual.ShouldBe(1234);
+    }
+
+    private static ProducerChannel CreateChannelWithSchemaVersion(byte[]? schemaVersion, List<byte[]?> sent)
+    {
+        var connection = Substitute.For<IConnection>();
+        connection.MaxMessageSize.Returns(5 * 1024 * 1024);
+        connection.Send(Arg.Any<SendPackage>(), Arg.Any<TaskCompletionSource<BaseCommand>>(), Arg.Any<CancellationToken>()).Returns(callInfo =>
+        {
+            // The metadata is reused, so what is checked is copied
+            var metadata = callInfo.Arg<SendPackage>().Metadata!;
+            sent.Add(metadata.HasSchemaVersion ? metadata.SchemaVersion.ToByteArray() : null);
+            return Task.CompletedTask;
+        });
+
+        return new ProducerChannel(1, "producer", connection, null, schemaVersion, null, ProducerCryptoFailureAction.Fail);
     }
 
     private static ProducerChannel CreateChannel(List<CommandSend> commands)

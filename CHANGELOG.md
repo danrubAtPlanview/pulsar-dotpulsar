@@ -63,6 +63,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 - Messages that the consumer had already received from the broker were received twice after IConsumer.RedeliverUnacknowledgedMessages
 - A message that a consumer of a partitioned topic or of several topics had already received from one of the topics, but not yet delivered to the application, was delivered besides the redelivered message after IConsumer.RedeliverUnacknowledgedMessages
 - The number of messages of the pooled send command was never reset
+- A producer with a schema never put the schema version in its messages, so IMessage.SchemaVersion was null for every message that DotPulsar produced
 
 ## [5.3.4] - 2026-10-09
 

@@ -85,7 +85,7 @@ public sealed class ProducerChannel : IProducerChannel
             metadata.PublishTime = (ulong) DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             metadata.ProducerName = _name;
 
-            if (metadata.SchemaVersion is null && _schemaVersion is not null)
+            if (!metadata.HasSchemaVersion && _schemaVersion is not null)
             {
                 metadata.SchemaVersion = ByteString.CopyFrom(_schemaVersion);
                 resetSchema = true;
@@ -115,7 +115,7 @@ public sealed class ProducerChannel : IProducerChannel
         finally
         {
             if (resetSchema)
-                metadata.SchemaVersion = null;
+                metadata.ClearSchemaVersion();
 
             if (resetCompression)
             {
@@ -142,7 +142,7 @@ public sealed class ProducerChannel : IProducerChannel
         plannedMetadata.PublishTime = (ulong) DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         plannedMetadata.ProducerName = _name;
 
-        if (plannedMetadata.SchemaVersion is null && _schemaVersion is not null)
+        if (!plannedMetadata.HasSchemaVersion && _schemaVersion is not null)
             plannedMetadata.SchemaVersion = ByteString.CopyFrom(_schemaVersion);
 
         if (_compressorFactory is not null && plannedMetadata.Compression == CompressionType.None)
