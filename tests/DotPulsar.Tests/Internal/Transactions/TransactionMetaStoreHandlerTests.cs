@@ -492,7 +492,7 @@ public sealed class TransactionMetaStoreHandlerTests
         var id = await uut.NewTransaction(TimeSpan.FromMinutes(1), Current.CancellationToken).AsTask().WaitAsync(_timeout, Current.CancellationToken);
 
         //Assert
-        stopwatch.Elapsed.ShouldBeGreaterThanOrEqualTo(TimeSpan.FromMilliseconds(200)); // The retries wait at least 100 milliseconds and 200 milliseconds (minus the jitter)
+        stopwatch.Elapsed.ShouldBeGreaterThanOrEqualTo(TimeSpan.FromMilliseconds(90)); // The first retry waits at least 100 milliseconds (minus the jitter). The second one can be sent before its 200 milliseconds have passed, because the retry of the first one is still scheduled or the reconnect sends the request again.
         id.ShouldBe(new TransactionId(0, 7));
         coordinator.RequestsOf<CommandNewTxn>().Count.ShouldBe(3);
         coordinator.ConnectRequests.Count.ShouldBeGreaterThanOrEqualTo(2);
