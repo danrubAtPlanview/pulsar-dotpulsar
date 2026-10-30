@@ -33,6 +33,7 @@ public static class Constants
         ClientVersion = assemblyVersion.ToString(3);
         ProtocolVersion = 19; // Do not exceed 19 until CommandTopicMigrated is handled
         ProtocolVersionAckReceipt = 17;
+        DefaultMaxMessageSize = 5 * 1024 * 1024;
         PulsarScheme = "pulsar";
         PulsarSslScheme = "pulsar+ssl";
         DefaultPulsarPort = 6650;
@@ -51,6 +52,7 @@ public static class Constants
     public static string ClientVersion { get; }
     public static int ProtocolVersion { get; }
     public static int ProtocolVersionAckReceipt { get; }
+    public static int DefaultMaxMessageSize { get; }
     public static string PulsarScheme { get; }
     public static string PulsarSslScheme { get; }
     public static int DefaultPulsarPort { get; }

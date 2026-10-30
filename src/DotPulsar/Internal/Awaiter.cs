@@ -55,6 +55,13 @@ public sealed class Awaiter<T, TResult> : IDisposable where T : notnull
             tcs.TrySetCanceled();
     }
 
+    // Removes the item only while it still belongs to the task completion source, so a request that has replaced it is left alone
+    public void Remove(T item, TaskCompletionSource<TResult> tcs)
+    {
+        if (_items.TryGetValue(item, out var current) && ReferenceEquals(current, tcs))
+            _items.TryRemove(item, out _);
+    }
+
     public IEnumerable<T> Keys => _items.Keys;
 
     public void Dispose()

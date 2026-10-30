@@ -71,6 +71,31 @@ public interface IProducerBuilder<TMessage>
     IProducerBuilder<TMessage> ProducerProperty(string key, string value);
 
     /// <summary>
+    /// Whether to batch messages. The default is 'false'.
+    /// </summary>
+    IProducerBuilder<TMessage> EnableBatching(bool enableBatching);
+
+    /// <summary>
+    /// Set the maximum number of messages in a batch. 0 means that there is no limit. The default is 1000.
+    /// </summary>
+    IProducerBuilder<TMessage> BatchingMaxMessages(uint batchingMaxMessages);
+
+    /// <summary>
+    /// Set the maximum number of bytes (uncompressed) in a batch. 0 means that the maximum message size of the broker is used. The default is 131072 (128 KB).
+    /// </summary>
+    IProducerBuilder<TMessage> BatchingMaxBytes(uint batchingMaxBytes);
+
+    /// <summary>
+    /// Set the maximum delay between the first message being added to a batch and the batch being sent. It must be at least 1 millisecond. The default is 1 millisecond.
+    /// </summary>
+    IProducerBuilder<TMessage> BatchingMaxPublishDelay(TimeSpan batchingMaxPublishDelay);
+
+    /// <summary>
+    /// Set the batcher type. The default is 'Default'.
+    /// </summary>
+    IProducerBuilder<TMessage> BatcherType(BatcherType batcherType);
+
+    /// <summary>
     /// Create the producer.
     /// </summary>
     IProducer<TMessage> Create();

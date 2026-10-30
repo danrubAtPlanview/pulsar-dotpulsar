@@ -168,7 +168,22 @@ public sealed class Producer<TMessage> : IProducer<TMessage>, IRegisterEvent
         var stateManager = CreateStateManager();
         var initialChannel = new NotReadyChannel<TMessage>();
         var executor = new Executor(correlationId, _processManager, _exceptionHandler);
-        var producer = new SubProducer(correlationId, _processManager, initialChannel, executor, stateManager, factory, partition, _options.MaxPendingMessages, topic);
+        var producer = new SubProducer(
+            correlationId,
+            _processManager,
+            initialChannel,
+            executor,
+            stateManager,
+            factory,
+            partition,
+            _options.MaxPendingMessages,
+            topic,
+            _options.EnableBatching,
+            _options.BatcherType,
+            _options.BatchingMaxMessages,
+            _options.BatchingMaxBytes,
+            _options.BatchingMaxPublishDelay,
+            _options.InitialSequenceId);
         var process = new ProducerProcess(correlationId, stateManager, producer);
         _processManager.Add(process);
         process.Start();
@@ -346,6 +361,12 @@ public sealed class Producer<TMessage> : IProducer<TMessage>, IRegisterEvent
 
             throw;
         }
+    }
+
+    public async ValueTask Flush(CancellationToken cancellationToken)
+    {
+        ThrowIfDisposed();
+        await Task.WhenAll(_producers.Values.Select(producer => producer.Flush())).WaitAsync(cancellationToken).ConfigureAwait(false);
     }
 
     internal async ValueTask WaitForSendQueueEmpty(CancellationToken cancellationToken)

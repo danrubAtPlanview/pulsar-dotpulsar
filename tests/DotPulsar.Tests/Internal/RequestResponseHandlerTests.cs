@@ -16,6 +16,7 @@ namespace DotPulsar.Tests.Internal;
 
 using DotPulsar.Internal;
 using DotPulsar.Internal.PulsarApi;
+using DotPulsar.Tests.Internal.Transactions;
 
 [Trait("Category", "Unit")]
 public sealed class RequestResponseHandlerTests
@@ -230,6 +231,104 @@ public sealed class RequestResponseHandlerTests
         task.IsCanceled.ShouldBeTrue();
         other.IsCompleted.ShouldBeFalse();
     }
+
+    [Fact]
+    public async Task Outgoing_GivenBatchCommandSend_ShouldCompleteOnSendErrorWithHighestSequenceId()
+    {
+        //Arrange
+        using var uut = new RequestResponseHandler();
+        var tcs = new TaskCompletionSource<BaseCommand>(TaskCreationOptions.RunContinuationsAsynchronously);
+        uut.Outgoing(new CommandSend { ProducerId = 3, SequenceId = 5, HighestSequenceId = 9 }, tcs);
+        var response = CreateSendError(3, 9);
+
+        //Act
+        uut.Incoming(response);
+
+        //Assert
+        (await tcs.Task.WaitAsync(TimeSpan.FromSeconds(10), Current.CancellationToken)).ShouldBeSameAs(response);
+    }
+
+    [Fact]
+    public async Task Outgoing_GivenBatchCommandSend_ShouldCompleteOnReceiptWithSequenceId()
+    {
+        //Arrange
+        using var uut = new RequestResponseHandler();
+        var tcs = new TaskCompletionSource<BaseCommand>(TaskCreationOptions.RunContinuationsAsynchronously);
+        uut.Outgoing(new CommandSend { ProducerId = 3, SequenceId = 5, HighestSequenceId = 9 }, tcs);
+        var response = CreateSendReceipt(3, 5);
+
+        //Act
+        uut.Incoming(response);
+
+        //Assert
+        (await tcs.Task.WaitAsync(TimeSpan.FromSeconds(10), Current.CancellationToken)).ShouldBeSameAs(response);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Outgoing_GivenBatchCommandSend_ShouldRemoveBothRequestsWhenOneIsCompleted(bool completeWithReceipt)
+    {
+        //Arrange
+        using var uut = new RequestResponseHandler();
+        var tcs = new TaskCompletionSource<BaseCommand>(TaskCreationOptions.RunContinuationsAsynchronously);
+        uut.Outgoing(new CommandSend { ProducerId = 3, SequenceId = 5, HighestSequenceId = 9 }, tcs);
+        var numberOfRequestsBefore = GetNumberOfRequests(uut);
+
+        //Act
+        uut.Incoming(completeWithReceipt ? CreateSendReceipt(3, 5) : CreateSendError(3, 9));
+        await tcs.Task.WaitAsync(TimeSpan.FromSeconds(10), Current.CancellationToken);
+
+        //Assert
+        numberOfRequestsBefore.ShouldBe(2);
+        await WaitFor.Until(() => GetNumberOfRequests(uut) == 0, "both requests are removed");
+    }
+
+    [Fact]
+    public async Task Outgoing_GivenBatchCommandSendThatIsCancelled_ShouldRemoveBothRequests()
+    {
+        //Arrange
+        using var uut = new RequestResponseHandler();
+        var tcs = new TaskCompletionSource<BaseCommand>(TaskCreationOptions.RunContinuationsAsynchronously);
+        uut.Outgoing(new CommandSend { ProducerId = 3, SequenceId = 5, HighestSequenceId = 9 }, tcs);
+
+        //Act
+        tcs.SetCanceled();
+
+        //Assert
+        await WaitFor.Until(() => GetNumberOfRequests(uut) == 0, "both requests are removed");
+    }
+
+    [Theory]
+    [InlineData(false, 0UL)]
+    [InlineData(true, 5UL)]
+    public void Outgoing_GivenCommandSendWithoutADifferentHighestSequenceId_ShouldRegisterOneRequest(bool hasHighestSequenceId, ulong highestSequenceId)
+    {
+        //Arrange
+        using var uut = new RequestResponseHandler();
+        var command = new CommandSend { ProducerId = 3, SequenceId = 5 };
+        if (hasHighestSequenceId)
+            command.HighestSequenceId = highestSequenceId;
+
+        //Act
+        uut.Outgoing(command, new TaskCompletionSource<BaseCommand>(TaskCreationOptions.RunContinuationsAsynchronously));
+
+        //Assert
+        GetNumberOfRequests(uut).ShouldBe(1);
+    }
+
+    private static int GetNumberOfRequests(RequestResponseHandler handler)
+    {
+        var field = typeof(RequestResponseHandler).GetField("_requests", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        var requests = (Awaiter<DotPulsar.Internal.Abstractions.IRequest, BaseCommand>) field.GetValue(handler)!;
+        return requests.Keys.Count();
+    }
+
+    private static BaseCommand CreateSendReceipt(ulong producerId, ulong sequenceId)
+        => new() { Type = BaseCommand.Types.Type.SendReceipt, SendReceipt = new CommandSendReceipt { ProducerId = producerId, SequenceId = sequenceId, MessageId = new MessageIdData() } };
+
+    private static BaseCommand CreateSendError(ulong producerId, ulong sequenceId)
+        => new() { Type = BaseCommand.Types.Type.SendError, SendError = new CommandSendError { ProducerId = producerId, SequenceId = sequenceId, Error = ServerError.NotAllowedError, Message = "error" } };
 
     private static BaseCommand CreateAckResponse(ulong requestId, ServerError? error = null)
     {

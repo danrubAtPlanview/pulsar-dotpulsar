@@ -28,4 +28,10 @@ public interface IProducer : IStateHolder<ProducerState>, IAsyncDisposable
     /// The producer's topic.
     /// </summary>
     string Topic { get; }
+
+    /// <summary>
+    /// Send all batched messages immediately and wait for the broker to acknowledge the last message that was sent before this call.
+    /// </summary>
+    /// <exception cref="Exception">The exception of the last message that was sent before this call, if sending it failed.</exception>
+    ValueTask Flush(CancellationToken cancellationToken = default);
 }

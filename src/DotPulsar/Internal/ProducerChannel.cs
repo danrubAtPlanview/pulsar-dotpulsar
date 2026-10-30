@@ -45,6 +45,9 @@ public sealed class ProducerChannel : IProducerChannel
         _schemaVersion = schemaVersion;
     }
 
+    public int MaxMessageSize
+        => _connection.MaxMessageSize;
+
     public async ValueTask ClosedByClient(CancellationToken cancellationToken)
     {
         try
@@ -77,9 +80,18 @@ public sealed class ProducerChannel : IProducerChannel
                 resetSchema = true;
             }
 
-            sendPackage.Command ??= new CommandSend { ProducerId = _id, NumMessages = 1 };
+            sendPackage.Command ??= new CommandSend { ProducerId = _id };
 
             sendPackage.Command.SequenceId = metadata.SequenceId;
+
+            // Upstream: Commands#newSend
+            // The command is pooled, so both are always set or cleared, and the values of an earlier send can never leak into this one.
+            sendPackage.Command.NumMessages = metadata.HasNumMessagesInBatch && metadata.NumMessagesInBatch > 1 ? metadata.NumMessagesInBatch : 1;
+
+            if (metadata.HasHighestSequenceId)
+                sendPackage.Command.HighestSequenceId = metadata.HighestSequenceId;
+            else
+                sendPackage.Command.ClearHighestSequenceId();
 
             // The command is pooled, and the broker handles a message as transactional if both of the ids are set, even if they are zero.
             // Both ids are therefore always either copied from the metadata or cleared, so the ids of an earlier message can never leak into this one.

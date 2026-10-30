@@ -1,0 +1,99 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+namespace DotPulsar.Tests.Internal;
+
+using DotPulsar.Internal.Abstractions;
+using DotPulsar.Internal.PulsarApi;
+using DotPulsar.Tests.Internal.Batching;
+using System.Buffers;
+using System.Collections.Concurrent;
+
+// A channel that writes nothing, but records the entries (a message, or a batch of messages) it was asked to write, and answers them
+public sealed class FakeProducerChannel : IProducerChannel
+{
+    private readonly ConcurrentQueue<SentEntry> _entries = new();
+    private long _nextEntryId;
+
+    // Decides the answer to an entry. By default it is a receipt. Returning null leaves the entry unanswered, so it can be answered by the test.
+    public Func<SentEntry, BaseCommand?>? Respond { get; set; }
+
+    // Decides if writing an entry fails
+    public Func<SentEntry, Exception?>? Fail { get; set; }
+
+    public int MaxMessageSize { get; set; } = 5 * 1024 * 1024;
+
+    public IReadOnlyList<SentEntry> Entries => _entries.ToArray();
+
+    // The metadata object of the last entry as it was given to the channel. It belongs to a batch that is reused after the batch is completed.
+    public MessageMetadata? LastGivenMetadata { get; private set; }
+
+    public Task Send(MessageMetadata metadata, ReadOnlySequence<byte> payload, TaskCompletionSource<BaseCommand> responseTcs, CancellationToken cancellationToken)
+    {
+        LastGivenMetadata = metadata;
+        var entry = new SentEntry(metadata.Clone(), payload.ToArray(), responseTcs);
+
+        var exception = Fail?.Invoke(entry);
+        if (exception is not null)
+            return Task.FromException(exception);
+
+        _entries.Enqueue(entry);
+
+        var response = Respond is null ? CreateReceipt(entry) : Respond(entry);
+        if (response is not null)
+            _ = responseTcs.TrySetResult(response);
+
+        return Task.CompletedTask;
+    }
+
+    public ValueTask ClosedByClient(CancellationToken cancellationToken)
+        => new();
+
+    public ValueTask DisposeAsync()
+        => new();
+
+    public BaseCommand CreateReceipt(SentEntry entry)
+        => CreateReceipt(entry, (ulong) Interlocked.Increment(ref _nextEntryId));
+
+    public static BaseCommand CreateReceipt(SentEntry entry, ulong entryId, int batchIndex = -1)
+    {
+        var receipt = new CommandSendReceipt { SequenceId = entry.SequenceId, MessageId = new MessageIdData { LedgerId = 1, EntryId = entryId } };
+
+        if (batchIndex >= 0)
+            receipt.MessageId.BatchIndex = batchIndex;
+
+        return new BaseCommand { Type = BaseCommand.Types.Type.SendReceipt, SendReceipt = receipt };
+    }
+
+    public static BaseCommand CreateSendError(ulong sequenceId, ServerError error, string message)
+        => new()
+        {
+            Type = BaseCommand.Types.Type.SendError,
+            SendError = new CommandSendError { SequenceId = sequenceId, Error = error, Message = message }
+        };
+}
+
+public sealed record SentEntry(MessageMetadata Metadata, byte[] Payload, TaskCompletionSource<BaseCommand> Response)
+{
+    public ulong SequenceId => Metadata.SequenceId;
+    public ulong HighestSequenceId => Metadata.HasHighestSequenceId ? Metadata.HighestSequenceId : Metadata.SequenceId;
+    public bool IsBatch => Metadata.HasNumMessagesInBatch;
+    public int NumberOfMessages => Metadata.HasNumMessagesInBatch ? Metadata.NumMessagesInBatch : 1;
+
+    // The sequence ids of the messages in the entry
+    public ulong[] MessageSequenceIds
+        => IsBatch
+            ? BatchPayloadReader.Read(Payload, NumberOfMessages).Select(message => message.Metadata.SequenceId).ToArray()
+            : [Metadata.SequenceId];
+}

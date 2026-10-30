@@ -31,6 +31,11 @@ public sealed class ProducerBuilder<TMessage> : IProducerBuilder<TMessage>
     private IHandleStateChanged<ProducerStateChanged>? _stateChangedHandler;
     private IMessageRouter? _messageRouter;
     private uint _maxPendingMessages;
+    private bool _enableBatching;
+    private uint _batchingMaxMessages;
+    private uint _batchingMaxBytes;
+    private TimeSpan _batchingMaxPublishDelay;
+    private BatcherType _batcherType;
 
     public ProducerBuilder(IPulsarClient pulsarClient, ISchema<TMessage> schema)
     {
@@ -42,6 +47,11 @@ public sealed class ProducerBuilder<TMessage> : IProducerBuilder<TMessage>
         _maxPendingMessages = 500;
         _producerAccessMode = ProducerOptions<TMessage>.DefaultProducerAccessMode;
         _producerProperties = [];
+        _enableBatching = ProducerOptions<TMessage>.DefaultEnableBatching;
+        _batchingMaxMessages = ProducerOptions<TMessage>.DefaultBatchingMaxMessages;
+        _batchingMaxBytes = ProducerOptions<TMessage>.DefaultBatchingMaxBytes;
+        _batchingMaxPublishDelay = ProducerOptions<TMessage>.DefaultBatchingMaxPublishDelay;
+        _batcherType = ProducerOptions<TMessage>.DefaultBatcherType;
     }
 
     public IProducerBuilder<TMessage> AttachTraceInfoToMessages(bool attachTraceInfoToMessages)
@@ -104,10 +114,43 @@ public sealed class ProducerBuilder<TMessage> : IProducerBuilder<TMessage>
         return this;
     }
 
+    public IProducerBuilder<TMessage> EnableBatching(bool enableBatching)
+    {
+        _enableBatching = enableBatching;
+        return this;
+    }
+
+    public IProducerBuilder<TMessage> BatchingMaxMessages(uint batchingMaxMessages)
+    {
+        _batchingMaxMessages = batchingMaxMessages;
+        return this;
+    }
+
+    public IProducerBuilder<TMessage> BatchingMaxBytes(uint batchingMaxBytes)
+    {
+        _batchingMaxBytes = batchingMaxBytes;
+        return this;
+    }
+
+    public IProducerBuilder<TMessage> BatchingMaxPublishDelay(TimeSpan batchingMaxPublishDelay)
+    {
+        _batchingMaxPublishDelay = batchingMaxPublishDelay;
+        return this;
+    }
+
+    public IProducerBuilder<TMessage> BatcherType(BatcherType batcherType)
+    {
+        _batcherType = batcherType;
+        return this;
+    }
+
     public IProducer<TMessage> Create()
     {
         if (string.IsNullOrEmpty(_topic))
             throw new ConfigurationException("ProducerOptions.Topic may not be null or empty");
+
+        if (_batchingMaxPublishDelay < TimeSpan.FromMilliseconds(1))
+            throw new ConfigurationException("ProducerOptions.BatchingMaxPublishDelay must be at least 1 millisecond");
 
         var options = new ProducerOptions<TMessage>(_topic!, _schema)
         {
@@ -118,7 +161,12 @@ public sealed class ProducerBuilder<TMessage> : IProducerBuilder<TMessage>
             ProducerName = _producerName,
             StateChangedHandler = _stateChangedHandler,
             MaxPendingMessages = _maxPendingMessages,
-            ProducerProperties = _producerProperties
+            ProducerProperties = _producerProperties,
+            EnableBatching = _enableBatching,
+            BatchingMaxMessages = _batchingMaxMessages,
+            BatchingMaxBytes = _batchingMaxBytes,
+            BatchingMaxPublishDelay = _batchingMaxPublishDelay,
+            BatcherType = _batcherType
         };
 
         if (_messageRouter is not null)

@@ -17,6 +17,7 @@ namespace DotPulsar.Tests.Internal;
 using DotPulsar.Abstractions;
 using DotPulsar.Exceptions;
 using DotPulsar.Extensions;
+using DotPulsar.Internal;
 
 [Trait("Category", "Unit")]
 public sealed class ProducerBuilderTests
@@ -37,6 +38,94 @@ public sealed class ProducerBuilderTests
         // Assert
         var exception = act.ShouldThrow<ConfigurationException>();
         exception.Message.ShouldBe("ProducerOptions.MaxPendingMessages must be greater than 0");
+    }
+
+    // Upstream: ProducerBuilderImplTest#testProducerBuilderImplWhenBatchingMaxPublishDelayPropertyIsNegative
+    // Java throws when the delay is set, and DotPulsar when the producer is created.
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(0)]
+    public async Task Create_GivenBatchingMaxPublishDelayBelowOneMillisecond_ShouldThrowConfigurationException(int milliseconds)
+    {
+        // Arrange
+        await using var client = CreateClient();
+
+        // Act
+        var act = () => client
+            .NewProducer(Schema.String)
+            .Topic("persistent://public/default/my-topic")
+            .BatchingMaxPublishDelay(TimeSpan.FromMilliseconds(milliseconds))
+            .Create();
+
+        // Assert
+        var exception = act.ShouldThrow<ConfigurationException>();
+        exception.Message.ShouldBe("ProducerOptions.BatchingMaxPublishDelay must be at least 1 millisecond");
+    }
+
+    [Fact]
+    public async Task Create_GivenBatchingMaxPublishDelayOfOneMillisecond_ShouldNotThrow()
+    {
+        // Arrange
+        await using var client = CreateClient();
+
+        // Act
+        var act = () => client
+            .NewProducer(Schema.String)
+            .Topic("persistent://public/default/my-topic")
+            .BatchingMaxPublishDelay(TimeSpan.FromMilliseconds(1))
+            .Create();
+
+        // Assert
+        await using var producer = act.ShouldNotThrow();
+    }
+
+    [Fact]
+    public void Create_GivenBatchingOptions_ShouldCopyThemToProducerOptions()
+    {
+        // Arrange
+        var pulsarClient = Substitute.For<IPulsarClient>();
+        ProducerOptions<string>? actual = null;
+        pulsarClient.CreateProducer(Arg.Do<ProducerOptions<string>>(options => actual = options)).Returns(Substitute.For<IProducer<string>>());
+        var uut = new ProducerBuilder<string>(pulsarClient, Schema.String);
+
+        // Act
+        _ = uut
+            .Topic("persistent://public/default/my-topic")
+            .EnableBatching(true)
+            .BatchingMaxMessages(25)
+            .BatchingMaxBytes(2048)
+            .BatchingMaxPublishDelay(TimeSpan.FromSeconds(5))
+            .BatcherType(BatcherType.KeyBased)
+            .Create();
+
+        // Assert
+        actual.ShouldNotBeNull();
+        actual.EnableBatching.ShouldBeTrue();
+        actual.BatchingMaxMessages.ShouldBe(25u);
+        actual.BatchingMaxBytes.ShouldBe(2048u);
+        actual.BatchingMaxPublishDelay.ShouldBe(TimeSpan.FromSeconds(5));
+        actual.BatcherType.ShouldBe(BatcherType.KeyBased);
+    }
+
+    [Fact]
+    public void Create_GivenDefaults_ShouldNotEnableBatching()
+    {
+        // Arrange
+        var pulsarClient = Substitute.For<IPulsarClient>();
+        ProducerOptions<string>? actual = null;
+        pulsarClient.CreateProducer(Arg.Do<ProducerOptions<string>>(options => actual = options)).Returns(Substitute.For<IProducer<string>>());
+        var uut = new ProducerBuilder<string>(pulsarClient, Schema.String);
+
+        // Act
+        _ = uut.Topic("persistent://public/default/my-topic").Create();
+
+        // Assert
+        actual.ShouldNotBeNull();
+        actual.EnableBatching.ShouldBeFalse();
+        actual.BatchingMaxMessages.ShouldBe(1000u);
+        actual.BatchingMaxBytes.ShouldBe(128u * 1024u);
+        actual.BatchingMaxPublishDelay.ShouldBe(TimeSpan.FromMilliseconds(1));
+        actual.BatcherType.ShouldBe(BatcherType.Default);
     }
 
     private static IPulsarClient CreateClient()

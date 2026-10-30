@@ -37,6 +37,31 @@ public sealed class ProducerOptions<TMessage>
     public static readonly ProducerAccessMode DefaultProducerAccessMode = ProducerAccessMode.Shared;
 
     /// <summary>
+    /// The default batcher type.
+    /// </summary>
+    public static readonly BatcherType DefaultBatcherType = BatcherType.Default;
+
+    /// <summary>
+    /// The default maximum number of bytes in a batch.
+    /// </summary>
+    public static readonly uint DefaultBatchingMaxBytes = 128 * 1024;
+
+    /// <summary>
+    /// The default maximum number of messages in a batch.
+    /// </summary>
+    public static readonly uint DefaultBatchingMaxMessages = 1000;
+
+    /// <summary>
+    /// The default maximum delay before a batch is sent.
+    /// </summary>
+    public static readonly TimeSpan DefaultBatchingMaxPublishDelay = TimeSpan.FromMilliseconds(1);
+
+    /// <summary>
+    /// The default of whether batching is enabled.
+    /// </summary>
+    public static readonly bool DefaultEnableBatching = false;
+
+    /// <summary>
     /// Initializes a new instance using the specified topic.
     /// </summary>
     public ProducerOptions(string topic, ISchema<TMessage> schema)
@@ -49,6 +74,11 @@ public sealed class ProducerOptions<TMessage>
         Schema = schema;
         MessageRouter = new RoundRobinPartitionRouter();
         ProducerProperties = [];
+        BatcherType = DefaultBatcherType;
+        BatchingMaxBytes = DefaultBatchingMaxBytes;
+        BatchingMaxMessages = DefaultBatchingMaxMessages;
+        BatchingMaxPublishDelay = DefaultBatchingMaxPublishDelay;
+        EnableBatching = DefaultEnableBatching;
     }
 
     /// <summary>
@@ -108,4 +138,29 @@ public sealed class ProducerOptions<TMessage>
 
     // The name of the subscription that the broker creates on the topic when the producer is created. It is used by the dead letter producer of a consumer.
     internal string? InitialSubscriptionName { get; set; }
+
+    /// <summary>
+    /// Set the batcher type. The default is 'Default'.
+    /// </summary>
+    public BatcherType BatcherType { get; set; }
+
+    /// <summary>
+    /// Set the maximum number of bytes (uncompressed) in a batch. 0 means that the maximum message size of the broker is used. The default is 131072 (128 KB).
+    /// </summary>
+    public uint BatchingMaxBytes { get; set; }
+
+    /// <summary>
+    /// Set the maximum number of messages in a batch. 0 means that there is no limit. The default is 1000.
+    /// </summary>
+    public uint BatchingMaxMessages { get; set; }
+
+    /// <summary>
+    /// Set the maximum delay between the first message being added to a batch and the batch being sent. It must be at least 1 millisecond. The default is 1 millisecond.
+    /// </summary>
+    public TimeSpan BatchingMaxPublishDelay { get; set; }
+
+    /// <summary>
+    /// Whether to batch messages. The default is 'false'.
+    /// </summary>
+    public bool EnableBatching { get; set; }
 }

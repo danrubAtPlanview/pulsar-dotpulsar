@@ -316,7 +316,13 @@ public class SubProducerTests
             factory: factory,
             partition: 0,
             maxPendingMessages: 1000,
-            topic: "persistent://public/default/test");
+            topic: "persistent://public/default/test",
+            enableBatching: false,
+            batcherType: BatcherType.Default,
+            batchingMaxMessages: ProducerOptions<string>.DefaultBatchingMaxMessages,
+            batchingMaxBytes: ProducerOptions<string>.DefaultBatchingMaxBytes,
+            batchingMaxPublishDelay: ProducerOptions<string>.DefaultBatchingMaxPublishDelay,
+            initialSequenceId: 1);
     }
 
     // A channel that writes nothing, but records the sequence ids of the messages it was asked to write and answers them
@@ -328,6 +334,8 @@ public class SubProducerTests
         public Func<ulong, BaseCommand?>? Respond { get; set; }
 
         public ulong[] Written => _written.ToArray();
+
+        public int MaxMessageSize => 5 * 1024 * 1024;
 
         public Task Send(MessageMetadata metadata, ReadOnlySequence<byte> payload, TaskCompletionSource<BaseCommand> responseTcs, CancellationToken cancellationToken)
         {

@@ -22,6 +22,9 @@ using System.Buffers;
 
 public sealed class NotReadyChannel<TMessage> : IConsumerChannel<TMessage>, IProducerChannel
 {
+    public int MaxMessageSize
+        => Constants.DefaultMaxMessageSize;
+
     public ValueTask DisposeAsync()
         => new();
 

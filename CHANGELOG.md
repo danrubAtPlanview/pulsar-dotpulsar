@@ -19,12 +19,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 - Support for receiving chunked messages as one message using ConsumerOptions.MaxPendingChunkedMessage, ConsumerOptions.AutoAckOldestChunkedMessageOnQueueFull, ConsumerOptions.ExpireTimeOfIncompleteChunkedMessage, ReaderOptions.MaxPendingChunkedMessage, ReaderOptions.AutoAckOldestChunkedMessageOnQueueFull, ReaderOptions.ExpireTimeOfIncompleteChunkedMessage and the matching methods of IConsumerBuilder and IReaderBuilder
 - MessageId.FirstChunkMessageId, which is the id of the first chunk of a chunked message
 - EnableTransaction and OperationTimeout on IPulsarClientBuilder
+- Support for batching messages using ProducerOptions.EnableBatching, BatchingMaxMessages, BatchingMaxBytes, BatchingMaxPublishDelay and BatcherType, and the corresponding methods of IProducerBuilder
+- IProducer.Flush, which sends the batched messages at once and waits for the acknowledgment of the last message
 - New exceptions: TransactionNotFoundException, TransactionHasOperationFailedException, TransactionCoordinatorClientException, TransactionCoordinatorClientStateException, MetaStoreHandlerNotExistsException, MetaStoreHandlerNotReadyException and OperationTimeoutException
 
 ### Changed
 
 - Updated the protocol version from 14 to 19
 - IPulsarClient, IPulsarClientBuilder, IConsumer, IConsumerBuilder and IMessageBuilder have new members. This is a breaking change for custom implementations of these interfaces
+- IProducer and IProducerBuilder have new members. This is a breaking change for custom implementations of these interfaces
 - PulsarClientClosedException has a new constructor that takes a message
 - A send that the broker rejects with NotAllowedError now fails only that message with NotAllowedException instead of faulting the producer
 - IConsumer.RedeliverUnacknowledgedMessages with an empty list of message ids no longer redelivers all messages, it does nothing
@@ -45,6 +48,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 - The pooled acknowledgment command kept the MessageIdData instance of the broker
 - A full send queue did not accept new messages after the producer removed messages from it
 - Messages that the consumer had already received from the broker were received twice after IConsumer.RedeliverUnacknowledgedMessages
+- The number of messages of the pooled send command was never reset
 
 ## [5.3.4] - 2026-10-09
 

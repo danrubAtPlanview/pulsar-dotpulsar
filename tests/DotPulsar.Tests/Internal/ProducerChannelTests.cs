@@ -66,6 +66,87 @@ public sealed class ProducerChannelTests
         written[1].MetadataTxnidLeastBits.ShouldBe(4UL);
     }
 
+    [Fact]
+    public async Task Send_GivenBatchMetadata_ShouldSetNumMessagesAndHighestSequenceIdOnCommand()
+    {
+        //Arrange
+        var commands = new List<CommandSend>();
+        var uut = CreateChannel(commands);
+        var batchMetadata = new MessageMetadata { SequenceId = 10, HighestSequenceId = 14, NumMessagesInBatch = 5 };
+
+        //Act
+        await uut.Send(batchMetadata, ReadOnlySequence<byte>.Empty, new TaskCompletionSource<BaseCommand>(), Current.CancellationToken);
+
+        //Assert
+        commands.Count.ShouldBe(1);
+        commands[0].SequenceId.ShouldBe(10UL);
+        commands[0].NumMessages.ShouldBe(5);
+        commands[0].HighestSequenceId.ShouldBe(14UL);
+    }
+
+    [Fact]
+    public async Task Send_GivenSingleMessageAfterBatch_ShouldResetNumMessagesAndHighestSequenceId()
+    {
+        //Arrange
+        var commands = new List<CommandSend>();
+        var uut = CreateChannel(commands);
+        var batchMetadata = new MessageMetadata { SequenceId = 10, HighestSequenceId = 14, NumMessagesInBatch = 5 };
+        var singleMetadata = new MessageMetadata { SequenceId = 15 };
+
+        //Act
+        await uut.Send(batchMetadata, ReadOnlySequence<byte>.Empty, new TaskCompletionSource<BaseCommand>(), Current.CancellationToken);
+        await uut.Send(singleMetadata, ReadOnlySequence<byte>.Empty, new TaskCompletionSource<BaseCommand>(), Current.CancellationToken);
+
+        //Assert
+        commands.Count.ShouldBe(2);
+        commands[1].SequenceId.ShouldBe(15UL);
+        commands[1].NumMessages.ShouldBe(1);
+        commands[1].HasHighestSequenceId.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Send_GivenMessageThatIsNotBatched_ShouldSendOneMessage()
+    {
+        //Arrange
+        var commands = new List<CommandSend>();
+        var uut = CreateChannel(commands);
+
+        //Act
+        await uut.Send(new MessageMetadata { SequenceId = 1 }, ReadOnlySequence<byte>.Empty, new TaskCompletionSource<BaseCommand>(), Current.CancellationToken);
+
+        //Assert
+        commands[0].NumMessages.ShouldBe(1);
+        commands[0].HasHighestSequenceId.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void MaxMessageSize_GivenConnectionWithMaxMessageSize_ShouldReturnIt()
+    {
+        //Arrange
+        var connection = Substitute.For<IConnection>();
+        connection.MaxMessageSize.Returns(1234);
+        var uut = new ProducerChannel(1, "producer", connection, null, null);
+
+        //Act
+        var actual = uut.MaxMessageSize;
+
+        //Assert
+        actual.ShouldBe(1234);
+    }
+
+    private static ProducerChannel CreateChannel(List<CommandSend> commands)
+    {
+        var connection = Substitute.For<IConnection>();
+        connection.Send(Arg.Any<SendPackage>(), Arg.Any<TaskCompletionSource<BaseCommand>>(), Arg.Any<CancellationToken>()).Returns(callInfo =>
+        {
+            // The command is pooled and reused, so what is checked is copied
+            commands.Add(callInfo.Arg<SendPackage>().Command!.Clone());
+            return Task.CompletedTask;
+        });
+
+        return new ProducerChannel(1, "producer", connection, null, null);
+    }
+
     private static ProducerChannel CreateChannel(List<SentMessage> written)
     {
         var connection = Substitute.For<IConnection>();

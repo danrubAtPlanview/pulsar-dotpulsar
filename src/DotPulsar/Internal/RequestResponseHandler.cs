@@ -101,6 +101,27 @@ public sealed class RequestResponseHandler : IDisposable
     {
         var request = new SendRequest(command.ProducerId, command.SequenceId);
         _requests.AddTaskCompletionSource(request, tcs);
+
+        // Upstream: Producer#MessagePublishContext.completed
+        // The broker answers with the sequence id of the batch in a receipt, but with the highest sequence id of the batch in an error.
+        // Both keys are therefore registered, and the one that was not used is removed when the request is completed.
+        if (!command.HasHighestSequenceId || command.HighestSequenceId == command.SequenceId)
+            return;
+
+        var highestRequest = new SendRequest(command.ProducerId, command.HighestSequenceId);
+        _requests.AddTaskCompletionSource(highestRequest, tcs);
+
+        _ = tcs.Task.ContinueWith(
+            static (_, state) =>
+            {
+                var (requests, tcs, request, highestRequest) = ((Awaiter<IRequest, BaseCommand>, TaskCompletionSource<BaseCommand>, IRequest, IRequest)) state!;
+                requests.Remove(request, tcs);
+                requests.Remove(highestRequest, tcs);
+            },
+            (_requests, tcs, (IRequest) request, (IRequest) highestRequest),
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
     }
 
     public Task<BaseCommand> Outgoing(CommandGetOrCreateSchema command)

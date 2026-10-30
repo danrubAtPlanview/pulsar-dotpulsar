@@ -458,6 +458,347 @@ public class AsyncQueueWithCursorTests
         item.Received().Dispose();
     }
 
+    [Fact]
+    public async Task TryPeekNextItem_GivenItemAfterCursor_ShouldNotMoveCursor()
+    {
+        //Arrange
+        var sut = new AsyncQueueWithCursor<QueueItem>(10);
+        await sut.Enqueue(new QueueItem(1), CancellationToken.None);
+        await sut.Enqueue(new QueueItem(2), CancellationToken.None);
+        await sut.NextItem(CancellationToken.None);
+
+        //Act
+        var actual = sut.TryPeekNextItem(out var peeked);
+        var next = await sut.NextItem(CancellationToken.None);
+
+        //Assert
+        actual.ShouldBeTrue();
+        peeked.ShouldBe(new QueueItem(2));
+        next.ShouldBe(new QueueItem(2));
+
+        //Annihilate
+        await sut.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task TryPeekNextItem_GivenCursorAtLastItem_ShouldReturnFalse()
+    {
+        //Arrange
+        var sut = new AsyncQueueWithCursor<QueueItem>(10);
+        await sut.Enqueue(new QueueItem(1), CancellationToken.None);
+        await sut.NextItem(CancellationToken.None);
+
+        //Act
+        var actual = sut.TryPeekNextItem(out _);
+
+        //Assert
+        actual.ShouldBeFalse();
+
+        //Annihilate
+        await sut.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task MoveNext_GivenItemAfterCursor_ShouldMoveCursorAndReturnItem()
+    {
+        //Arrange
+        var sut = new AsyncQueueWithCursor<QueueItem>(10);
+        await sut.Enqueue(new QueueItem(1), CancellationToken.None);
+        await sut.Enqueue(new QueueItem(2), CancellationToken.None);
+        await sut.NextItem(CancellationToken.None);
+
+        //Act
+        var moved = sut.MoveNext();
+        var hasNext = sut.TryPeekNextItem(out _);
+
+        //Assert
+        moved.ShouldBe(new QueueItem(2));
+        hasNext.ShouldBeFalse();
+
+        //Annihilate
+        await sut.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task MoveNext_GivenNoItem_ShouldThrowAsyncQueueWithCursorNoItemException()
+    {
+        //Arrange
+        var sut = new AsyncQueueWithCursor<QueueItem>(10);
+        await sut.Enqueue(new QueueItem(1), CancellationToken.None);
+        await sut.NextItem(CancellationToken.None);
+
+        //Act
+        var exception = Record.Exception(() => sut.MoveNext());
+
+        //Assert
+        exception.ShouldBeOfType<AsyncQueueWithCursorNoItemException>();
+
+        //Annihilate
+        await sut.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task MoveCursorBack_GivenItemsPassed_ShouldReturnTheSameItemsAgain()
+    {
+        //Arrange
+        var sut = new AsyncQueueWithCursor<QueueItem>(10);
+        await sut.Enqueue(new QueueItem(1), CancellationToken.None);
+        await sut.Enqueue(new QueueItem(2), CancellationToken.None);
+        await sut.Enqueue(new QueueItem(3), CancellationToken.None);
+        await sut.NextItem(CancellationToken.None);
+        sut.MoveNext();
+        sut.MoveNext();
+
+        //Act
+        sut.MoveCursorBack(2);
+        var first = sut.MoveNext();
+        var second = sut.MoveNext();
+
+        //Assert
+        first.ShouldBe(new QueueItem(2));
+        second.ShouldBe(new QueueItem(3));
+
+        //Annihilate
+        await sut.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task MoveCursorBack_GivenMoreThanTheItemsPassed_ShouldPutCursorBeforeFirstItem()
+    {
+        //Arrange
+        var sut = new AsyncQueueWithCursor<QueueItem>(10);
+        await sut.Enqueue(new QueueItem(1), CancellationToken.None);
+        await sut.Enqueue(new QueueItem(2), CancellationToken.None);
+        await sut.NextItem(CancellationToken.None);
+        sut.MoveNext();
+
+        //Act
+        sut.MoveCursorBack(5);
+        var next = await sut.NextItem(CancellationToken.None);
+
+        //Assert
+        next.ShouldBe(new QueueItem(1));
+
+        //Annihilate
+        await sut.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task MoveCursorBack_GivenHeadDequeuedWhileCursorIsAtLaterItem_ShouldNotLoseTheItemsAfterTheHead()
+    {
+        //Arrange
+        var sut = new AsyncQueueWithCursor<QueueItem>(10);
+        await sut.Enqueue(new QueueItem(1), CancellationToken.None);
+        await sut.Enqueue(new QueueItem(2), CancellationToken.None);
+        await sut.Enqueue(new QueueItem(3), CancellationToken.None);
+        await sut.NextItem(CancellationToken.None);
+        sut.MoveNext();
+        sut.MoveNext();
+        sut.Dequeue();
+
+        //Act
+        sut.MoveCursorBack(2);
+        var first = await sut.NextItem(CancellationToken.None);
+        var second = sut.MoveNext();
+
+        //Assert
+        first.ShouldBe(new QueueItem(2));
+        second.ShouldBe(new QueueItem(3));
+
+        //Annihilate
+        await sut.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task RewriteItemsUpToCursor_GivenItems_ShouldReorderValuesInPlace()
+    {
+        //Arrange
+        var sut = new AsyncQueueWithCursor<QueueItem>(10);
+        await sut.Enqueue(new QueueItem(0), CancellationToken.None);
+        await sut.Enqueue(new QueueItem(1), CancellationToken.None);
+        await sut.Enqueue(new QueueItem(2), CancellationToken.None);
+        await sut.Enqueue(new QueueItem(3), CancellationToken.None);
+        await sut.NextItem(CancellationToken.None);
+        sut.MoveNext();
+        sut.MoveNext();
+
+        //Act
+        sut.RewriteItemsUpToCursor([new QueueItem(2), new QueueItem(1)]);
+        sut.MoveCursorBack(2);
+        var values = new[] { sut.MoveNext(), sut.MoveNext(), sut.MoveNext() };
+
+        //Assert
+        values.ShouldBe([new QueueItem(2), new QueueItem(1), new QueueItem(3)]);
+
+        //Annihilate
+        await sut.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task RewriteItemsUpToCursor_GivenMoreItemsThanNodes_ShouldThrow()
+    {
+        //Arrange
+        var sut = new AsyncQueueWithCursor<QueueItem>(10);
+        await sut.Enqueue(new QueueItem(1), CancellationToken.None);
+        await sut.NextItem(CancellationToken.None);
+
+        //Act
+        var exception = Record.Exception(() => sut.RewriteItemsUpToCursor([new QueueItem(1), new QueueItem(2)]));
+
+        //Assert
+        exception.ShouldBeOfType<AsyncQueueWithCursorNoItemException>();
+
+        //Annihilate
+        await sut.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task TryPeekLast_GivenItems_ShouldReturnTheLastItemWithoutRemovingIt()
+    {
+        //Arrange
+        var sut = new AsyncQueueWithCursor<QueueItem>(10);
+        await sut.Enqueue(new QueueItem(1), CancellationToken.None);
+        await sut.Enqueue(new QueueItem(2), CancellationToken.None);
+
+        //Act
+        var actual = sut.TryPeekLast(out var last);
+        var stillThere = sut.TryPeek(out var first);
+
+        //Assert
+        actual.ShouldBeTrue();
+        last.ShouldBe(new QueueItem(2));
+        stillThere.ShouldBeTrue();
+        first.ShouldBe(new QueueItem(1));
+
+        //Annihilate
+        await sut.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task TryPeekLast_GivenQueueIsEmpty_ShouldReturnFalse()
+    {
+        //Arrange
+        var sut = new AsyncQueueWithCursor<QueueItem>(10);
+
+        //Act
+        var actual = sut.TryPeekLast(out _);
+
+        //Assert
+        actual.ShouldBeFalse();
+
+        //Annihilate
+        await sut.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task WaitForNextItem_GivenItemAfterCursor_ShouldReturnTrueWithoutWaiting()
+    {
+        //Arrange
+        var sut = new AsyncQueueWithCursor<QueueItem>(10);
+        await sut.Enqueue(new QueueItem(1), CancellationToken.None);
+
+        //Act
+        var wait = sut.WaitForNextItem(TimeSpan.FromHours(1), CancellationToken.None);
+
+        //Assert
+        wait.IsCompletedSuccessfully.ShouldBeTrue();
+        (await wait).ShouldBeTrue();
+
+        //Annihilate
+        await sut.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task WaitForNextItem_GivenEnqueueDuringWait_ShouldReturnTrueAndNotMoveCursor()
+    {
+        //Arrange
+        var sut = new AsyncQueueWithCursor<QueueItem>(10);
+        var wait = sut.WaitForNextItem(TimeSpan.FromHours(1), CancellationToken.None).AsTask();
+
+        //Act
+        await sut.Enqueue(new QueueItem(1), CancellationToken.None);
+        var actual = await wait.WaitAsync(TimeSpan.FromSeconds(10), Current.CancellationToken);
+        var next = await sut.NextItem(CancellationToken.None);
+
+        //Assert
+        actual.ShouldBeTrue();
+        next.ShouldBe(new QueueItem(1));
+
+        //Annihilate
+        await sut.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task WaitForNextItem_GivenTimeout_ShouldReturnFalse()
+    {
+        //Arrange
+        var sut = new AsyncQueueWithCursor<QueueItem>(10);
+
+        //Act
+        var actual = await sut.WaitForNextItem(TimeSpan.FromMilliseconds(50), CancellationToken.None);
+
+        //Assert
+        actual.ShouldBeFalse();
+
+        //Annihilate
+        await sut.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task WaitForNextItem_GivenSignalWaiters_ShouldReturnFalse()
+    {
+        //Arrange
+        var sut = new AsyncQueueWithCursor<QueueItem>(10);
+        var wait = sut.WaitForNextItem(TimeSpan.FromHours(1), CancellationToken.None).AsTask();
+
+        //Act
+        sut.SignalWaiters();
+        var actual = await wait.WaitAsync(TimeSpan.FromSeconds(10), Current.CancellationToken);
+
+        //Assert
+        actual.ShouldBeFalse();
+
+        //Annihilate
+        await sut.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task WaitForNextItem_GivenSignalWaitersBeforeTheWait_ShouldReturnFalseWithoutWaiting()
+    {
+        //Arrange
+        var sut = new AsyncQueueWithCursor<QueueItem>(10);
+        sut.SignalWaiters();
+
+        //Act
+        var wait = sut.WaitForNextItem(TimeSpan.FromHours(1), CancellationToken.None);
+
+        //Assert
+        wait.IsCompletedSuccessfully.ShouldBeTrue();
+        (await wait).ShouldBeFalse();
+
+        //Annihilate
+        await sut.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task WaitForNextItem_GivenCancellation_ShouldThrowOperationCanceledException()
+    {
+        //Arrange
+        var sut = new AsyncQueueWithCursor<QueueItem>(10);
+        using var cts = new CancellationTokenSource();
+        var wait = sut.WaitForNextItem(TimeSpan.FromHours(1), cts.Token).AsTask();
+
+        //Act
+        await cts.CancelAsync();
+
+        //Assert
+        var exception = await Record.ExceptionAsync(() => wait);
+        exception.ShouldBeAssignableTo<OperationCanceledException>();
+
+        //Annihilate
+        await sut.DisposeAsync();
+    }
+
     private class QueueItem : IDisposable, IEquatable<QueueItem>
     {
         private int Number { get; }

@@ -18,6 +18,8 @@ using DotPulsar.Internal.Exceptions;
 
 public sealed class AsyncQueueWithCursor<T> : IAsyncDisposable where T : IDisposable
 {
+    private static readonly TimeSpan _maxDelay = TimeSpan.FromMilliseconds(int.MaxValue);
+
     private readonly AsyncLock _pendingLock;
     private readonly SemaphoreSlim _cursorSemaphore;
     private readonly LinkedList<T> _queue;
@@ -26,6 +28,8 @@ public sealed class AsyncQueueWithCursor<T> : IAsyncDisposable where T : IDispos
     private IDisposable? _pendingLockGrant;
     private LinkedListNode<T>? _currentNode;
     private TaskCompletionSource<LinkedListNode<T>>? _cursorNextItemTcs;
+    private TaskCompletionSource<bool>? _cursorWaitTcs;
+    private bool _waitSignaled;
     private int _isDisposed;
 
     public AsyncQueueWithCursor(uint maxItems)
@@ -61,6 +65,7 @@ public sealed class AsyncQueueWithCursor<T> : IAsyncDisposable where T : IDispos
             ThrowIfDisposed();
             var node = _queue.AddLast(item);
             _cursorNextItemTcs?.TrySetResult(node);
+            _cursorWaitTcs?.TrySetResult(true);
 
             if (_queue.Count < _maxItems)
                 ReleasePendingLockGrant();
@@ -77,6 +82,27 @@ public sealed class AsyncQueueWithCursor<T> : IAsyncDisposable where T : IDispos
             ThrowIfDisposed();
 
             var node = _queue.First;
+            if (node is not null)
+            {
+                item = node.Value;
+                return true;
+            }
+
+            item = default;
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Attempt to retrieve the item that was enqueued last, without removing it
+    /// </summary>
+    public bool TryPeekLast(out T? item)
+    {
+        lock (_queue)
+        {
+            ThrowIfDisposed();
+
+            var node = _queue.Last;
             if (node is not null)
             {
                 item = node.Value;
@@ -117,9 +143,9 @@ public sealed class AsyncQueueWithCursor<T> : IAsyncDisposable where T : IDispos
     }
 
     /// <summary>
-    /// Remove the current item the cursor is pointing to if applicable.
+    /// Remove the current item the cursor is pointing to if applicable, and return it.
     /// </summary>
-    public void RemoveCurrentItem()
+    public T RemoveCurrentItem()
     {
         lock (_queue)
         {
@@ -128,6 +154,7 @@ public sealed class AsyncQueueWithCursor<T> : IAsyncDisposable where T : IDispos
             if (_currentNode is null)
                 throw new AsyncQueueWithCursorNoItemException();
 
+            var item = _currentNode.Value;
             var newCurrent = _currentNode.Previous;
             _queue.Remove(_currentNode);
             _currentNode = newCurrent;
@@ -136,6 +163,8 @@ public sealed class AsyncQueueWithCursor<T> : IAsyncDisposable where T : IDispos
                 NotifyQueueEmptyAwaiters();
 
             ReleasePendingLockGrant();
+
+            return item;
         }
     }
 
@@ -155,7 +184,7 @@ public sealed class AsyncQueueWithCursor<T> : IAsyncDisposable where T : IDispos
             {
                 ThrowIfDisposed();
 
-                _currentNode = _currentNode is null || _currentNode.List is null ? _queue.First : _currentNode.Next;
+                _currentNode = GetNodeAfterCursor();
 
                 if (_currentNode is not null)
                     return _currentNode.Value;
@@ -198,6 +227,146 @@ public sealed class AsyncQueueWithCursor<T> : IAsyncDisposable where T : IDispos
             {
                 throw new TaskCanceledException("The task was cancelled");
             }
+        }
+    }
+
+    /// <summary>
+    /// Attempt to retrieve the item after the one the cursor is pointing to, without moving the cursor.
+    /// </summary>
+    public bool TryPeekNextItem(out T? item)
+    {
+        lock (_queue)
+        {
+            ThrowIfDisposed();
+
+            var node = GetNodeAfterCursor();
+            if (node is not null)
+            {
+                item = node.Value;
+                return true;
+            }
+
+            item = default;
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Move the cursor to the item after the one it is pointing to, and return that item. NextItem is for waiting for an item that is not there yet.
+    /// </summary>
+    /// <exception cref="AsyncQueueWithCursorNoItemException">If there is no item after the cursor</exception>
+    public T MoveNext()
+    {
+        lock (_queue)
+        {
+            ThrowIfDisposed();
+
+            var node = GetNodeAfterCursor() ?? throw new AsyncQueueWithCursorNoItemException();
+            _currentNode = node;
+            return node.Value;
+        }
+    }
+
+    /// <summary>
+    /// Move the cursor back by the specified number of items. Moving it back beyond the first item puts it before the first item, so that NextItem returns the first item.
+    /// </summary>
+    public void MoveCursorBack(int count)
+    {
+        lock (_queue)
+        {
+            ThrowIfDisposed();
+
+            for (var i = 0; i < count && _currentNode is not null; ++i)
+                _currentNode = _currentNode.Previous;
+        }
+    }
+
+    /// <summary>
+    /// Overwrite the items that end with the item the cursor is pointing to, in order, with the specified items.
+    /// </summary>
+    /// <exception cref="AsyncQueueWithCursorNoItemException">If there are fewer items up to the cursor than specified</exception>
+    public void RewriteItemsUpToCursor(IReadOnlyList<T> items)
+    {
+        lock (_queue)
+        {
+            ThrowIfDisposed();
+
+            var node = _currentNode;
+            for (var i = items.Count - 1; i >= 0; --i)
+            {
+                if (node is null)
+                    throw new AsyncQueueWithCursorNoItemException();
+
+                node.Value = items[i];
+                node = node.Previous;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Wait until there is an item after the one the cursor is pointing to, the timeout elapses, or SignalWaiters is called. The cursor is not moved.
+    /// Returns true if there is an item. Only one waiter is supported, and it must not be combined with a waiting NextItem.
+    /// </summary>
+    /// <exception cref="OperationCanceledException">If cancellation requested</exception>
+    public ValueTask<bool> WaitForNextItem(TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        TaskCompletionSource<bool> tcs;
+
+        lock (_queue)
+        {
+            ThrowIfDisposed();
+
+            if (GetNodeAfterCursor() is not null)
+                return new ValueTask<bool>(true);
+
+            // A signal that came while nobody was waiting is not lost, because the caller may have decided to wait just before it was given
+            if (_waitSignaled)
+            {
+                _waitSignaled = false;
+                return new ValueTask<bool>(false);
+            }
+
+            tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _cursorWaitTcs = tcs;
+        }
+
+        return new ValueTask<bool>(WaitForNextItem(tcs, timeout, cancellationToken));
+    }
+
+    private async Task<bool> WaitForNextItem(TaskCompletionSource<bool> tcs, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            var delay = Task.Delay(timeout > _maxDelay ? _maxDelay : timeout, cts.Token);
+            var completed = await Task.WhenAny(tcs.Task, delay).ConfigureAwait(false);
+            cts.Cancel();
+
+            cancellationToken.ThrowIfCancellationRequested();
+
+            return completed == tcs.Task && tcs.Task.Result;
+        }
+        finally
+        {
+            lock (_queue)
+            {
+                if (ReferenceEquals(_cursorWaitTcs, tcs))
+                    _cursorWaitTcs = null;
+            }
+        }
+    }
+
+    /// <summary>
+    /// End a WaitForNextItem without an item being there. If nothing is waiting, the next WaitForNextItem ends at once.
+    /// </summary>
+    public void SignalWaiters()
+    {
+        lock (_queue)
+        {
+            if (_cursorWaitTcs is null)
+                _waitSignaled = true;
+            else
+                _ = _cursorWaitTcs.TrySetResult(false);
         }
     }
 
@@ -253,6 +422,7 @@ public sealed class AsyncQueueWithCursor<T> : IAsyncDisposable where T : IDispos
 
         _cursorSemaphore.Dispose();
         _cursorNextItemTcs?.TrySetCanceled(CancellationToken.None);
+        _cursorWaitTcs?.TrySetResult(false);
         var disposeLock = _pendingLock.DisposeAsync();
         ReleasePendingLockGrant();
         await disposeLock.ConfigureAwait(false);
@@ -270,6 +440,9 @@ public sealed class AsyncQueueWithCursor<T> : IAsyncDisposable where T : IDispos
             }
         }
     }
+
+    private LinkedListNode<T>? GetNodeAfterCursor()
+        => _currentNode is null || _currentNode.List is null ? _queue.First : _currentNode.Next;
 
     private void ThrowIfDisposed()
     {

@@ -146,6 +146,31 @@ public sealed class PulsarClientTests : IDisposable
         exception.Message.ShouldBe("ProducerOptions.MaxPendingMessages must be greater than 0");
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(500)]
+    public async Task CreateProducer_GivenBatchingMaxPublishDelayBelowOneMillisecond_ShouldThrowConfigurationException(int microseconds)
+    {
+        // Arrange
+        await using var client = PulsarClient
+            .Builder()
+            .ServiceUrl(new Uri("pulsar://localhost:6650"))
+            .Build();
+
+        var options = new ProducerOptions<string>("persistent://public/default/my-topic", Schema.String)
+        {
+            MaxPendingMessages = 500,
+            BatchingMaxPublishDelay = TimeSpan.FromMicroseconds(microseconds)
+        };
+
+        // Act
+        var act = () => client.CreateProducer(options);
+
+        // Assert
+        var exception = act.ShouldThrow<ConfigurationException>();
+        exception.Message.ShouldBe("ProducerOptions.BatchingMaxPublishDelay must be at least 1 millisecond");
+    }
+
     private IPulsarClient CreateClient(Func<CancellationToken, ValueTask<string>> tokenSupplier)
         => PulsarClient
         .Builder()

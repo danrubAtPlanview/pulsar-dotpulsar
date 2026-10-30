@@ -142,7 +142,11 @@ public sealed class FakeProducerConnection
             metadata.HasTxnidMostBits,
             metadata.TxnidMostBits,
             metadata.HasTxnidLeastBits,
-            metadata.TxnidLeastBits);
+            metadata.TxnidLeastBits)
+        {
+            NumMessages = command.NumMessages,
+            NumMessagesInBatch = metadata.HasNumMessagesInBatch ? metadata.NumMessagesInBatch : 1
+        };
 
         _sent.Enqueue(message);
 
@@ -178,4 +182,8 @@ public sealed record SentMessage(
 {
     public bool CommandIsTransactional => CommandHasTxnidMostBits && CommandHasTxnidLeastBits;
     public bool MetadataIsTransactional => MetadataHasTxnidMostBits && MetadataHasTxnidLeastBits;
+
+    // The number of messages of the command, and the number of messages in the batch of the metadata. One for a message that is not a batch.
+    public int NumMessages { get; init; }
+    public int NumMessagesInBatch { get; init; }
 }

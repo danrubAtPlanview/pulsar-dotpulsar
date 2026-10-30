@@ -19,6 +19,7 @@ using System.Buffers;
 
 public interface IProducerChannel : IAsyncDisposable
 {
+    int MaxMessageSize { get; }
     Task Send(MessageMetadata metadata, ReadOnlySequence<byte> payload, TaskCompletionSource<BaseCommand> responseTcs, CancellationToken cancellationToken);
     ValueTask ClosedByClient(CancellationToken cancellationToken);
 }
