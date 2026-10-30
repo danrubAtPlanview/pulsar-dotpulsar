@@ -19,6 +19,7 @@ using DotPulsar.Exceptions;
 using DotPulsar.Extensions;
 using ProtocolMetadata = DotPulsar.Internal.PulsarApi.MessageMetadata;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 
 // The tests of Java MessageChunkingTest that set the maximum message size of the broker to a small value, so the producer splits the messages that the tests send in chunks
@@ -90,6 +91,7 @@ public sealed class MessageChunkingSmallMessageSizeTests : IDisposable
         received.Select(message => message.MessageId).ShouldBe(messageIds);
         messageIds.ShouldAllBe(messageId => (object?) messageId.FirstChunkMessageId != null);
         await WaitUntil(async () => await GetBacklog(topic, subscription) == 0);
+        await WaitUntil(async () => await GetUnackedMessages(topic, subscription) == 0);
     }
 
     // Upstream: MessageChunkingTest#testChunkingWithOrderingKey
@@ -124,8 +126,112 @@ public sealed class MessageChunkingSmallMessageSizeTests : IDisposable
         message.OrderingKey.ShouldBe(orderingKey);
     }
 
+    // Upstream: MessageChunkingTest#testLargeMessageAckTimeOut
+    // The maximum message size of the broker is 100 here (50 upstream). The messages are the same: 5 messages of 0, 100, 200, 300 and 400 digits. The reader reads them first, then the consumer receives them
+    // without acknowledging, and receives them again when the ack timeout has passed. The cumulative acknowledgment of the last message acknowledges all of them.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Receive_GivenChunkedMessagesNotAcknowledgedBeforeAckTimeout_ShouldDeliverThemAgainInOrderAndAcknowledgeAllWithCumulativeAcknowledgment(bool ackReceiptEnabled)
+    {
+        //Arrange
+        const int totalMessages = 5;
+        var topic = await _fixture.CreateTopic(_cts.Token);
+        var subscription = CreateSubscriptionName();
+        await using var client = CreateClient();
+        await using var consumer = client.NewConsumer(Schema.String)
+            .AckReceiptEnabled(ackReceiptEnabled)
+            .AckTimeout(TimeSpan.FromSeconds(5))
+            .StateChangedHandler(_testOutputHelper.Log)
+            .SubscriptionName(subscription)
+            .Topic(topic)
+            .Create();
+        await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+        await using var reader = client.NewReader(Schema.String)
+            .StartMessageId(MessageId.Earliest)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .Topic(topic)
+            .Create();
+        await reader.StateChangedTo(ReaderState.Connected, _cts.Token);
+        await using var producer = client.NewProducer(Schema.String)
+            .EnableChunking(true)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .Topic(topic)
+            .Create();
+
+        var publishedMessages = new List<string>();
+        for (var i = 0; i < totalMessages; i++)
+        {
+            var message = CreateRandomDigits(i * 100);
+            publishedMessages.Add(message);
+            _ = await producer.Send(message, _cts.Token);
+        }
+
+        //Act
+        var readMessages = await ReceiveAll(reader, totalMessages);
+        var firstDelivery = await ReceiveAll(consumer, totalMessages);
+        await WaitUntil(() => Task.FromResult(((DotPulsar.Internal.Consumer<string>) consumer).UnAckedMessageCount == 0)); // The ack timeout has passed, and the messages are redelivered
+        var secondDelivery = await ReceiveAll(consumer, totalMessages);
+        await consumer.AcknowledgeCumulative(secondDelivery[^1].MessageId, _cts.Token);
+        await WaitUntil(async () => await GetBacklog(topic, subscription) == 0);
+
+        //Assert
+        readMessages.Select(message => message.Value()).ShouldBe(publishedMessages);
+        firstDelivery.Select(message => message.Value()).ShouldBe(publishedMessages);
+        secondDelivery.Select(message => message.Value()).ShouldBe(publishedMessages);
+    }
+
+    // Upstream: MessageChunkingTest#testPublishWithFailure
+    // Java stops the broker before the send of a message of 1000 bytes, which is more than 20 chunks, and the send fails with a timeout. DotPulsar can not stop the broker of the fixture, so the connection to the
+    // broker is cut while the chunks are on the way (the bandwidth to the broker is limited, so only the first chunks have been sent), and it stays down until the send timeout has passed. The producer must
+    // work when the connection is back.
+    [Fact]
+    public async Task Send_GivenConnectionCutWhileTheChunksAreOnTheWay_ShouldFailWithOperationTimeoutExceptionAndSendAgainWhenTheConnectionIsBack()
+    {
+        //Arrange
+        var topic = await _fixture.CreateTopic(_cts.Token);
+        await using var client = CreateClient();
+        await using var consumer = client.NewConsumer(Schema.String)
+            .InitialPosition(SubscriptionInitialPosition.Earliest)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .SubscriptionName(CreateSubscriptionName())
+            .Topic(topic)
+            .Create();
+        await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+        await using var producer = client.NewProducer(Schema.String)
+            .EnableChunking(true)
+            .SendTimeout(TimeSpan.FromSeconds(3))
+            .StateChangedHandler(_testOutputHelper.Log)
+            .Topic(topic)
+            .Create();
+        await producer.StateChangedTo(ProducerState.Connected, _cts.Token);
+
+        //Act
+        Exception? exception;
+        await using (await _fixture.LimitUpstreamBandwidth(1))
+        {
+            var send = producer.Send(CreateRandomDigits(1000), _cts.Token).AsTask();
+            await Task.Delay(TimeSpan.FromSeconds(1), _cts.Token);
+
+            await using (await _fixture.DisableThePulsarConnection())
+            {
+                await producer.StateChangedTo(ProducerState.Disconnected, _cts.Token);
+                exception = await Record.ExceptionAsync(() => send.WaitAsync(TimeSpan.FromSeconds(30), _cts.Token));
+            }
+        }
+
+        await producer.StateChangedTo(ProducerState.Connected, _cts.Token);
+        _ = await producer.Send("after", _cts.Token);
+
+        //Assert
+        exception.ShouldBeOfType<OperationTimeoutException>();
+        producer.State.IsFinalState().ShouldBeFalse();
+        (await Receive(consumer)).Value().ShouldBe("after");
+    }
+
     // Upstream: MessageChunkingTest#testChunkSize
     // The size of the metadata is not known by the test upstream, which uses 32. It is the size of the metadata that the producer sends, which the test builds in the same way.
+    // The bytes schema has no schema version, which the producer would add to the metadata (as Java does) and the test could not know.
     [Fact]
     public async Task Send_GivenSizesUpToMaxMessageSize_ShouldChunkOnlyAbovePayloadChunkSize()
     {
@@ -133,7 +239,7 @@ public sealed class MessageChunkingSmallMessageSizeTests : IDisposable
         const string producerName = "test-producer";
         var topic = await _fixture.CreateTopic(_cts.Token);
         await using var client = CreateClient();
-        await using var producer = client.NewProducer(Schema.String)
+        await using var producer = client.NewProducer(Schema.ByteArray)
             .EnableChunking(true)
             .ProducerName(producerName)
             .StateChangedHandler(_testOutputHelper.Log)
@@ -146,7 +252,7 @@ public sealed class MessageChunkingSmallMessageSizeTests : IDisposable
         var isChunked = new List<bool>();
         for (var size = 1; size <= ChunkingFixture.MaxMessageSize; ++size)
         {
-            var messageId = await producer.Send(CreateRandomDigits(size), _cts.Token);
+            var messageId = await producer.Send(Encoding.ASCII.GetBytes(CreateRandomDigits(size)), _cts.Token);
             isChunked.Add((object?) messageId.FirstChunkMessageId != null);
         }
 
@@ -202,6 +308,43 @@ public sealed class MessageChunkingSmallMessageSizeTests : IDisposable
         //Assert
         var exception = await act.ShouldThrowAsync<TooLargeMessageException>();
         exception.MaxMessageSize.ShouldBe(ChunkingFixture.MaxMessageSize);
+    }
+
+    // Upstream: MessageChunkingTest#testNonPersistentMessageOverLimitOnlyWithMetadataIsRejectedLocally
+    // The maximum message size that the producer knows is the one of the broker, which is 100 here (the test upstream sets 1024 on the connection of the producer). The payload is as large as the maximum message
+    // size, so the check of the payload passes, and only the metadata makes the message too large.
+    [Fact]
+    public async Task Send_GivenNonPersistentMessageOverLimitOnlyWithMetadata_ShouldThrowTooLargeMessageExceptionAndKeepTheProducerUsable()
+    {
+        //Arrange
+        var topic = $"non-persistent://public/default/{Guid.NewGuid():N}";
+        await using var client = CreateClient();
+        await using var consumer = client.NewConsumer(Schema.ByteArray)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .SubscriptionName("my-subscriber-name")
+            .Topic(topic)
+            .Create();
+        await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+        await using var producer = client.NewProducer(Schema.ByteArray)
+            .EnableChunking(true)
+            .SendTimeout(TimeSpan.FromSeconds(5))
+            .StateChangedHandler(_testOutputHelper.Log)
+            .Topic(topic)
+            .Create();
+        var payload = RandomNumberGenerator.GetBytes(ChunkingFixture.MaxMessageSize);
+        var valid = Encoding.UTF8.GetBytes("valid");
+        var receiving = TransactionFixture.ReceiveOrNull(consumer, TimeSpan.FromSeconds(10), _cts.Token); // The broker does not keep a message of a non-persistent topic for a consumer that has no permits
+        await Task.Delay(TimeSpan.FromSeconds(1), _cts.Token);
+
+        //Act
+        var act = async () => await producer.NewMessage().Property("large-metadata", new string('y', 400)).Send(payload, _cts.Token);
+
+        //Assert
+        await act.ShouldThrowAsync<TooLargeMessageException>();
+        _ = await producer.Send(valid, _cts.Token);
+        var received = await receiving;
+        received.ShouldNotBeNull();
+        received.Value().ShouldBe(valid);
     }
 
     // Upstream: BatchMessageTest#testSendOverSizeMessage
@@ -273,21 +416,40 @@ public sealed class MessageChunkingSmallMessageSizeTests : IDisposable
         .ServiceUrl(_fixture.ServiceUrl)
         .Build();
 
-    private async Task<IMessage<TMessage>> Receive<TMessage>(IReceive<IMessage<TMessage>> receiver)
+    private async Task<IMessage<TMessage>> Receive<TMessage>(IReceive<IMessage<TMessage>> receiver, TimeSpan? timeout = null)
     {
-        var message = await TransactionFixture.ReceiveOrNull(receiver, TimeSpan.FromSeconds(30), _cts.Token);
+        var message = await TransactionFixture.ReceiveOrNull(receiver, timeout ?? TimeSpan.FromSeconds(30), _cts.Token);
         message.ShouldNotBeNull();
         return message;
     }
 
+    // The messages of the upstream tests that receive with a timeout of 5 seconds
+    private async Task<List<IMessage<TMessage>>> ReceiveAll<TMessage>(IReceive<IMessage<TMessage>> receiver, int count)
+    {
+        var messages = new List<IMessage<TMessage>>();
+
+        for (var i = 0; i < count; ++i)
+        {
+            messages.Add(await Receive(receiver, TimeSpan.FromSeconds(5)));
+        }
+
+        return messages;
+    }
+
     private async Task<long> GetBacklog(string topic, string subscription)
+        => await GetSubscriptionStatistic(topic, subscription, "msgBacklog");
+
+    private async Task<long> GetUnackedMessages(string topic, string subscription)
+        => await GetSubscriptionStatistic(topic, subscription, "unackedMessages");
+
+    private async Task<long> GetSubscriptionStatistic(string topic, string subscription, string name)
     {
         using var httpClient = _fixture.CreateAdminClient();
         using var response = await httpClient.GetAsync($"/admin/v2/persistent/{topic.Replace("persistent://", string.Empty)}/stats", _cts.Token);
         response.EnsureSuccessStatusCode();
         await using var stream = await response.Content.ReadAsStreamAsync(_cts.Token);
         using var json = await JsonDocument.ParseAsync(stream, cancellationToken: _cts.Token);
-        return json.RootElement.GetProperty("subscriptions").GetProperty(subscription).GetProperty("msgBacklog").GetInt64();
+        return json.RootElement.GetProperty("subscriptions").GetProperty(subscription).GetProperty(name).GetInt64();
     }
 
     private async Task WaitUntil(Func<Task<bool>> condition)

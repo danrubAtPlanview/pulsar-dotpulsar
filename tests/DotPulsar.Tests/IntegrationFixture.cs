@@ -283,6 +283,24 @@ public class IntegrationFixture : IAsyncLifetime
         return new ToxicReleaser(_toxiProxyPulsarProxy, toxic.Name);
     }
 
+    // Limits the rate at which the data is sent to the broker, so a message that is larger than a few frames takes seconds to send, and the connection can be cut while its frames are on the way
+    public async Task<IAsyncDisposable> LimitUpstreamBandwidth(long kilobytesPerSecond)
+    {
+        var toxic = new BandwidthToxic
+        {
+            Name = $"bandwidth-{Guid.NewGuid():N}",
+            Stream = ToxicDirection.UpStream,
+            Toxicity = 1.0,
+            Attributes =
+            {
+                Rate = kilobytesPerSecond
+            }
+        };
+
+        await _toxiProxyPulsarProxy.AddAsync(toxic);
+        return new ToxicReleaser(_toxiProxyPulsarProxy, toxic.Name);
+    }
+
     private class ToxicReleaser : IAsyncDisposable
     {
         private readonly Proxy _proxy;
