@@ -14,7 +14,8 @@
 
 namespace DotPulsar.Internal;
 
-public sealed class ExecutionResult<TResult>
+// A struct, because it is returned by every execution that returns a result, and a class would allocate once for each
+public readonly struct ExecutionResult<TResult>
 {
     public ExecutionResult(bool success, TResult? result = default)
     {

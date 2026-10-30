@@ -38,14 +38,20 @@ using System.Reflection;
 /// Measured (Medium job, in-process, Release, .NET 10, Intel Core Ultra 9 185H), nanoseconds and allocated bytes per acknowledgment, direct completion / thread-pool completion.
 /// The allocated bytes do not change from run to run when the completion is direct, and change by about 10 B when it is on the thread pool. The times change by about 10-20%.
 /// <code>
-/// PlainAck              154 ns /  136 B     182 ns /  136 B
+/// PlainAck              119 ns /  104 B     113 ns /  104 B
 /// PlainAck_Receipt      264 ns /  448 B   2,218 ns / 1560 B
 /// TxnAck_SteadyState    474 ns /  984 B   3,236 ns / 2532 B
 /// TxnAck_BatchIndex     519 ns / 1072 B   2,839 ns / 2625 B
 /// </code>
-/// PlainAck on the baseline commit e8f2ba2 (the same benchmark and fake connection without the transaction members, two runs) is 104-115 ns and 104 B, so P1 is NOT met either:
-/// PlainAck allocates 32 B more and runs about 35-45% longer (151-162 ns in three runs). The 32 B are the ExecutionResult of Executor.Execute&lt;TResult&gt;: it is a class, and the
-/// plain acknowledgment calls the generic overload since it returns the (null) receipt, where it called Execute(Func&lt;ValueTask&gt;) before.
+/// PlainAck was 154 ns / 136 B before followups/0007 was fixed (the three other rows are from that time too). It allocates 104 B again, which is what it allocated on the baseline commit e8f2ba2
+/// (the same benchmark and fake connection without the transaction members: 104 B, 109.6 ns and 109.9 ns in the same session). The allocations of P1 are therefore met. The result of the executor
+/// was a class (32 B), and the plain acknowledgment called the generic overload of Executor.Execute because it returned the (null) receipt. It is a struct now, and an acknowledgment that does
+/// not wait for a receipt calls the overload without a result again, which also drops a layer of async methods (SendAndAwaitReceipt) from that path.
+/// The time of P1 is NOT met strictly. BenchmarkDotNet cannot tell, because its standard deviation on this machine is about 20 ns of 110 ns (the runs above and the baseline run overlap).
+/// Measured with the baseline build and this build in separate load contexts of one process (20,000 acknowledgments per slice, the two alternating, 7,000 to 12,000 slices per run),
+/// the 5th percentile of the slices was 4.5% to 13% above the baseline in six runs (+6% in the middle), the minimum of the slices 1% to 11% above (+8% in the middle) and the median of the slices 6% to 10% above.
+/// The cost that is left is the work of the features that were added to the path, which is about 3 ns in ConsumerChannel.Send (the batch handling and the trackers, with a shortcut for the acknowledgment of one
+/// entry that is not a batch) and about 1 ns for the reset of the pooled command. The first version of this fix, which only made the result of the executor a struct, was 40% above the baseline.
 /// The threshold of TxnAck is NOT met. TxnAck_SteadyState minus PlainAck is 848 B (2396 B on the thread pool), where the awaiter (96 B) and a continuation (64-112 B) allow about 210 B.
 /// Minus PlainAck_Receipt, which has the same awaiter, the same timeout (linked token source and timer, 144 B) and the same direct send, it is 536 B (972 B on the thread pool).
 /// 344 B of the 536 B is the command: the transactional acknowledgment creates a new CommandAck (152 B), a new MessageIdData (104 B) and the array of its message id list (88 B)

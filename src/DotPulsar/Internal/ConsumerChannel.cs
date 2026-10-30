@@ -241,7 +241,8 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
         if (!PrepareAck(command))
             return null;
 
-        RemoveAcknowledgedEntries(command);
+        if (_unAckedMessageTracker is not null || _deadLetterHandler is not null)
+            RemoveAcknowledgedEntries(command);
 
         command.ConsumerId = _id;
 
@@ -280,6 +281,10 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
 
         if (messageIds.Count == 0)
             return false;
+
+        // The common acknowledgment of one entry that is not a batch has nothing to prepare
+        if (messageIds.Count == 1 && command.AckType == CommandAck.Types.AckType.Individual && messageIds[0].BatchIndex < 0)
+            return true;
 
         var cumulative = command.AckType == CommandAck.Types.AckType.Cumulative;
         var keep = 0;
