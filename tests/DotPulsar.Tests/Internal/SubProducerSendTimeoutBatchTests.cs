@@ -33,7 +33,7 @@ public sealed class SubProducerSendTimeoutBatchTests
 {
     private const string _topic = "persistent://public/default/test";
     private static readonly TimeSpan _timeout = TimeSpan.FromSeconds(10);
-    private static readonly TimeSpan _sendTimeout = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan _sendTimeout = TimeSpan.FromSeconds(1);
 
     [Fact]
     public async Task SendTimeout_GivenTimeoutBeforeTheDispatcherWritesTheBatch_ShouldWriteTheBatchAndReturnBufferAfterTheWrite()

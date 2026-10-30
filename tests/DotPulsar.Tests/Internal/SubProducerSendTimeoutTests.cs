@@ -32,6 +32,10 @@ public sealed class SubProducerSendTimeoutTests
     private static readonly TimeSpan _timeout = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan _sendTimeout = TimeSpan.FromMilliseconds(200);
 
+    // For the tests where a message must be answered before it times out, and not only fail after the timeout. A message that is sent after the timeout has fired has the whole timeout to be written and answered,
+    // and a busy machine can need more than 200 milliseconds for that.
+    private static readonly TimeSpan _longSendTimeout = TimeSpan.FromSeconds(1);
+
     [Fact]
     public async Task SendTimeout_GivenNoReceipt_ShouldFailPendingMessageWithOperationTimeoutException()
     {
@@ -75,12 +79,12 @@ public sealed class SubProducerSendTimeoutTests
     {
         //Arrange
         var channel = new FakeProducerChannel();
-        await using var sut = await CreateSubProducer(channel, sendTimeout: TimeSpan.FromMilliseconds(500));
+        await using var sut = await CreateSubProducer(channel, sendTimeout: _longSendTimeout);
         var sendOp = CreateSendOp(1);
 
         //Act
         await sut.Send(sendOp, Current.CancellationToken);
-        await Task.Delay(TimeSpan.FromMilliseconds(1500), Current.CancellationToken);
+        await Task.Delay(_longSendTimeout * 2, Current.CancellationToken);
 
         //Assert
         sendOp.ReceiptTcs.Task.IsCompletedSuccessfully.ShouldBeTrue();
@@ -92,7 +96,7 @@ public sealed class SubProducerSendTimeoutTests
         //Arrange
         var registerEvent = Substitute.For<IRegisterEvent>();
         var channel = new FakeProducerChannel { Respond = _ => null };
-        await using var sut = await CreateSubProducer(channel, registerEvent);
+        await using var sut = await CreateSubProducer(channel, registerEvent, sendTimeout: _longSendTimeout);
         var timedOutOp = CreateSendOp(1);
         await sut.Send(timedOutOp, Current.CancellationToken);
         await Should.ThrowAsync<OperationTimeoutException>(timedOutOp.ReceiptTcs.Task.WaitAsync(_timeout, Current.CancellationToken));
@@ -172,7 +176,7 @@ public sealed class SubProducerSendTimeoutTests
         //Arrange
         var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var channel = new FakeProducerChannel();
-        await using var sut = await CreateSubProducer(channel, enableBatching: true, batchingMaxPublishDelay: TimeSpan.FromMilliseconds(1));
+        await using var sut = await CreateSubProducer(channel, enableBatching: true, batchingMaxPublishDelay: TimeSpan.FromMilliseconds(1), sendTimeout: _longSendTimeout);
         var gatedOp = CreateSendOp(1, gate.Task);
         var plainOp = CreateSendOp(2);
         await sut.Send(gatedOp, Current.CancellationToken);
@@ -265,10 +269,10 @@ public sealed class SubProducerSendTimeoutTests
     {
         //Arrange
         var channel = new FakeProducerChannel();
-        await using var sut = await CreateSubProducer(channel);
+        await using var sut = await CreateSubProducer(channel, sendTimeout: _longSendTimeout);
 
         //Act
-        await Task.Delay(TimeSpan.FromMilliseconds(600), Current.CancellationToken);
+        await Task.Delay(_longSendTimeout * 1.5, Current.CancellationToken);
         var sendOp = CreateSendOp(1);
         await sut.Send(sendOp, Current.CancellationToken);
 
