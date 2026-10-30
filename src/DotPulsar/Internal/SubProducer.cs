@@ -267,7 +267,7 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
             try
             {
                 // Use CancellationToken.None here because otherwise it will throw exceptions on all fault actions even retry.
-                success = await _executor.TryExecuteOnce(() => SendGroup(channel, sendOp, responseQueue, cancellationToken), CancellationToken.None).ConfigureAwait(false);
+                success = await _executor.TryExecuteOnce(() => SendGroup(channel, sendOp, batch, responseQueue, cancellationToken), CancellationToken.None).ConfigureAwait(false);
             }
             finally
             {
@@ -310,13 +310,14 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
         return tcs;
     }
 
-    private Task SendGroup(IProducerChannel channel, SendOp head, AsyncQueue<Task<BaseCommand>> responseQueue, CancellationToken cancellationToken)
+    // The batch is the one that was taken from the group when the head was made the sending head. The send timeout can remove the messages, and take the batch from the head, at any time after that.
+    private Task SendGroup(IProducerChannel channel, SendOp head, PreparedBatch? batch, AsyncQueue<Task<BaseCommand>> responseQueue, CancellationToken cancellationToken)
     {
         if (head.Chunking is { } state)
             return SendChunks(channel, head, state, responseQueue, cancellationToken);
 
         var tcs = CreateResponse(responseQueue);
-        var send = head.BatchCount > 1 ? channel.Send(head.Batch!.Metadata, head.Batch.Payload, tcs, cancellationToken) : channel.Send(head.Metadata, head.Data, tcs, cancellationToken);
+        var send = batch is not null ? channel.Send(batch.Metadata, batch.Payload, tcs, cancellationToken) : channel.Send(head.Metadata, head.Data, tcs, cancellationToken);
 
         // A send that is completed at once is returned as it is, so nothing is allocated for it
         return send.Status == TaskStatus.RanToCompletion ? send : AwaitSend(send, head);
