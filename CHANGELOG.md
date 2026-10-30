@@ -18,6 +18,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 - Support for a dead letter topic using DeadLetterPolicy, ConsumerOptions.DeadLetterPolicy and IConsumerBuilder.DeadLetterPolicy
 - Support for receiving chunked messages as one message using ConsumerOptions.MaxPendingChunkedMessage, ConsumerOptions.AutoAckOldestChunkedMessageOnQueueFull, ConsumerOptions.ExpireTimeOfIncompleteChunkedMessage, ReaderOptions.MaxPendingChunkedMessage, ReaderOptions.AutoAckOldestChunkedMessageOnQueueFull, ReaderOptions.ExpireTimeOfIncompleteChunkedMessage and the matching methods of IConsumerBuilder and IReaderBuilder
 - MessageId.FirstChunkMessageId, which is the id of the first chunk of a chunked message
+- Support for decrypting end-to-end encrypted messages in consumers and readers using ConsumerOptions.CryptoKeyReader, ConsumerOptions.CryptoFailureAction, ReaderOptions.CryptoKeyReader, ReaderOptions.CryptoFailureAction and the matching methods of IConsumerBuilder and IReaderBuilder. RSA keys require .NET Standard 2.1 or later and EC keys require .NET 8 or later. On .NET Standard 2.0 a message cannot be decrypted, so the CryptoFailureAction is used
+- ICryptoKeyReader, EncryptionKeyInfo and DefaultCryptoKeyReader for reading keys, and the DefaultCryptoKeyReader extension methods of IConsumerBuilder and IReaderBuilder that read private keys from 'file:' and 'data:' URIs
+- ConsumerCryptoFailureAction, which selects what a consumer or a reader does with a message that it cannot decrypt. The messages can be failed (the default), discarded or consumed encrypted
+- IMessage.EncryptionContext, EncryptionContext and EncryptionKey, which describe how a message was encrypted
 - EnableTransaction and OperationTimeout on IPulsarClientBuilder
 - Support for batching messages using ProducerOptions.EnableBatching, BatchingMaxMessages, BatchingMaxBytes, BatchingMaxPublishDelay and BatcherType, and the corresponding methods of IProducerBuilder
 - IProducer.Flush, which sends the batched messages at once and waits for the acknowledgment of the last message
@@ -36,6 +40,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 - IConsumer.RedeliverUnacknowledgedMessages sends the message ids without the batch index, and each entry only once, so all the messages of a batch are redelivered
 - IConsumer.RedeliverUnacknowledgedMessages drops the messages that the consumer has received from the broker but not yet delivered, and gives the message permits back to the broker. On Exclusive and Failover subscriptions the messages that are on their way are dropped using a consumer epoch, which is now sent when subscribing
 - IReaderBuilder has new members. This is a breaking change for custom implementations of this interface
+- IMessage has a new member. This is a breaking change for custom implementations of this interface
+- A consumer or a reader no longer delivers a message that is encrypted by the producer if it cannot decrypt it, because it has no CryptoKeyReader or the key is wrong. It used to deliver the encrypted payload. Set CryptoFailureAction to ConsumerCryptoFailureAction.Consume to keep doing that
 - A consumer or a reader that receives the chunks of a chunked message now delivers them as one message, where it used to deliver every chunk as a message. Acknowledging, negatively acknowledging or redelivering the message uses all its chunks, and a seek or a start of a reader at the message uses its first chunk
 
 ### Fixed
