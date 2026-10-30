@@ -20,7 +20,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
-// The dead letter tests of Java DeadLetterTopicTest that do not need a producer that batches or chunks messages (TODO(WP6), TODO(WP8)) or the retry letter topic (not supported).
+// The dead letter tests of Java DeadLetterTopicTest that do not need a producer that batches messages (TODO(WP6)) or the retry letter topic (not supported).
 // The consumers never acknowledge the messages, and the ack timeout of 1 second redelivers them until they are sent to the dead letter topic.
 [Collection("Integration"), Trait("Category", "Integration")]
 public sealed class DeadLetterTopicTests : IDisposable
@@ -185,7 +185,7 @@ public sealed class DeadLetterTopicTests : IDisposable
 
     // Upstream: DeadLetterTopicTest#testDeadLetterTopic (produceLargeMessages = false)
     // Upstream: DeadLetterTopicTest#testDeadLetterTopicHasOriginalInfo
-    // TODO(WP6): The upstream test sends batched messages. TODO(WP8): The row of the upstream test that produces large messages needs chunking.
+    // TODO(WP6): The upstream test sends batched messages.
     [Fact]
     public async Task Receive_GivenMessagesRedeliveredPastMaxRedeliverCount_ShouldSendAllToDeadLetterTopicWithOriginalInfoAndAcknowledgeOriginals()
     {
@@ -374,11 +374,67 @@ public sealed class DeadLetterTopicTests : IDisposable
     public Task RedeliverUnacknowledgedMessages_GivenBatchedCandidatesFromLastDelivery_ShouldSendAllToDeadLetterTopic()
         => Task.CompletedTask;
 
-    // TODO(WP8): Remove the skip. This is the row of the upstream test that produces large messages, which needs the producer to chunk messages.
     // Upstream: DeadLetterTopicTest#testDeadLetterTopic (produceLargeMessages = true)
-    [Fact(Skip = "Requires producer chunking (WP8)")]
-    public Task Receive_GivenChunkedMessagesRedeliveredPastMaxRedeliverCount_ShouldSendAllToDeadLetterTopic()
-        => Task.CompletedTask;
+    // The upstream messages are 10 KiB, which is below the maximum message size of the broker, so they are not split, but the producer has chunking enabled.
+    [Fact]
+    public async Task Receive_GivenMessagesFromProducerWithChunkingRedeliveredPastMaxRedeliverCount_ShouldSendAllToDeadLetterTopic()
+    {
+        //Arrange
+        const int maxRedeliverCount = 2;
+        const int sendMessages = 100;
+        var topicName = await _fixture.CreateTopic(_cts.Token);
+        await using var client = CreateClient();
+        await using var producer = client.NewProducer(Schema.String).EnableChunking(true).StateChangedHandler(_testOutputHelper.Log).Topic(topicName).Create();
+        await using var consumer = CreateConsumer(client, topicName, maxRedeliverCount);
+        await using var deadLetterConsumer = CreateDeadLetterConsumer(client, topicName);
+        await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+
+        var values = new Dictionary<string, string>();
+        for (var i = 0; i < sendMessages; i++)
+        {
+            var value = new string((char) ('a' + i % 26), 1024 * 10) + i;
+            values[i.ToString()] = value;
+            _ = await producer.NewMessage().Key(i.ToString()).Send(value, _cts.Token);
+        }
+
+        //Act
+        await ReceiveWithoutAcknowledging(consumer, sendMessages * (maxRedeliverCount + 1));
+        var deadLettered = await ReceiveAll(deadLetterConsumer, sendMessages);
+
+        //Assert
+        deadLettered.ShouldAllBe(message => values[message.Key] == message.Value());
+        deadLettered.Select(message => message.Key).ToHashSet().ShouldBe(values.Keys.ToHashSet());
+        (await TransactionFixture.ReceiveOrNull(consumer, TimeSpan.FromSeconds(3), _cts.Token)).ShouldBeNull();
+    }
+
+    // Upstream: ConsumerImpl#initDeadLetterProducerIfNeeded (enableChunking(true)), C++ MessageChunkingTest#testChunkedMessageDLQ
+    // A message that the consumer assembled from chunks is larger than the maximum message size of the broker, so the dead letter producer must split it in chunks again.
+    [Fact]
+    public async Task Receive_GivenChunkedMessageRedeliveredPastMaxRedeliverCount_ShouldSendItToDeadLetterTopicInChunks()
+    {
+        //Arrange
+        const int maxRedeliverCount = 1;
+        const int messageSize = 12_000_000; // The maximum message size of the broker is 5 MiB
+        var topicName = await _fixture.CreateTopic(_cts.Token);
+        await using var client = CreateClient();
+        await using var producer = client.NewProducer(Schema.String).EnableChunking(true).StateChangedHandler(_testOutputHelper.Log).Topic(topicName).Create();
+        await using var consumer = CreateConsumer(client, topicName, maxRedeliverCount);
+        await using var deadLetterConsumer = CreateDeadLetterConsumer(client, topicName);
+        await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+        var value = new string('c', messageSize);
+        var messageId = await producer.Send(value, _cts.Token);
+
+        //Act
+        await ReceiveWithoutAcknowledging(consumer, maxRedeliverCount + 1);
+        var deadLettered = await Receive(deadLetterConsumer);
+
+        //Assert
+        messageId.FirstChunkMessageId.ShouldNotBeNull();
+        deadLettered.Value().ShouldBe(value);
+        deadLettered.MessageId.FirstChunkMessageId.ShouldNotBeNull();
+        (await TransactionFixture.ReceiveOrNull(consumer, TimeSpan.FromSeconds(3), _cts.Token)).ShouldBeNull();
+        (await GetBacklog(topicName, SubscriptionName)).ShouldBe(0);
+    }
 
     private async Task<long> GetBacklog(string topicName, string subscription)
     {

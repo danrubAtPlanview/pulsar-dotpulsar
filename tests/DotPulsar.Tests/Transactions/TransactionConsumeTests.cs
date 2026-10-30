@@ -218,8 +218,6 @@ public sealed class TransactionConsumeTests : IDisposable
     }
 
     // Upstream: TransactionConsumeTest#testAckChunkMessage
-    // TODO(WP8-producer): Produce the message with IProducer (Schema.String, EnableChunking(true), 'a' x 6,000,000), and assert that the id that Send returns is the id
-    // of a chunked message of which the first chunk is not the last chunk, as upstream does. Until then the perf tool of the broker image splits the message in 2 chunks.
     [Fact]
     public async Task Acknowledge_GivenChunkedMessageAndTransaction_ShouldLeaveNoUnackedMessagesAfterCommit()
     {
@@ -228,27 +226,75 @@ public sealed class TransactionConsumeTests : IDisposable
         var topic = CreateTopicName();
         await _fixture.CreateTopic(topic, _cts.Token);
         await using var client = _fixture.CreateClient(_testOutputHelper.Log);
-        await using var consumer = client.NewConsumer(Schema.ByteArray).InitialPosition(SubscriptionInitialPosition.Earliest).SubscriptionName(subscription).SubscriptionType(SubscriptionType.Shared).Topic(topic).Create();
+        await using var producer = client.NewProducer(Schema.String).ProducerName("test-producer").Topic(topic).EnableChunking(true).Create();
+        await using var consumer = client.NewConsumer(Schema.String).InitialPosition(SubscriptionInitialPosition.Earliest).SubscriptionName(subscription).SubscriptionType(SubscriptionType.Shared).Topic(topic).Create();
         await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
-        await _fixture.ProduceChunkedMessages(topic, 1, 6_000 * 1_000, _cts.Token);
+        var messageId = await producer.Send(new string('a', 6_000 * 1_000), _cts.Token);
+        messageId.FirstChunkMessageId.ShouldNotBeNull();
+        messageId.FirstChunkMessageId.ShouldNotBe(messageId); // The first chunk is not the last chunk, as upstream asserts
         var transaction = await client.NewTransaction().Timeout(TimeSpan.FromHours(5)).Create(_cts.Token);
         var message = await TransactionFixture.ReceiveOrNull(consumer, TimeSpan.FromSeconds(60), _cts.Token);
         message.ShouldNotBeNull();
-        message.MessageId.FirstChunkMessageId.ShouldNotBeNull();
-        message.MessageId.FirstChunkMessageId.ShouldNotBe(message.MessageId);
-
-        // The perf tool can send a message or two more than it was asked to, and they are not part of the transaction
-        while (await TransactionFixture.ReceiveOrNull(consumer, TimeSpan.FromSeconds(5), _cts.Token) is { } other)
-        {
-            await consumer.Acknowledge(other, _cts.Token);
-        }
 
         //Act
         await consumer.Acknowledge(message.MessageId, transaction, _cts.Token);
         await transaction.Commit(_cts.Token);
 
         //Assert
+        message.MessageId.FirstChunkMessageId.ShouldNotBeNull();
+        message.MessageId.FirstChunkMessageId.ShouldBe(messageId.FirstChunkMessageId);
         (await _fixture.GetUnackedMessages(topic, subscription, _cts.Token)).ShouldBe(0);
+    }
+
+    // Upstream: TransactionConsumeTest#testAckChunkMessage (the id that the producer returns for the message is used for the acknowledgment)
+    [Fact]
+    public async Task Acknowledge_GivenIdThatTheProducerReturnedForAChunkedMessageAndTransaction_ShouldLeaveNoUnackedMessagesAfterCommit()
+    {
+        //Arrange
+        const string subscription = "testAckChunkMessageWithProducerId";
+        var topic = CreateTopicName();
+        await _fixture.CreateTopic(topic, _cts.Token);
+        await using var client = _fixture.CreateClient(_testOutputHelper.Log);
+        await using var producer = client.NewProducer(Schema.String).Topic(topic).EnableChunking(true).Create();
+        await using var consumer = client.NewConsumer(Schema.String).InitialPosition(SubscriptionInitialPosition.Earliest).SubscriptionName(subscription).SubscriptionType(SubscriptionType.Shared).Topic(topic).Create();
+        await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+        var messageId = await producer.Send(new string('a', 6_000 * 1_000), _cts.Token);
+        var transaction = await client.NewTransaction().Timeout(TimeSpan.FromHours(5)).Create(_cts.Token);
+        (await TransactionFixture.ReceiveOrNull(consumer, TimeSpan.FromSeconds(60), _cts.Token)).ShouldNotBeNull();
+
+        //Act
+        await consumer.Acknowledge(messageId, transaction, _cts.Token);
+        await transaction.Commit(_cts.Token);
+
+        //Assert
+        (await _fixture.GetUnackedMessages(topic, subscription, _cts.Token)).ShouldBe(0);
+    }
+
+    // Upstream: TransactionProduceTest (the chunks of a message are produced as part of the transaction, so none of them is delivered before the commit)
+    [Fact]
+    public async Task Receive_GivenChunkedMessageProducedWithTransaction_ShouldDeliverItOnlyAfterCommit()
+    {
+        //Arrange
+        var topic = CreateTopicName();
+        await _fixture.CreateTopic(topic, _cts.Token);
+        await using var client = _fixture.CreateClient(_testOutputHelper.Log);
+        await using var producer = client.NewProducer(Schema.String).Topic(topic).EnableChunking(true).Create();
+        await using var consumer = client.NewConsumer(Schema.String).InitialPosition(SubscriptionInitialPosition.Earliest).SubscriptionName("chunked-transaction").SubscriptionType(SubscriptionType.Exclusive).Topic(topic).Create();
+        await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+        var transaction = await client.NewTransaction().Timeout(TimeSpan.FromMinutes(5)).Create(_cts.Token);
+        var value = new string('b', 6_000 * 1_000);
+
+        //Act
+        var messageId = await producer.NewMessage().Transaction(transaction).Send(value, _cts.Token);
+        var receivedBeforeCommit = await TransactionFixture.ReceiveOrNull(consumer, TimeSpan.FromSeconds(3), _cts.Token);
+        await transaction.Commit(_cts.Token);
+        var receivedAfterCommit = await TransactionFixture.ReceiveOrNull(consumer, TimeSpan.FromSeconds(30), _cts.Token);
+
+        //Assert
+        messageId.FirstChunkMessageId.ShouldNotBeNull();
+        receivedBeforeCommit.ShouldBeNull();
+        receivedAfterCommit.ShouldNotBeNull();
+        receivedAfterCommit.Value().ShouldBe(value);
     }
 
     public void Dispose()

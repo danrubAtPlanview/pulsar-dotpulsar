@@ -38,4 +38,23 @@ public static class ChunkTestHelper
 
         return producer.Send(metadata, $"chunk-{uuid}-{chunkId}|", cancellationToken);
     }
+
+    // Upstream: MessageChunkingSharedTest#sendChunk, #sendNonChunk
+    // Sends one entry of the message that is identified by the name of the producer and the sequence id, as chunk 'chunkId' of 'numChunks', or as a message that is not chunked
+    // if there are no chunk fields. The uuid is "{producerName}-{sequenceId}", and the total size is the number of chunks, because the payload of a chunk is one byte.
+    public static ValueTask<MessageId> SendChunk(IProducer<byte[]> producer, string producerName, ulong sequenceId, int? chunkId, int? numChunks, CancellationToken cancellationToken)
+    {
+        var metadata = new DotPulsar.MessageMetadata { SequenceId = sequenceId };
+
+        if (chunkId is not null && numChunks is not null)
+        {
+            var protocolMetadata = (ProtocolMetadata) _metadata.GetValue(metadata)!;
+            protocolMetadata.Uuid = $"{producerName}-{sequenceId}";
+            protocolMetadata.ChunkId = chunkId.Value;
+            protocolMetadata.NumChunksFromMsg = numChunks.Value;
+            protocolMetadata.TotalChunkMsgSize = numChunks.Value;
+        }
+
+        return producer.Send(metadata, [(byte) 'a'], cancellationToken);
+    }
 }

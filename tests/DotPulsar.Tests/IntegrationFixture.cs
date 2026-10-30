@@ -40,7 +40,11 @@ public class IntegrationFixture : IAsyncLifetime
     private Proxy _toxiProxyPulsarProxy;
     private string? _token;
 
-    public IntegrationFixture()
+    public IntegrationFixture() : this(null) { }
+
+    // The broker settings are passed as PULSAR_PREFIX_{key}, which works for every key. Testcontainers.Pulsar only applies the environment variables to
+    // conf/standalone.conf when .WithAuthentication() is used, so that call must never be removed.
+    protected IntegrationFixture(IReadOnlyDictionary<string, string>? brokerSettings)
     {
         _cts = new CancellationTokenSource(TimeSpan.FromMinutes(10));
 
@@ -56,11 +60,17 @@ public class IntegrationFixture : IAsyncLifetime
             .WithWaitStrategy(Wait.ForUnixContainer().UntilHttpRequestIsSucceeded(strategy => strategy.ForPath("/version").ForPort(ToxiProxyControlPort)))
             .Build();
 
-        _pulsarCluster = new PulsarBuilder("apachepulsar/pulsar:4.0.9")
+        var pulsarBuilder = new PulsarBuilder("apachepulsar/pulsar:4.0.9")
             .WithAuthentication()
             .WithNetwork(_network)
-            .WithHostname("pulsar")
-            .Build();
+            .WithHostname("pulsar");
+
+        foreach (var (key, value) in brokerSettings ?? new Dictionary<string, string>())
+        {
+            pulsarBuilder = pulsarBuilder.WithEnvironment($"PULSAR_PREFIX_{key}", value);
+        }
+
+        _pulsarCluster = pulsarBuilder.Build();
 
         _toxiProxyConnection = new Connection();
         _toxiProxyClient = _toxiProxyConnection.Client();
@@ -213,16 +223,21 @@ public class IntegrationFixture : IAsyncLifetime
         await producer.Flush(cancellationToken);
     }
 
-    // TODO(WP8-producer): Replace this with IProducer chunking. Until then, the messages are produced by the perf tool of the broker image, which splits
-    // them into chunks as a Java producer does when they are larger than the maximum message size of the broker (5 MiB by default). The tool counts the
-    // messages when they are acknowledged, so it can send one or two more than asked for, which the tests that use this method have to allow for.
+    // Produces messages that are split in chunks when they are larger than the maximum message size of the broker (5 MiB by default)
     public async Task ProduceChunkedMessages(string topic, int numberOfMessages, int messageSize, CancellationToken cancellationToken)
     {
-        var arguments = $"bin/pulsar-perf produce {topic} -m {numberOfMessages} -s {messageSize} -r 1 -db -ch";
-        var result = await _pulsarCluster.ExecAsync(["/bin/bash", "-c", arguments], cancellationToken);
+        await using var client = PulsarClient.Builder().Authentication(Authentication).ServiceUrl(ServiceUrl).Build();
+        await using var producer = client.NewProducer(Schema.ByteArray)
+            .Topic(topic)
+            .EnableChunking(true)
+            .Create();
 
-        if (result.ExitCode != 0)
-            throw new Exception($"Could not produce the chunked messages: {result.Stderr}");
+        var message = new byte[messageSize];
+
+        for (var i = 0; i < numberOfMessages; i++)
+        {
+            _ = await producer.Send(message, cancellationToken);
+        }
     }
 
     public async Task AddSchemaToExistingTopic(string topic, SchemaInfo pulsarSchemaInfo, CancellationToken cancellationToken)
