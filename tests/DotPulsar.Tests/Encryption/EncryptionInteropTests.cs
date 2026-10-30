@@ -172,6 +172,7 @@ public sealed class EncryptionInteropTests : IDisposable
 
         //Assert
         output.ShouldContain("content:dotpulsar-rsa-0");
+        await AssertStoredEncrypted(client, topic, "client-rsa.pem", "ClientRsa", 1);
     }
 
     // Proves the byte format of the wrapped data key (ECIES) against the BouncyCastle of the Java client
@@ -191,6 +192,7 @@ public sealed class EncryptionInteropTests : IDisposable
 
         //Assert
         output.ShouldContain("content:dotpulsar-ecdsa-0");
+        await AssertStoredEncrypted(client, topic, "client-ecdsa.pem", "ClientEcdsa", 1);
     }
 
     // The payload is compressed before it is encrypted, so the Java client decrypts it before it decompresses it
@@ -210,6 +212,7 @@ public sealed class EncryptionInteropTests : IDisposable
 
         //Assert
         output.ShouldContain($"content:{message}");
+        await AssertStoredEncrypted(client, topic, "client-rsa.pem", "ClientRsa", 1, DotPulsar.CompressionType.Lz4);
     }
 
     // A batch is encrypted as a whole, so the Java client decrypts it before it parses the batch
@@ -235,6 +238,7 @@ public sealed class EncryptionInteropTests : IDisposable
         output.ShouldContain("content:dotpulsar-batch-0");
         output.ShouldContain("content:dotpulsar-batch-1");
         output.ShouldContain("content:dotpulsar-batch-2");
+        await AssertStoredEncrypted(client, topic, "client-rsa.pem", "ClientRsa", 3);
     }
 
     // Every chunk is encrypted on its own, and the Java client decrypts the chunks before it assembles them
@@ -255,6 +259,7 @@ public sealed class EncryptionInteropTests : IDisposable
         //Assert
         messageId.GetChunkMessageIds()!.Length.ShouldBeGreaterThanOrEqualTo(5);
         output.ShouldContain($"content:{message}");
+        await AssertStoredEncrypted(client, topic, "client-rsa.pem", "ClientRsa", 1);
     }
 
     // The Java client does not read the message without a key, discards it and acknowledges it
@@ -308,6 +313,30 @@ public sealed class EncryptionInteropTests : IDisposable
             throw new Exception($"The Java client could not consume the encrypted message: {result.Stderr}{result.Stdout}");
 
         return result.Stdout;
+    }
+
+    // The Java client also reads a message that was not encrypted, so this proves that the producer encrypted it: only a message with encryption keys has an encryption context
+    private async Task AssertStoredEncrypted(IPulsarClient client, string topic, string keyName, string privateKeySet, int numberOfMessages, DotPulsar.CompressionType? compressionType = null)
+    {
+        await using var reader = client.NewReader(Schema.String)
+            .StartMessageId(MessageId.Earliest)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .Topic(topic)
+            .DefaultCryptoKeyReader(CreateDataUri(CryptoTestKeys.Private(privateKeySet)))
+            .Create();
+
+        for (var i = 0; i < numberOfMessages; ++i)
+        {
+            var message = await TransactionFixture.ReceiveOrNull(reader, TimeSpan.FromSeconds(60), _cts.Token);
+            message.ShouldNotBeNull();
+            var context = message.EncryptionContext.ShouldNotBeNull("the message is not encrypted");
+            context.IsEncrypted.ShouldBeFalse();
+            context.Keys.Keys.ShouldBe([keyName]);
+            context.Param.Length.ShouldBe(12);
+
+            if (compressionType is not null)
+                context.CompressionType.ShouldBe(compressionType.Value);
+        }
     }
 
     private async Task CopyPrivateKeyToPulsar(string keySet, string name)
