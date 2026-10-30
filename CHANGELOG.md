@@ -16,6 +16,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 - Support for ack timeout using ConsumerOptions.AckTimeout, ConsumerOptions.AckTimeoutTickTime, IConsumerBuilder.AckTimeout and IConsumerBuilder.AckTimeoutTickTime
 - Support for negative acknowledgment using IConsumer.NegativeAcknowledge, ConsumerOptions.NegativeAcknowledgeRedeliveryDelay and IConsumerBuilder.NegativeAcknowledgeRedeliveryDelay
 - Support for a dead letter topic using DeadLetterPolicy, ConsumerOptions.DeadLetterPolicy and IConsumerBuilder.DeadLetterPolicy
+- Support for receiving chunked messages as one message using ConsumerOptions.MaxPendingChunkedMessage, ConsumerOptions.AutoAckOldestChunkedMessageOnQueueFull, ConsumerOptions.ExpireTimeOfIncompleteChunkedMessage, ReaderOptions.MaxPendingChunkedMessage, ReaderOptions.AutoAckOldestChunkedMessageOnQueueFull, ReaderOptions.ExpireTimeOfIncompleteChunkedMessage and the matching methods of IConsumerBuilder and IReaderBuilder
+- MessageId.FirstChunkMessageId, which is the id of the first chunk of a chunked message
 - EnableTransaction and OperationTimeout on IPulsarClientBuilder
 - New exceptions: TransactionNotFoundException, TransactionHasOperationFailedException, TransactionCoordinatorClientException, TransactionCoordinatorClientStateException, MetaStoreHandlerNotExistsException, MetaStoreHandlerNotReadyException and OperationTimeoutException
 
@@ -29,6 +31,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 - IConsumer.RedeliverUnacknowledgedMessages with message ids on an Exclusive or Failover subscription redelivers all unacknowledged messages, because the broker only redelivers individual messages for Shared and KeyShared subscriptions
 - IConsumer.RedeliverUnacknowledgedMessages sends the message ids without the batch index, and each entry only once, so all the messages of a batch are redelivered
 - IConsumer.RedeliverUnacknowledgedMessages drops the messages that the consumer has received from the broker but not yet delivered, and gives the message permits back to the broker. On Exclusive and Failover subscriptions the messages that are on their way are dropped using a consumer epoch, which is now sent when subscribing
+- IReaderBuilder has new members. This is a breaking change for custom implementations of this interface
+- A consumer or a reader that receives the chunks of a chunked message now delivers them as one message, where it used to deliver every chunk as a message. Acknowledging, negatively acknowledging or redelivering the message uses all its chunks, and a seek or a start of a reader at the message uses its first chunk
 
 ### Fixed
 
