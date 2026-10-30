@@ -520,6 +520,304 @@ public sealed class BatchMessageTests : IDisposable
         await AssertReceived(consumer, numberOfMessages);
     }
 
+    // Upstream: BatchMessageTest#testOutOfOrderAcksForBatchMessage
+    // The 4 batches have the messages 0-9, 10-19, 20-29 and 30-39. The cumulative acknowledgment of the message 8 leaves a hole at the message 9, and the cumulative acknowledgment of the message 14
+    // acknowledges the first batch (also for the broker), and the individual acknowledgments of the messages 15-19 complete the second batch.
+    [Fact]
+    public async Task AcknowledgeCumulative_GivenOutOfOrderAcksForBatchMessages_ShouldAcknowledgeTheBatchesWhenAllTheirMessagesAreAcknowledged()
+    {
+        //Arrange
+        const int numberOfMessages = 40;
+        const int numberOfMessagesInBatch = numberOfMessages / 4;
+        var topic = await _fixture.CreateTopic(_cts.Token);
+        await using var client = CreateClient();
+        await using var consumer = await CreateConsumer(client, topic);
+        await using var producer = await CreateProducer(client, topic, builder => builder
+            .BatchingMaxMessages(numberOfMessagesInBatch)
+            .BatchingMaxPublishDelay(TimeSpan.FromSeconds(5)));
+        var receipts = new List<Task<MessageId>>();
+        for (var i = 0; i < numberOfMessages; ++i)
+        {
+            receipts.Add(await SendAsync(producer, $"msg-{i}"));
+        }
+
+        await Task.WhenAll(receipts).WaitAsync(TimeSpan.FromSeconds(30), _cts.Token);
+        (await GetBacklog(topic)).ShouldBe(numberOfMessages / numberOfMessagesInBatch);
+        var individualAcks = Enumerable.Range(15, 5).ToHashSet();
+        IMessage<string>? lastUnackedMessage = null;
+
+        //Act
+        for (var i = 0; i < numberOfMessages; ++i)
+        {
+            var message = await ReceiveMessage(consumer);
+
+            if (i == 8)
+            {
+                await consumer.AcknowledgeCumulative(message, _cts.Token);
+            }
+            else if (i == 9)
+            {
+                // Do not acknowledge the message
+            }
+            else if (i == 14)
+            {
+                // Should acknowledge the first batch on the broker
+                await consumer.AcknowledgeCumulative(message, _cts.Token);
+                await WaitForBacklog(topic, 3);
+            }
+            else if (individualAcks.Contains(i))
+            {
+                await consumer.Acknowledge(message, _cts.Token);
+            }
+            else
+            {
+                lastUnackedMessage = message;
+            }
+        }
+
+        await WaitForBacklog(topic, 2);
+        await consumer.AcknowledgeCumulative(lastUnackedMessage!, _cts.Token);
+
+        //Assert
+        await WaitForBacklog(topic, 0);
+    }
+
+    // Upstream: BatchMessageTest#testNonBatchCumulativeAckAfterBatchPublish
+    [Theory]
+    [InlineData(BatcherType.Default)]
+    [InlineData(BatcherType.KeyBased)]
+    public async Task AcknowledgeCumulative_GivenNonBatchMessageAfterBatchPublish_ShouldAcknowledgeTheBatchAndTheMessage(BatcherType batcherType)
+    {
+        //Arrange
+        const int numberOfMessages = 10;
+        var topic = await _fixture.CreateTopic(_cts.Token);
+        await using var client = CreateClient();
+        await using var consumer = await CreateConsumer(client, topic);
+        await using var producer = await CreateProducer(client, topic, builder => builder
+            .BatcherType(batcherType)
+            .BatchingMaxMessages(numberOfMessages)
+            .BatchingMaxPublishDelay(TimeSpan.FromSeconds(5)));
+        await using var noBatchProducer = client.NewProducer(Schema.String).Topic(topic).StateChangedHandler(_testOutputHelper.Log).Create();
+        var receipts = new List<Task<MessageId>>();
+        for (var i = 0; i < numberOfMessages; ++i)
+        {
+            receipts.Add(await SendAsync(producer, $"msg-{i}"));
+        }
+
+        await Task.WhenAll(receipts).WaitAsync(TimeSpan.FromSeconds(30), _cts.Token);
+        _ = await noBatchProducer.Send("nobatch", _cts.Token);
+        (await GetBacklog(topic)).ShouldBe(2);
+
+        //Act
+        IMessage<string>? lastUnackedMessage = null;
+        for (var i = 0; i <= numberOfMessages; ++i)
+        {
+            lastUnackedMessage = await ReceiveMessage(consumer);
+        }
+
+        await consumer.AcknowledgeCumulative(lastUnackedMessage!, _cts.Token);
+
+        //Assert
+        await WaitForBacklog(topic, 0);
+    }
+
+    // Upstream: BatchMessageTest#testBatchAndNonBatchCumulativeAcks
+    // The batch producer and the producer without batching send messages alternately, so the entries of the batches (of 5 messages) and the entries of single messages are mixed.
+    // Every second message is acknowledged cumulatively, and the last message that was not acknowledged is acknowledged cumulatively at the end.
+    [Theory]
+    [InlineData(BatcherType.Default)]
+    [InlineData(BatcherType.KeyBased)]
+    public async Task AcknowledgeCumulative_GivenBatchAndNonBatchMessages_ShouldAcknowledgeEverything(BatcherType batcherType)
+    {
+        //Arrange
+        const int numberOfMessages = 50;
+        const int numberOfMessagesInBatch = numberOfMessages / 10;
+        var topic = await _fixture.CreateTopic(_cts.Token);
+        await using var client = CreateClient();
+        await using var consumer = await CreateConsumer(client, topic);
+        await using var producer = await CreateProducer(client, topic, builder => builder
+            .BatcherType(batcherType)
+            .BatchingMaxMessages(numberOfMessagesInBatch)
+            .BatchingMaxPublishDelay(TimeSpan.FromSeconds(5)));
+        await using var noBatchProducer = client.NewProducer(Schema.String).Topic(topic).StateChangedHandler(_testOutputHelper.Log).Create();
+        var receipts = new List<Task<MessageId>>();
+        for (var i = 0; i < numberOfMessages / 2; ++i)
+        {
+            receipts.Add(await SendAsync(producer, $"msg-{i}"));
+            receipts.Add(await SendAsync(noBatchProducer, $"nobatch-{i}"));
+        }
+
+        await Task.WhenAll(receipts).WaitAsync(TimeSpan.FromSeconds(30), _cts.Token);
+        (await GetBacklog(topic)).ShouldBe(((numberOfMessages / 2) / numberOfMessagesInBatch) + (numberOfMessages / 2));
+
+        //Act
+        IMessage<string>? lastUnackedMessage = null;
+        for (var i = 0; i < numberOfMessages; ++i)
+        {
+            var message = await ReceiveMessage(consumer);
+
+            if (i % 2 == 0)
+                lastUnackedMessage = message;
+            else
+                await consumer.AcknowledgeCumulative(message, _cts.Token);
+        }
+
+        await consumer.AcknowledgeCumulative(lastUnackedMessage!, _cts.Token);
+
+        //Assert
+        await WaitForBacklog(topic, 0);
+    }
+
+    // Upstream: BatchMessageTest#testConcurrentBatchMessageAck
+    // Verifies that acknowledging the messages of a batch is thread-safe. The Java test ignores the failure of a receive or an acknowledge, and here it fails the test.
+    [Theory]
+    [InlineData(BatcherType.Default)]
+    [InlineData(BatcherType.KeyBased)]
+    public async Task Acknowledge_GivenConcurrentAcksOfTheMessagesOfABatch_ShouldAcknowledgeAllMessages(BatcherType batcherType)
+    {
+        //Arrange
+        const int numberOfMessages = 10;
+        var topic = await _fixture.CreateTopic(_cts.Token);
+        await using var client = CreateClient();
+        await using var producer = await CreateProducer(client, topic, builder => builder
+            .BatcherType(batcherType)
+            .BatchingMaxMessages(numberOfMessages)
+            .BatchingMaxPublishDelay(TimeSpan.FromSeconds(5)));
+        var receipts = new List<Task<MessageId>>();
+        for (var i = 0; i < numberOfMessages; ++i)
+        {
+            receipts.Add(await SendAsync(producer, $"my-message-{i}"));
+        }
+
+        await Task.WhenAll(receipts).WaitAsync(TimeSpan.FromSeconds(30), _cts.Token);
+        await using var consumer = client.NewConsumer(Schema.String)
+            .Topic(topic)
+            .InitialPosition(SubscriptionInitialPosition.Earliest)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .SubscriptionName(_subscription)
+            .SubscriptionType(SubscriptionType.Shared)
+            .Create();
+
+        //Act
+        var acks = Enumerable.Range(0, numberOfMessages).Select(_ => Task.Run(async () =>
+        {
+            var message = await ReceiveMessage(consumer);
+            await consumer.Acknowledge(message, _cts.Token);
+        }, _cts.Token)).ToList();
+        await Task.WhenAll(acks).WaitAsync(TimeSpan.FromSeconds(30), _cts.Token);
+
+        //Assert
+        // Wait for the acknowledgments to be received by the broker
+        await WaitForConsumerUnackedMessages(topic, 0);
+        await WaitForBacklog(topic, 0);
+    }
+
+    // Upstream: BatchMessageTest#testBatchMessageDispatchingAccordingToPermits
+    // Java reads the number of messages in the receiver queue of the consumers. The queue of a DotPulsar consumer is not accessible, so the number of messages that the broker dispatched to each consumer
+    // is read from the topic stats. Both consumers must have been sent messages, and no more than the permits that they gave to the broker: the permits are a number of messages and not of batches.
+    // A DotPulsar consumer gives the broker permits when it starts to receive, and the first permits are half of the prefetch count, so the prefetch count of 20 gives the 10 permits of the Java consumer.
+    [Fact]
+    public async Task Receive_GivenTwoSharedConsumersAndBatches_ShouldDispatchMessagesAccordingToPermits()
+    {
+        //Arrange
+        const int numberOfMessages = 1000;
+        const int batchMessages = 10;
+        var topic = await _fixture.CreateTopic(_cts.Token);
+        await using var client = CreateClient();
+        await using var consumer1 = CreateSharedConsumer(client, topic, batchMessages * 2);
+        await using var consumer2 = CreateSharedConsumer(client, topic, batchMessages * 2);
+        await consumer1.StateChangedTo(ConsumerState.Active, _cts.Token);
+        await consumer2.StateChangedTo(ConsumerState.Active, _cts.Token);
+        var receive1 = consumer1.Receive(_cts.Token).AsTask();
+        var receive2 = consumer2.Receive(_cts.Token).AsTask();
+        await using var producer = await CreateProducer(client, topic, builder => builder
+            .BatchingMaxMessages(batchMessages)
+            .BatchingMaxPublishDelay(TimeSpan.FromMilliseconds(500)));
+        var receipts = new List<Task<MessageId>>();
+        for (var i = 0; i < numberOfMessages; ++i)
+        {
+            receipts.Add(await SendAsync(producer, $"my-message-{i}"));
+        }
+
+        await Task.WhenAll(receipts).WaitAsync(TimeSpan.FromSeconds(60), _cts.Token);
+
+        //Act
+        // Java waits 3 seconds. A consumer may have to subscribe again when the broker fails to create the ledger of its cursor, which was seen for a broker that had just started.
+        var messagesSent = await WaitForConsumersToHaveMessages(topic, 2, TimeSpan.FromSeconds(10));
+
+        //Assert
+        messagesSent.Count.ShouldBe(2);
+        messagesSent.ShouldAllBe(count => count > 0 && count <= batchMessages * 2);
+        _ = await receive1.WaitAsync(TimeSpan.FromSeconds(5), _cts.Token);
+        _ = await receive2.WaitAsync(TimeSpan.FromSeconds(5), _cts.Token);
+    }
+
+    // Additional coverage
+    // The first 50 messages are acknowledged by the broker. Then the receipts of the broker are lost, so the producer sends the other messages, and the broker stores them, but the producer never gets
+    // the receipts. When the connection is closed, the producer reconnects and sends the batches that it has no receipt for again, with the same sequence ids. The broker deduplicates them, so the topic
+    // contains each message once and in order.
+    // The broker deduplicates by the name of the producer. The Java producer sends the name that the broker generated when it reconnects, and DotPulsar does not, so the broker would take
+    // the producer for a new one and store the messages again. The producer of the test has a name, and the report of this work package has the finding.
+    [Fact]
+    public async Task Send_GivenBatchingAndLostReceipts_ShouldResendWithoutDuplicates()
+    {
+        //Arrange
+        const int numberOfMessages = 500;
+        const int numberOfAcknowledgedMessages = 50;
+        var topic = await CreateTopicWithDeduplication();
+        await using var relay = await LossyRelay.Start(_fixture.ServiceUrl, _cts.Token);
+        await using var producerClient = PulsarClient
+            .Builder()
+            .Authentication(_fixture.Authentication)
+            .ExceptionHandler(_testOutputHelper.Log)
+            .ServiceUrl(relay.ServiceUrl)
+            .Build();
+        await using var producer = producerClient.NewProducer(Schema.String)
+            .BatchingMaxMessages(10)
+            .BatchingMaxPublishDelay(TimeSpan.FromMilliseconds(50))
+            .EnableBatching(true)
+            .MaxPendingMessages(numberOfMessages * 2)
+            .ProducerName("deduplication-producer")
+            .StateChangedHandler(_testOutputHelper.Log)
+            .Topic(topic)
+            .Create();
+        await producer.StateChangedTo(ProducerState.Connected, _cts.Token);
+        var receipts = new List<Task<MessageId>>();
+
+        for (var i = 0; i < numberOfAcknowledgedMessages; ++i)
+        {
+            receipts.Add(await SendAsync(producer, $"msg-{i}"));
+        }
+
+        await Task.WhenAll(receipts).WaitAsync(TimeSpan.FromSeconds(30), _cts.Token);
+        relay.SwallowBrokerToClient();
+
+        for (var i = numberOfAcknowledgedMessages; i < numberOfMessages; ++i)
+        {
+            receipts.Add(await SendAsync(producer, $"msg-{i}"));
+        }
+
+        // The broker has stored all the messages, and the producer has not received a receipt
+        await WaitUntilAsync(async () => await GetMessagesPublished(topic) >= numberOfMessages);
+        receipts.Skip(numberOfAcknowledgedMessages).ShouldAllBe(receipt => !receipt.IsCompleted);
+
+        //Act
+        relay.DropConnections();
+        await Task.WhenAll(receipts).WaitAsync(TimeSpan.FromSeconds(60), _cts.Token);
+
+        //Assert
+        await using var client = CreateClient();
+        await using var consumer = await CreateConsumer(client, topic);
+        var received = new List<string>();
+
+        while (await TransactionFixture.ReceiveOrNull(consumer, TimeSpan.FromSeconds(5), _cts.Token) is { } message)
+        {
+            received.Add(message.Value());
+        }
+
+        received.ShouldBe(Enumerable.Range(0, numberOfMessages).Select(i => $"msg-{i}"));
+    }
+
     public void Dispose()
         => _cts.Dispose();
 
@@ -596,6 +894,136 @@ public sealed class BatchMessageTests : IDisposable
         }
 
         return messages;
+    }
+
+    // The Java consumer without a subscription type is exclusive, and this one is shared with a receiver queue of the number of messages
+    private IConsumer<string> CreateSharedConsumer(IPulsarClient client, string topic, uint prefetchCount)
+        => client.NewConsumer(Schema.String)
+        .Topic(topic)
+        .InitialPosition(SubscriptionInitialPosition.Earliest)
+        .MessagePrefetchCount(prefetchCount)
+        .StateChangedHandler(_testOutputHelper.Log)
+        .SubscriptionName(_subscription)
+        .SubscriptionType(SubscriptionType.Shared)
+        .Create();
+
+    private async Task<IMessage<string>> ReceiveMessage(IConsumer<string> consumer)
+    {
+        var message = await TransactionFixture.ReceiveOrNull(consumer, TimeSpan.FromSeconds(10), _cts.Token);
+        message.ShouldNotBeNull();
+        return message;
+    }
+
+    // Java Awaitility: until the condition is true (at most 10 seconds, polling every 100 milliseconds)
+    private async Task WaitUntil(Func<bool> condition)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+
+        while (!condition() && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(100), _cts.Token);
+        }
+
+        condition().ShouldBeTrue();
+    }
+
+    private async Task WaitUntilAsync(Func<Task<bool>> condition)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+
+        while (!await condition() && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(100), _cts.Token);
+        }
+
+        (await condition()).ShouldBeTrue();
+    }
+
+    // The number of messages that the producers have published to the topic
+    private async Task<long> GetMessagesPublished(string topic)
+    {
+        using var stats = await GetStats(topic);
+        return stats.RootElement.GetProperty("msgInCounter").GetInt64();
+    }
+
+    private async Task WaitForBacklog(string topic, long expected)
+    {
+        var backlog = await GetBacklog(topic);
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+
+        while (backlog != expected && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(100), _cts.Token);
+            backlog = await GetBacklog(topic);
+        }
+
+        backlog.ShouldBe(expected);
+    }
+
+    // Java: getStats(topic).getSubscriptions().get(subscription).getConsumers().get(0).getUnackedMessages()
+    private async Task WaitForConsumerUnackedMessages(string topic, long expected)
+    {
+        var unacked = long.MaxValue;
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+
+        while (unacked != expected && DateTime.UtcNow < deadline)
+        {
+            using var stats = await GetStats(topic);
+            unacked = stats.RootElement.GetProperty("subscriptions").GetProperty(_subscription).GetProperty("consumers")[0].GetProperty("unackedMessages").GetInt64();
+
+            if (unacked != expected)
+                await Task.Delay(TimeSpan.FromMilliseconds(100), _cts.Token);
+        }
+
+        unacked.ShouldBe(expected);
+    }
+
+    // The number of messages that the broker has sent to each consumer of the subscription, as soon as all the consumers have been sent messages
+    private async Task<List<long>> WaitForConsumersToHaveMessages(string topic, int numberOfConsumers, TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        List<long> messagesSent;
+
+        while (true)
+        {
+            using var stats = await GetStats(topic);
+            messagesSent = stats.RootElement.GetProperty("subscriptions").GetProperty(_subscription).GetProperty("consumers").EnumerateArray().Select(consumer => consumer.GetProperty("msgOutCounter").GetInt64()).ToList();
+
+            if (messagesSent.Count == numberOfConsumers && messagesSent.All(count => count > 0))
+                return messagesSent;
+
+            if (DateTime.UtcNow >= deadline)
+                return messagesSent;
+
+            await Task.Delay(TimeSpan.FromMilliseconds(100), _cts.Token);
+        }
+    }
+
+    // The deduplication of the broker is enabled for the namespace, which is created for the topic
+    private async Task<string> CreateTopicWithDeduplication()
+    {
+        var ns = $"public/deduplication-{Guid.NewGuid():N}";
+        await ExecInPulsar($"bin/pulsar-admin namespaces create {ns}");
+        await ExecInPulsar($"bin/pulsar-admin namespaces set-deduplication {ns} --enable");
+        var topic = $"persistent://{ns}/{Guid.NewGuid():N}";
+        await _fixture.CreateTopic(topic, _cts.Token);
+        return topic;
+    }
+
+    private async Task ExecInPulsar(string command)
+    {
+        var result = await _fixture.ExecInPulsar(command, _cts.Token);
+
+        if (result.ExitCode != 0)
+            throw new Exception($"The command '{command}' failed: {result.Stderr}");
+    }
+
+    private async Task<JsonDocument> GetStats(string topic)
+    {
+        using var admin = _fixture.CreateAdminClient();
+        using var response = await admin.GetAsync($"/admin/v2/{topic.Replace("://", "/")}/stats", _cts.Token);
+        _ = response.EnsureSuccessStatusCode();
+        return JsonDocument.Parse(await response.Content.ReadAsStringAsync(_cts.Token));
     }
 
     private async Task<long> GetBacklog(string topic)

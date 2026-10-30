@@ -141,6 +141,46 @@ public sealed class SimpleProducerConsumerTests : IDisposable
         message.Value().ShouldBe("after");
     }
 
+    // Upstream: SimpleProducerConsumerTest#testSendMsgGreaterThanBatchingMaxBytes
+    // A message that is larger than the maximum size of a batch is sent alone, and the send must complete before the send timeout.
+    [Fact]
+    public async Task Send_GivenMessageLargerThanBatchingMaxBytes_ShouldCompleteWithinSendTimeout()
+    {
+        //Arrange
+        const int batchingMaxBytes = 1024;
+        var sendTimeout = TimeSpan.FromSeconds(10);
+        var message = new byte[batchingMaxBytes * 2];
+        Random.Shared.NextBytes(message);
+        var topic = await _fixture.CreateTopic(_cts.Token);
+        await using var client = CreateClient();
+        await using var consumer = client.NewConsumer(Schema.ByteArray)
+            .InitialPosition(SubscriptionInitialPosition.Earliest)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .SubscriptionName("my-subscription")
+            .Topic(topic)
+            .Create();
+        await using var producer = client.NewProducer(Schema.ByteArray)
+            .BatchingMaxBytes(batchingMaxBytes)
+            .BatchingMaxMessages(1000)
+            .BatchingMaxPublishDelay(TimeSpan.FromMilliseconds(1))
+            .EnableBatching(true)
+            .SendTimeout(sendTimeout)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .Topic(topic)
+            .Create();
+
+        //Act
+        // The send should complete in time
+        var messageId = await producer.Send(message, _cts.Token).AsTask().WaitAsync(sendTimeout, _cts.Token);
+
+        //Assert
+        messageId.ShouldNotBeNull();
+        messageId.BatchIndex.ShouldBe(-1);
+        var received = await TransactionFixture.ReceiveOrNull(consumer, TimeSpan.FromSeconds(10), _cts.Token);
+        received.ShouldNotBeNull();
+        received.Value().ShouldBe(message);
+    }
+
     public void Dispose()
         => _cts.Dispose();
 
