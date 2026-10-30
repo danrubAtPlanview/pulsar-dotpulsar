@@ -25,7 +25,6 @@ public sealed class Transaction : ITransaction
 {
     // The longest due time of a timer is 4294967294 milliseconds
     private static readonly TimeSpan _maxTimerDueTime = TimeSpan.FromMilliseconds(uint.MaxValue - 1);
-    private static readonly TaskCompletionSource<object?> _noOps = CreateCompletedSource();
 
     private readonly ITransactionCoordinatorClient _tcClient;
     private readonly ConcurrentDictionary<string, Task> _registeredPartitions;
@@ -34,7 +33,7 @@ public sealed class Transaction : ITransaction
     private readonly object _stateLock;
     private readonly StateManager<TransactionState> _stateManager;
     private readonly Timer _timer;
-    private volatile TaskCompletionSource<object?> _opsCompleted;
+    private TaskCompletionSource<object?>? _opsCompleted;
     private volatile bool _hasOpsFailed;
     private volatile int _state;
     private long _opCount;
@@ -47,7 +46,7 @@ public sealed class Transaction : ITransaction
         _registrationLock = new object();
         _stateLock = new object();
         _stateManager = new StateManager<TransactionState>(TransactionState.Open, TransactionState.Committed, TransactionState.Aborted, TransactionState.Error, TransactionState.TimedOut);
-        _opsCompleted = _noOps;
+        _opsCompleted = null;
         _hasOpsFailed = false;
         _state = (int) TransactionState.Open;
         _opCount = 0;
@@ -114,7 +113,7 @@ public sealed class Transaction : ITransaction
             throw new InvalidTransactionStatusException(CreateInvalidStateMessage(TransactionState.Open, TransactionState.Committing));
 
         // Cancelling stops the wait of the caller. The transaction stays in the 'Committing' state, so that the commit can be tried again
-        await _opsCompleted.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await WaitForOps(cancellationToken).ConfigureAwait(false);
 
         if (_hasOpsFailed)
         {
@@ -156,7 +155,7 @@ public sealed class Transaction : ITransaction
         if (!TrySetState(TransactionState.Aborting, TransactionState.Open, TransactionState.Aborting))
             throw new InvalidTransactionStatusException(CreateInvalidStateMessage(TransactionState.Open, TransactionState.Aborting));
 
-        await _opsCompleted.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await WaitForOps(cancellationToken).ConfigureAwait(false);
         await AbortCore().ConfigureAwait(false);
     }
 
@@ -221,10 +220,42 @@ public sealed class Transaction : ITransaction
         return cancellationToken.CanBeCanceled ? new ValueTask(task.WaitAsync(cancellationToken)) : new ValueTask(task);
     }
 
+    // Upstream: TransactionImpl#registerSendOp, TransactionImpl#registerAckOp
+    // For an operation that already has a continuation that runs when it ends. That continuation then calls EndOp, which avoids allocating a second continuation.
+    // Every call of BeginOp must be followed by exactly one call of EndOp, or commit and abort wait for the operation forever.
+    public void BeginOp()
+        => _ = Interlocked.Increment(ref _opCount);
+
+    public void EndOp(bool hasFailed)
+    {
+        if (hasFailed)
+            _hasOpsFailed = true;
+
+        if (Interlocked.Decrement(ref _opCount) == 0)
+            _ = Volatile.Read(ref _opsCompleted)?.TrySetResult(null);
+    }
+
+    // Upstream: TransactionImpl#opFuture. Upstream creates a future when the first operation begins. Here the commit or abort creates the task it waits on, so the operations do not allocate anything.
+    // The task is published before the count is read, and the count is changed before the task is read. One of them therefore sees the other, and the task is completed by one of them.
+    private Task WaitForOps(CancellationToken cancellationToken)
+    {
+        var opsCompleted = Volatile.Read(ref _opsCompleted);
+
+        if (opsCompleted is null)
+        {
+            var created = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
+            opsCompleted = Interlocked.CompareExchange(ref _opsCompleted, created, null) ?? created;
+        }
+
+        if (Interlocked.Read(ref _opCount) == 0)
+            _ = opsCompleted.TrySetResult(null);
+
+        return opsCompleted.Task.WaitAsync(cancellationToken);
+    }
+
     private void RegisterOp(Task opTask)
     {
-        if (Interlocked.Increment(ref _opCount) == 1)
-            _opsCompleted = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        BeginOp();
 
         if (opTask.IsCompleted)
             OnOpCompleted(opTask);
@@ -234,15 +265,12 @@ public sealed class Transaction : ITransaction
 
     private void OnOpCompleted(Task opTask)
     {
-        if (opTask.IsFaulted || opTask.IsCanceled)
-        {
-            _ = opTask.Exception; // The caller of the operation gets the exception, so it is observed here
-            _hasOpsFailed = true;
-        }
+        var hasFailed = opTask.IsFaulted || opTask.IsCanceled;
 
-        var opsCompleted = _opsCompleted;
-        if (Interlocked.Decrement(ref _opCount) == 0)
-            _ = opsCompleted.TrySetResult(null);
+        if (hasFailed)
+            _ = opTask.Exception; // The caller of the operation gets the exception, so it is observed here
+
+        EndOp(hasFailed);
     }
 
     // The state of the transaction and the state of the state manager are changed together, and a final state never changes
@@ -277,11 +305,4 @@ public sealed class Transaction : ITransaction
 
     private string CreateInvalidStateMessage(params TransactionState[] expected)
         => $"[{Id.MostSigBits}:{Id.LeastSigBits}] with unexpected state: {CurrentState}, expect: [{string.Join(", ", expected)}]";
-
-    private static TaskCompletionSource<object?> CreateCompletedSource()
-    {
-        var source = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
-        source.SetResult(null);
-        return source;
-    }
 }

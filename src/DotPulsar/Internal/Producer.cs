@@ -271,9 +271,10 @@ public sealed class Producer<TMessage> : IProducer<TMessage>, IRegisterEvent
 
             // Upstream: TypedMessageBuilderImpl#sendAsync
             // The send is registered before anything is awaited, so a commit that is started after this call has been made waits for the send.
+            // The send ends when its task is completed, which is handled by the continuation below, so no continuation is allocated for the transaction.
             if (transaction is not null)
             {
-                transaction.RegisterSendOp(tcs.Task);
+                transaction.BeginOp();
                 isRegisteredWithTransaction = true;
             }
 
@@ -289,11 +290,13 @@ public sealed class Producer<TMessage> : IProducer<TMessage>, IRegisterEvent
                 registrationGate = registration.IsCompletedSuccessfully ? null : registration.AsTask();
             }
 
-            var sendOp = new SendOp(metadata.Metadata, data, tcs, sendOpCancelable ? cancellationToken : CancellationToken.None, registrationGate);
+            var sendOp = new SendOp(metadata.Metadata, data, tcs, sendOpCancelable ? cancellationToken : CancellationToken.None, transaction, registrationGate);
             await subProducer.Send(sendOp, cancellationToken).ConfigureAwait(false);
 
             _ = tcs.Task.ContinueWith(async task =>
             {
+                sendOp.Transaction?.EndOp(task.IsFaulted || task.IsCanceled);
+
                 if (startTimestamp != 0)
                     DotPulsarMeter.MessageSent(startTimestamp, _meterTags);
 
@@ -317,7 +320,7 @@ public sealed class Producer<TMessage> : IProducer<TMessage>, IRegisterEvent
                     return;
                 }
 
-                CompleteActivity(task.Result, data.Length, activity);
+                CompleteActivity(task.Result, sendOp.Data.Length, activity);
 
                 try
                 {
@@ -337,9 +340,9 @@ public sealed class Producer<TMessage> : IProducer<TMessage>, IRegisterEvent
             if (autoAssignSequenceId)
                 metadata.SequenceId = 0;
 
-            // The send never reached the send queue, so nothing else will complete it and the transaction would wait for it forever
+            // The send never reached the send queue, so nothing else will end it and the transaction would wait for it forever
             if (isRegisteredWithTransaction)
-                _ = exception is OperationCanceledException ? tcs!.TrySetCanceled() : tcs!.TrySetException(exception);
+                transaction!.EndOp(true);
 
             throw;
         }

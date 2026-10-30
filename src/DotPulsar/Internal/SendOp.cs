@@ -15,16 +15,24 @@
 namespace DotPulsar.Internal;
 
 using DotPulsar.Internal.PulsarApi;
+using DotPulsar.Internal.Transactions;
 using System.Buffers;
 
 public sealed class SendOp : IDisposable
 {
-    public SendOp(MessageMetadata metadata, ReadOnlySequence<byte> data, TaskCompletionSource<MessageId> receiptTcs, CancellationToken cancellationToken, Task? registrationGate = null)
+    public SendOp(
+        MessageMetadata metadata,
+        ReadOnlySequence<byte> data,
+        TaskCompletionSource<MessageId> receiptTcs,
+        CancellationToken cancellationToken,
+        Transaction? transaction = null,
+        Task? registrationGate = null)
     {
         Metadata = metadata;
         Data = data;
         ReceiptTcs = receiptTcs;
         CancellationToken = cancellationToken;
+        Transaction = transaction;
         RegistrationGate = registrationGate;
     }
 
@@ -32,6 +40,9 @@ public sealed class SendOp : IDisposable
     public ReadOnlySequence<byte> Data { get; }
     public TaskCompletionSource<MessageId> ReceiptTcs { get; }
     public CancellationToken CancellationToken { get; }
+
+    // The transaction the message is produced as part of. Null if the message is not transactional.
+    public Transaction? Transaction { get; }
 
     // The task that completes when the topic of a transactional message is registered with its transaction. Null when there is nothing to wait for before the message is written.
     public Task? RegistrationGate { get; }

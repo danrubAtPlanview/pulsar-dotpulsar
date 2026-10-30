@@ -255,7 +255,7 @@ public class SubProducerTests
         => CreateCancellableSendOp(sequenceId, registrationGate, CancellationToken.None);
 
     private static SendOp CreateCancellableSendOp(ulong sequenceId, Task? registrationGate, CancellationToken cancellationToken)
-        => new(new MessageMetadata { SequenceId = sequenceId }, ReadOnlySequence<byte>.Empty, new TaskCompletionSource<MessageId>(TaskCreationOptions.RunContinuationsAsynchronously), cancellationToken, registrationGate);
+        => new(new MessageMetadata { SequenceId = sequenceId }, ReadOnlySequence<byte>.Empty, new TaskCompletionSource<MessageId>(TaskCreationOptions.RunContinuationsAsynchronously), cancellationToken, registrationGate: registrationGate);
 
     private static BaseCommand CreateReceipt(ulong sequenceId)
         => new()
