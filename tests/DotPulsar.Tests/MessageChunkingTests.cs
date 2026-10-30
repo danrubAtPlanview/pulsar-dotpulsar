@@ -112,7 +112,8 @@ public sealed class MessageChunkingTests : IDisposable
         await WaitUntil(async () => await GetBacklog(topic, subscription) == 0);
     }
 
-    // Upstream: MessageChunkingTest#testLargeMessageAckTimeOut
+    // Upstream: C++ MessageChunkingTest#testAckTimeoutChunkedMessage
+    // The Java test testLargeMessageAckTimeOut is in MessageChunkingSmallMessageSizeTests, because it needs a small maximum message size of the broker
     [Fact]
     public async Task Receive_GivenChunkedMessageThatIsNotAcknowledgedBeforeTheAckTimeout_ShouldDeliverItAgain()
     {
@@ -134,6 +135,47 @@ public sealed class MessageChunkingTests : IDisposable
     }
 
     // Upstream: MessageChunkingSharedTest#testNegativeAckChunkedMessage
+    // The producer splits the message of 10 KiB in chunks of 1 KiB, which is less than the maximum message size of the broker, as upstream.
+    [Fact]
+    public async Task NegativeAcknowledge_GivenChunkedMessage_ShouldRedeliverIt()
+    {
+        //Arrange
+        var topic = await _fixture.CreateTopic(_cts.Token);
+        await using var client = CreateClient();
+        await using var consumer = client.NewConsumer(Schema.String)
+            .InitialPosition(SubscriptionInitialPosition.Earliest)
+            .NegativeAcknowledgeRedeliveryDelay(TimeSpan.FromSeconds(1))
+            .StateChangedHandler(_testOutputHelper.Log)
+            .SubscriptionName("sub1")
+            .SubscriptionType(SubscriptionType.Shared)
+            .Topic(topic)
+            .Create();
+        await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+        await using var producer = client.NewProducer(Schema.String)
+            .ChunkMaxMessageSize(1024) // 1 KiB maximum forces chunking for the larger messages
+            .EnableBatching(false)
+            .EnableChunking(true)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .Topic(topic)
+            .Create();
+        var longMessage = new string('X', 10 * 1024);
+        var messageId = await producer.Send(longMessage, _cts.Token);
+
+        //Act
+        // Negative acknowledge the first message
+        await consumer.NegativeAcknowledge(await Receive(consumer), _cts.Token);
+
+        // The first message should be redelivered 1 second later
+        var message = await TransactionFixture.ReceiveOrNull(consumer, TimeSpan.FromSeconds(2), _cts.Token);
+
+        //Assert
+        messageId.FirstChunkMessageId.ShouldNotBeNull();
+        message.ShouldNotBeNull();
+        message.Value().ShouldBe(longMessage);
+    }
+
+    // Upstream: C++ MessageChunkingTest#testNegativeAckChunkedMessage
+    // The message is larger than the maximum message size of the broker, so the chunks are as large as the maximum message size.
     [Fact]
     public async Task NegativeAcknowledge_GivenChunkedMessage_ShouldDeliverItAgain()
     {
@@ -203,27 +245,31 @@ public sealed class MessageChunkingTests : IDisposable
     public async Task Receive_GivenMaxPendingChunkedMessageExceededAndAutoAckOldest_ShouldAcknowledgeTheOldestMessageAndNotDeliverIt()
     {
         //Arrange
+        const string subscription = "my-subscriber-name";
         var topic = await _fixture.CreateTopic(_cts.Token);
-        var subscription = CreateSubscriptionName();
         await using var client = CreateClient();
-        await using var producer = CreateProducer(client, topic);
         await using var consumer = CreateStringConsumer(client, topic, subscription, builder => builder.MaxPendingChunkedMessage(1).AutoAckOldestChunkedMessageOnQueueFull(true));
         await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+        await using var producer = CreateChunkingProducer(client, topic);
 
         //Act
-        await ChunkTestHelper.SendSingleChunk(producer, "0", 0, 3, _cts.Token);
-        await ChunkTestHelper.SendSingleChunk(producer, "0", 1, 3, _cts.Token);
+        await ChunkTestHelper.SendSingleChunk(producer, "0", 0, 2, _cts.Token);
         await ChunkTestHelper.SendSingleChunk(producer, "1", 0, 2, _cts.Token);
         await ChunkTestHelper.SendSingleChunk(producer, "1", 1, 2, _cts.Token);
-        var message = await Receive(consumer);
+
+        // The chunked message of uuid 0 is discarded.
+        var message = await Receive(consumer, TimeSpan.FromSeconds(5));
         await consumer.Acknowledge(message, _cts.Token);
-        await ChunkTestHelper.SendSingleChunk(producer, "0", 1, 3, _cts.Token);
-        await ChunkTestHelper.SendSingleChunk(producer, "0", 2, 3, _cts.Token);
+        await WaitUntil(async () => (await GetSubscriptionStats(topic, subscription)).GetProperty("nonContiguousDeletedMessagesRanges").GetInt64() == 0);
+        await consumer.RedeliverUnacknowledgedMessages(_cts.Token);
+        await ChunkTestHelper.SendSingleChunk(producer, "0", 1, 2, _cts.Token);
+
+        // Ensure that the chunked message of uuid 0 is discarded.
+        var discarded = await TransactionFixture.ReceiveOrNull(consumer, TimeSpan.FromSeconds(5), _cts.Token);
 
         //Assert
         message.Value().ShouldBe("chunk-1-0|chunk-1-1|");
-        (await TransactionFixture.ReceiveOrNull(consumer, TimeSpan.FromSeconds(5), _cts.Token)).ShouldBeNull();
-        await WaitUntil(async () => (await GetSubscriptionStats(topic, subscription)).GetProperty("nonContiguousDeletedMessagesRanges").GetInt64() == 0);
+        discarded.ShouldBeNull();
     }
 
     // Upstream: MessageChunkingTest#testResendChunkMessagesWithoutAckHole
@@ -252,6 +298,45 @@ public sealed class MessageChunkingTests : IDisposable
             var stats = await GetSubscriptionStats(topic, subscription);
             return stats.GetProperty("msgBacklog").GetInt64() == 0 && stats.GetProperty("nonContiguousDeletedMessagesRanges").GetInt64() == 0;
         });
+    }
+
+    // Upstream: MessageChunkingTest#testResendChunkMessages
+    // The upstream test also asserts that the consumer has 8 permits left, which is a counter of the Java client. As seen from the broker, the 8 entries are the chunks that were sent, and the resent chunks must
+    // be acknowledged with the messages, so the broker has no backlog left.
+    [Fact]
+    public async Task Receive_GivenResentAndInterleavedChunks_ShouldAssembleBothMessages()
+    {
+        //Arrange
+        var topic = await _fixture.CreateTopic(_cts.Token);
+        var subscription = CreateSubscriptionName();
+        await using var client = CreateClient();
+        await using var consumer = CreateStringConsumer(client, topic, subscription, builder => builder.MaxPendingChunkedMessage(10).AutoAckOldestChunkedMessageOnQueueFull(true));
+        await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+        await using var producer = CreateChunkingProducer(client, topic);
+
+        //Act
+        await ChunkTestHelper.SendSingleChunk(producer, "0", 0, 2, _cts.Token);
+
+        await ChunkTestHelper.SendSingleChunk(producer, "0", 0, 2, _cts.Token); // Resending the first chunk
+        await ChunkTestHelper.SendSingleChunk(producer, "1", 0, 3, _cts.Token); // This is for testing the interwoven chunked message
+        await ChunkTestHelper.SendSingleChunk(producer, "1", 1, 3, _cts.Token);
+        await ChunkTestHelper.SendSingleChunk(producer, "1", 0, 3, _cts.Token); // Resending the UUID-1 chunked message
+
+        await ChunkTestHelper.SendSingleChunk(producer, "0", 1, 2, _cts.Token);
+
+        var firstMessage = await Receive(consumer, TimeSpan.FromSeconds(5));
+        await consumer.Acknowledge(firstMessage, _cts.Token);
+
+        await ChunkTestHelper.SendSingleChunk(producer, "1", 1, 3, _cts.Token);
+        await ChunkTestHelper.SendSingleChunk(producer, "1", 2, 3, _cts.Token);
+
+        var secondMessage = await Receive(consumer, TimeSpan.FromSeconds(5));
+        await consumer.Acknowledge(secondMessage, _cts.Token);
+
+        //Assert
+        firstMessage.Value().ShouldBe("chunk-0-0|chunk-0-1|");
+        secondMessage.Value().ShouldBe("chunk-1-0|chunk-1-1|chunk-1-2|");
+        await WaitUntil(async () => await GetBacklog(topic, subscription) == 0);
     }
 
     // Upstream: MessageChunkingTest#testOrphanedLastChunkDoesNotStallDispatch
