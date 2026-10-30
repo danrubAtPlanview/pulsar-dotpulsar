@@ -404,10 +404,10 @@ public sealed class DeadLetterTopicTests : IDisposable
         var topicName = await _fixture.CreateTopic(_cts.Token);
         await using var client = CreateClient();
         await using var consumer1 = CreateNeverAcknowledgingConsumer(client, topicName, maxRedeliverCount, "my-consumer");
-        await using var consumer2 = CreateNeverAcknowledgingConsumer(client, topicName, maxRedeliverCount, "my-consumer");
-        await using var consumer3 = CreateNeverAcknowledgingConsumer(client, topicName, maxRedeliverCount, "my-consumer");
         await consumer1.StateChangedTo(ConsumerState.Active, _cts.Token);
+        await using var consumer2 = CreateNeverAcknowledgingConsumer(client, topicName, maxRedeliverCount, "my-consumer");
         await consumer2.StateChangedTo(ConsumerState.Active, _cts.Token);
+        await using var consumer3 = CreateNeverAcknowledgingConsumer(client, topicName, maxRedeliverCount, "my-consumer");
         await consumer3.StateChangedTo(ConsumerState.Active, _cts.Token);
         using var receiveCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
         var totalReceived = new ReceivedCounter();
@@ -448,10 +448,10 @@ public sealed class DeadLetterTopicTests : IDisposable
         var topicName = await _fixture.CreateTopic(_cts.Token);
         await using var client = CreateClient();
         await using var consumer1 = CreateNeverAcknowledgingConsumer(client, topicName, maxRedeliverCount, null);
-        await using var consumer2 = CreateNeverAcknowledgingConsumer(client, topicName, maxRedeliverCount, null);
-        await using var consumer3 = CreateNeverAcknowledgingConsumer(client, topicName, maxRedeliverCount, null);
         await consumer1.StateChangedTo(ConsumerState.Active, _cts.Token);
+        await using var consumer2 = CreateNeverAcknowledgingConsumer(client, topicName, maxRedeliverCount, null);
         await consumer2.StateChangedTo(ConsumerState.Active, _cts.Token);
+        await using var consumer3 = CreateNeverAcknowledgingConsumer(client, topicName, maxRedeliverCount, null);
         await consumer3.StateChangedTo(ConsumerState.Active, _cts.Token);
         using var receiveCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
         var totalReceived = new ReceivedCounter();
