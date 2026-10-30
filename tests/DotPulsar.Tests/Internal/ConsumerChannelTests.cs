@@ -16,10 +16,8 @@ namespace DotPulsar.Tests.Internal;
 
 using DotPulsar.Internal;
 using DotPulsar.Internal.Abstractions;
+using DotPulsar.Internal.Extensions;
 using DotPulsar.Internal.PulsarApi;
-using Google.Protobuf;
-using System.Buffers;
-using System.Buffers.Binary;
 
 [Trait("Category", "Unit")]
 public sealed class ConsumerChannelTests
@@ -170,33 +168,13 @@ public sealed class ConsumerChannelTests
 
     private static (BatchHandler<byte[]> Handler, MessageFactory<byte[]> Factory, DotPulsar.Abstractions.IMessage<byte[]> First, DotPulsar.Abstractions.IMessage<byte[]> Second) CreateBatch()
     {
-        var messageFactory = new MessageFactory<byte[]>(DotPulsar.Schema.ByteArray);
-        var batchHandler = new BatchHandler<byte[]>(true, messageFactory);
-        var batchId = new MessageIdData { LedgerId = 1, EntryId = 2, Partition = 0, BatchIndex = -1 };
-        var metadata = new MessageMetadata
-        {
-            ProducerName = "test",
-            NumMessagesInBatch = 2,
-            PublishTime = 1,
-            SequenceId = 1
-        };
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var messages = BatchTestData.AddBatch(batchHandler, 1, 2, 2);
+        messages.Count.ShouldBe(2);
+        messages[0].MessageId.BatchIndex.ShouldBe(0);
+        messages[1].MessageId.BatchIndex.ShouldBe(1);
 
-        var singleMessageMetadata = new SingleMessageMetadata { PayloadSize = 0 }.ToByteArray();
-        var batchData = new byte[2 * (4 + singleMessageMetadata.Length)];
-        for (var i = 0; i < 2; ++i)
-        {
-            var offset = i * (4 + singleMessageMetadata.Length);
-            BinaryPrimitives.WriteUInt32BigEndian(batchData.AsSpan(offset, 4), (uint) singleMessageMetadata.Length);
-            singleMessageMetadata.CopyTo(batchData.AsSpan(offset + 4));
-        }
-
-        var first = batchHandler.Add(batchId, 0, metadata, new ReadOnlySequence<byte>(batchData));
-        var second = batchHandler.GetNext();
-        second.ShouldNotBeNull();
-        first.MessageId.BatchIndex.ShouldBe(0);
-        second.MessageId.BatchIndex.ShouldBe(1);
-
-        return (batchHandler, messageFactory, first, second);
+        return (batchHandler, messageFactory, messages[0], messages[1]);
     }
 
     [Fact]
@@ -287,12 +265,770 @@ public sealed class ConsumerChannelTests
         await connection.DidNotReceive().Send(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task Send_GivenPartialBatchAndBatchIndexAckEnabled_ShouldSendEntryWithAckSet()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var messages = BatchTestData.AddBatch(batchHandler, 1, 2, 5);
+        var connection = CreateConnection(out var sent);
+        await using var channel = CreateChannel(connection, batchHandler, messageFactory, batchIndexAckEnabled: true);
+        var command = CreateAck(CommandAck.Types.AckType.Individual, messages[2]);
+
+        //Act
+        await channel.Send(command, Current.CancellationToken);
+
+        //Assert
+        sent.Count.ShouldBe(1);
+        sent[0].MessageId.Count.ShouldBe(1);
+        var messageId = sent[0].MessageId[0];
+        messageId.LedgerId.ShouldBe(1UL);
+        messageId.EntryId.ShouldBe(2UL);
+        messageId.BatchIndex.ShouldBe(-1);
+        messageId.HasBatchSize.ShouldBeFalse();
+        messageId.AckSet.ShouldBeAckSet(0b11011L);
+        sent[0].ConsumerId.ShouldBe(1UL);
+    }
+
+    [Fact]
+    public async Task Send_GivenTwoIndexesOfSameBatchInOneBulkAckAndBatchIndexAckEnabled_ShouldSendOneEntryWithMergedAckSet()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var messages = BatchTestData.AddBatch(batchHandler, 1, 2, 5);
+        var connection = CreateConnection(out var sent);
+        await using var channel = CreateChannel(connection, batchHandler, messageFactory, batchIndexAckEnabled: true);
+        var command = CreateAck(CommandAck.Types.AckType.Individual, messages[1], messages[3]);
+
+        //Act
+        await channel.Send(command, Current.CancellationToken);
+
+        //Assert
+        sent.Count.ShouldBe(1);
+        sent[0].MessageId.Count.ShouldBe(1);
+        sent[0].MessageId[0].EntryId.ShouldBe(2UL);
+        sent[0].MessageId[0].BatchIndex.ShouldBe(-1);
+        sent[0].MessageId[0].AckSet.ShouldBeAckSet(0b10101L);
+    }
+
+    [Fact]
+    public async Task Send_GivenBulkAckOfWholeBatchAndBatchIndexAckEnabled_ShouldSendOneEntryWithoutAckSet()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var messages = BatchTestData.AddBatch(batchHandler, 1, 2, 3);
+        var connection = CreateConnection(out var sent);
+        await using var channel = CreateChannel(connection, batchHandler, messageFactory, batchIndexAckEnabled: true);
+        var command = CreateAck(CommandAck.Types.AckType.Individual, messages[0], messages[1], messages[2]);
+
+        //Act
+        await channel.Send(command, Current.CancellationToken);
+
+        //Assert
+        sent.Count.ShouldBe(1);
+        sent[0].MessageId.Count.ShouldBe(1);
+        sent[0].MessageId[0].EntryId.ShouldBe(2UL);
+        sent[0].MessageId[0].AckSet.Count.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Send_GivenIndividualAcksOfAllIndexesAndBatchIndexAckEnabled_ShouldSendAckSetsAndThenEntryWithoutAckSet()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var messages = BatchTestData.AddBatch(batchHandler, 1, 2, 3);
+        var connection = CreateConnection(out var sent);
+        await using var channel = CreateChannel(connection, batchHandler, messageFactory, batchIndexAckEnabled: true);
+
+        //Act
+        await channel.Send(CreateAck(CommandAck.Types.AckType.Individual, messages[0]), Current.CancellationToken);
+        await channel.Send(CreateAck(CommandAck.Types.AckType.Individual, messages[1]), Current.CancellationToken);
+        await channel.Send(CreateAck(CommandAck.Types.AckType.Individual, messages[2]), Current.CancellationToken);
+
+        //Assert
+        sent.Count.ShouldBe(3);
+        sent[0].MessageId[0].AckSet.ShouldBeAckSet(0b110L);
+        sent[1].MessageId[0].AckSet.ShouldBeAckSet(0b100L);
+        sent[2].MessageId[0].AckSet.Count.ShouldBe(0);
+        sent.ShouldAllBe(ack => ack.MessageId[0].EntryId == 2 && ack.MessageId[0].BatchIndex == -1);
+    }
+
+    [Fact]
+    public async Task Send_GivenCumulativeAckOfPartialBatchAndBatchIndexAckDisabled_ShouldAckPreviousEntryCumulatively()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var messages = BatchTestData.AddBatch(batchHandler, 1, 2, 5);
+        var connection = CreateConnection(out var sent);
+        await using var channel = CreateChannel(connection, batchHandler, messageFactory);
+        var command = CreateAck(CommandAck.Types.AckType.Cumulative, messages[2]);
+
+        //Act
+        await channel.Send(command, Current.CancellationToken);
+
+        //Assert
+        sent.Count.ShouldBe(1);
+        sent[0].AckType.ShouldBe(CommandAck.Types.AckType.Cumulative);
+        sent[0].MessageId.Count.ShouldBe(1);
+        sent[0].MessageId[0].LedgerId.ShouldBe(1UL);
+        sent[0].MessageId[0].EntryId.ShouldBe(1UL);
+        sent[0].MessageId[0].BatchIndex.ShouldBe(-1);
+        sent[0].MessageId[0].AckSet.Count.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Send_GivenCumulativeAckOfPartialBatchAndBatchIndexAckDisabled_ShouldAcknowledgeEntryWhenRemainingMessagesAreAcknowledged()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var messages = BatchTestData.AddBatch(batchHandler, 1, 2, 5);
+        var connection = CreateConnection(out var sent);
+        await using var channel = CreateChannel(connection, batchHandler, messageFactory);
+        await channel.Send(CreateAck(CommandAck.Types.AckType.Cumulative, messages[2]), Current.CancellationToken);
+        sent.Clear();
+
+        //Act
+        await channel.Send(CreateAck(CommandAck.Types.AckType.Individual, messages[3]), Current.CancellationToken);
+        var sentBeforeLastAck = sent.Count;
+        await channel.Send(CreateAck(CommandAck.Types.AckType.Individual, messages[4]), Current.CancellationToken);
+
+        //Assert
+        sentBeforeLastAck.ShouldBe(0);
+        sent.Count.ShouldBe(1);
+        sent[0].AckType.ShouldBe(CommandAck.Types.AckType.Individual);
+        sent[0].MessageId[0].EntryId.ShouldBe(2UL);
+        sent[0].MessageId[0].BatchIndex.ShouldBe(-1);
+    }
+
+    [Fact]
+    public async Task Send_GivenCumulativeAckOfPartialBatchAndBatchIndexAckEnabled_ShouldSendCumulativeAckSet()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var messages = BatchTestData.AddBatch(batchHandler, 1, 2, 5);
+        var connection = CreateConnection(out var sent);
+        await using var channel = CreateChannel(connection, batchHandler, messageFactory, batchIndexAckEnabled: true);
+        var command = CreateAck(CommandAck.Types.AckType.Cumulative, messages[2]);
+
+        //Act
+        await channel.Send(command, Current.CancellationToken);
+
+        //Assert
+        sent.Count.ShouldBe(1);
+        sent[0].AckType.ShouldBe(CommandAck.Types.AckType.Cumulative);
+        sent[0].MessageId[0].EntryId.ShouldBe(2UL);
+        sent[0].MessageId[0].BatchIndex.ShouldBe(-1);
+        sent[0].MessageId[0].AckSet.ShouldBeAckSet(0b11000L);
+    }
+
+    [Fact]
+    public async Task Send_GivenCumulativeAckAfterIndividualAckOfLaterIndexAndBatchIndexAckEnabled_ShouldKeepTheIndividualAckInTheAckSet()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var messages = BatchTestData.AddBatch(batchHandler, 1, 2, 5);
+        var connection = CreateConnection(out var sent);
+        await using var channel = CreateChannel(connection, batchHandler, messageFactory, batchIndexAckEnabled: true);
+        await channel.Send(CreateAck(CommandAck.Types.AckType.Individual, messages[4]), Current.CancellationToken);
+        sent.Clear();
+
+        //Act
+        await channel.Send(CreateAck(CommandAck.Types.AckType.Cumulative, messages[1]), Current.CancellationToken);
+
+        //Assert
+        sent.Count.ShouldBe(1);
+        sent[0].MessageId[0].AckSet.ShouldBeAckSet(0b01100L);
+    }
+
+    [Fact]
+    public async Task Send_GivenCumulativeAckOfLastIndexOfBatch_ShouldAcknowledgeEntryCumulativelyWithoutAckSet()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var messages = BatchTestData.AddBatch(batchHandler, 1, 2, 5);
+        var connection = CreateConnection(out var sent);
+        await using var channel = CreateChannel(connection, batchHandler, messageFactory, batchIndexAckEnabled: true);
+        var command = CreateAck(CommandAck.Types.AckType.Cumulative, messages[4]);
+
+        //Act
+        await channel.Send(command, Current.CancellationToken);
+
+        //Assert
+        sent.Count.ShouldBe(1);
+        sent[0].AckType.ShouldBe(CommandAck.Types.AckType.Cumulative);
+        sent[0].MessageId[0].EntryId.ShouldBe(2UL);
+        sent[0].MessageId[0].BatchIndex.ShouldBe(-1);
+        sent[0].MessageId[0].AckSet.Count.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Send_GivenCumulativeAckOfFirstEntryInLedgerAndBatchIndexAckDisabled_ShouldNotSend()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var messages = BatchTestData.AddBatch(batchHandler, 1, 0, 5);
+        var connection = CreateConnection(out var sent);
+        await using var channel = CreateChannel(connection, batchHandler, messageFactory);
+        var command = CreateAck(CommandAck.Types.AckType.Cumulative, messages[2]);
+
+        //Act
+        await channel.Send(command, Current.CancellationToken);
+
+        //Assert
+        sent.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Send_GivenCumulativeAckOfLaterEntry_ShouldRemoveTrackersOfEarlierEntries()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var first = BatchTestData.AddBatch(batchHandler, 1, 2, 3);
+        var second = BatchTestData.AddBatch(batchHandler, 1, 3, 3);
+        var third = BatchTestData.AddBatch(batchHandler, 1, 4, 3);
+        var otherLedger = BatchTestData.AddBatch(batchHandler, 2, 0, 3);
+        var connection = CreateConnection(out _);
+        await using var channel = CreateChannel(connection, batchHandler, messageFactory);
+        await channel.Send(CreateAck(CommandAck.Types.AckType.Individual, first[0]), Current.CancellationToken);
+        var command = CreateAck(CommandAck.Types.AckType.Cumulative, third[1]);
+
+        //Act
+        await channel.Send(command, Current.CancellationToken);
+
+        //Assert
+        batchHandler.TryGetBatchSize(BatchTestData.CreateBatchedId(1, 2, 0), out _).ShouldBeFalse();
+        batchHandler.TryGetBatchSize(BatchTestData.CreateBatchedId(1, 3, 0), out _).ShouldBeFalse();
+        batchHandler.TryGetBatchSize(BatchTestData.CreateBatchedId(1, 4, 0), out _).ShouldBeTrue();
+        batchHandler.TryGetBatchSize(BatchTestData.CreateBatchedId(2, 0, 0), out _).ShouldBeTrue();
+        second.Count.ShouldBe(3);
+        otherLedger.Count.ShouldBe(3);
+    }
+
+    [Fact]
+    public async Task Send_GivenCumulativeAckOfUnbatchedMessage_ShouldRemoveTrackersUpToThatEntry()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        _ = BatchTestData.AddBatch(batchHandler, 1, 2, 3);
+        _ = BatchTestData.AddBatch(batchHandler, 1, 3, 3);
+        _ = BatchTestData.AddBatch(batchHandler, 1, 4, 3);
+        var connection = CreateConnection(out var sent);
+        await using var channel = CreateChannel(connection, batchHandler, messageFactory);
+        var command = new CommandAck { AckType = CommandAck.Types.AckType.Cumulative };
+        command.MessageId.Add(BatchTestData.CreateEntryId(1, 3));
+
+        //Act
+        await channel.Send(command, Current.CancellationToken);
+
+        //Assert
+        sent.Count.ShouldBe(1);
+        sent[0].MessageId[0].EntryId.ShouldBe(3UL);
+        batchHandler.TryGetBatchSize(BatchTestData.CreateBatchedId(1, 2, 0), out _).ShouldBeFalse();
+        batchHandler.TryGetBatchSize(BatchTestData.CreateBatchedId(1, 3, 0), out _).ShouldBeFalse();
+        batchHandler.TryGetBatchSize(BatchTestData.CreateBatchedId(1, 4, 0), out _).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Send_GivenCompletedBatch_ShouldRemoveItsTracker()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var messages = BatchTestData.AddBatch(batchHandler, 1, 2, 2);
+        var connection = CreateConnection(out _);
+        await using var channel = CreateChannel(connection, batchHandler, messageFactory);
+
+        //Act
+        await channel.Send(CreateAck(CommandAck.Types.AckType.Individual, messages[0]), Current.CancellationToken);
+        await channel.Send(CreateAck(CommandAck.Types.AckType.Individual, messages[1]), Current.CancellationToken);
+
+        //Assert
+        batchHandler.TryGetBatchSize(BatchTestData.CreateBatchedId(1, 2, 0), out _).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Send_GivenBatchedIdWithoutTracker_ShouldAcknowledgeWholeEntry()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var connection = CreateConnection(out var sent);
+        await using var channel = CreateChannel(connection, batchHandler, messageFactory);
+        var command = new CommandAck { AckType = CommandAck.Types.AckType.Individual };
+        command.MessageId.Add(BatchTestData.CreateBatchedId(1, 9, 3));
+
+        //Act
+        await channel.Send(command, Current.CancellationToken);
+
+        //Assert
+        sent.Count.ShouldBe(1);
+        sent[0].MessageId.Count.ShouldBe(1);
+        sent[0].MessageId[0].LedgerId.ShouldBe(1UL);
+        sent[0].MessageId[0].EntryId.ShouldBe(9UL);
+        sent[0].MessageId[0].BatchIndex.ShouldBe(-1);
+    }
+
+    [Fact]
+    public async Task Send_GivenCompletedBatch_ShouldNotLeakBrokerMessageIdDataIntoPooledCommand()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var messages = BatchTestData.AddBatch(batchHandler, 1, 2, 1);
+        var connection = CreateConnection(out _);
+        await using var channel = CreateChannel(connection, batchHandler, messageFactory, batchIndexAckEnabled: true);
+        var pooled = new MessageIdData();
+        pooled.MapFrom(messages[0].MessageId);
+        var command = new CommandAck { AckType = CommandAck.Types.AckType.Individual };
+        command.MessageId.Add(pooled);
+
+        //Act
+        await channel.Send(command, Current.CancellationToken);
+
+        //Assert
+        command.MessageId.Count.ShouldBe(1);
+        command.MessageId[0].ShouldBeSameAs(pooled);
+        pooled.EntryId.ShouldBe(2UL);
+        pooled.BatchIndex.ShouldBe(-1);
+    }
+
+    [Fact]
+    public async Task Send_GivenCommandThatWasAlreadySent_ShouldSendItUnchangedWhenRetried()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var messages = BatchTestData.AddBatch(batchHandler, 1, 2, 5);
+        var connection = CreateConnection(out var sent);
+        await using var channel = CreateChannel(connection, batchHandler, messageFactory, batchIndexAckEnabled: true);
+        var command = CreateAck(CommandAck.Types.AckType.Individual, messages[2]);
+        await channel.Send(command, Current.CancellationToken);
+
+        //Act
+        await channel.Send(command, Current.CancellationToken);
+
+        //Assert
+        sent.Count.ShouldBe(2);
+        sent[1].MessageId.Count.ShouldBe(1);
+        sent[1].MessageId[0].EntryId.ShouldBe(2UL);
+        sent[1].MessageId[0].AckSet.ShouldBeAckSet(0b11011L);
+    }
+
+    [Fact]
+    public async Task Send_GivenBatchIndexAckEnabledAndAckReceiptEnabled_ShouldSendAckSetWithResponse()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var messages = BatchTestData.AddBatch(batchHandler, 1, 2, 5);
+        var connection = Substitute.For<IConnection>();
+        connection.ProtocolVersion.Returns(19);
+        var response = new BaseCommand { Type = BaseCommand.Types.Type.AckResponse, AckResponse = new CommandAckResponse() };
+        connection.SendWithResponse(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>()).Returns(response);
+        await using var channel = CreateChannel(connection, batchHandler, messageFactory, true, true);
+
+        //Act
+        var actual = await channel.Send(CreateAck(CommandAck.Types.AckType.Individual, messages[0]), Current.CancellationToken);
+
+        //Assert
+        actual.ShouldBeSameAs(response);
+        await connection.Received(1).SendWithResponse(Arg.Is<CommandAck>(ack => ack.MessageId[0].AckSet.SequenceEqual(new long[] { 0b11110 })), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Send_GivenBatchOfMoreThan64MessagesAndBatchIndexAckEnabled_ShouldSendMultipleWords()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var messages = BatchTestData.AddBatch(batchHandler, 1, 2, 130);
+        var connection = CreateConnection(out var sent);
+        await using var channel = CreateChannel(connection, batchHandler, messageFactory, batchIndexAckEnabled: true);
+
+        //Act
+        await channel.Send(CreateAck(CommandAck.Types.AckType.Individual, messages[100]), Current.CancellationToken);
+
+        //Assert
+        sent.Count.ShouldBe(1);
+        sent[0].MessageId[0].AckSet.ShouldBeAckSet(-1L, unchecked((long) ~(1UL << 36)), 0b11L);
+    }
+
+    [Fact]
+    public async Task SendTransactional_GivenIndividualAckOfBatchIndex2Of5_ShouldSendBatchSize5AndAckSetWithOnlyIndex2Cleared()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var messages = BatchTestData.AddBatch(batchHandler, 1, 2, 5);
+        var connection = CreateTransactionalConnection(out var sent);
+        await using var channel = CreateChannel(connection, batchHandler, messageFactory, true, true);
+        var command = CreateTransactionalAck(CommandAck.Types.AckType.Individual, messages[2]);
+
+        //Act
+        var actual = await channel.SendTransactional(command, Current.CancellationToken);
+
+        //Assert
+        actual.AckResponse.ShouldNotBeNull();
+        sent.Count.ShouldBe(1);
+        sent[0].ConsumerId.ShouldBe(1UL);
+        sent[0].TxnidMostBits.ShouldBe(7UL);
+        sent[0].TxnidLeastBits.ShouldBe(8UL);
+        sent[0].MessageId.Count.ShouldBe(1);
+        sent[0].MessageId[0].LedgerId.ShouldBe(1UL);
+        sent[0].MessageId[0].EntryId.ShouldBe(2UL);
+        sent[0].MessageId[0].HasBatchIndex.ShouldBeFalse();
+        sent[0].MessageId[0].BatchSize.ShouldBe(5);
+        sent[0].MessageId[0].AckSet.ShouldBeAckSet(0b11011L);
+    }
+
+    [Fact]
+    public async Task SendTransactional_GivenCumulativeAckOfBatchIndex2Of5_ShouldSendAckSetForIndexes3And4AndMutateTracker()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var messages = BatchTestData.AddBatch(batchHandler, 1, 2, 5);
+        var connection = CreateTransactionalConnection(out var sent);
+        await using var channel = CreateChannel(connection, batchHandler, messageFactory);
+        var plainConnection = CreateConnection(out var plainSent);
+        await using var plainChannel = CreateChannel(plainConnection, batchHandler, messageFactory);
+        var command = CreateTransactionalAck(CommandAck.Types.AckType.Cumulative, messages[2]);
+
+        //Act
+        await channel.SendTransactional(command, Current.CancellationToken);
+        await plainChannel.Send(CreateAck(CommandAck.Types.AckType.Individual, messages[3]), Current.CancellationToken);
+        var plainSentAfterIndex3 = plainSent.Count;
+        await plainChannel.Send(CreateAck(CommandAck.Types.AckType.Individual, messages[4]), Current.CancellationToken);
+
+        //Assert
+        sent.Count.ShouldBe(1);
+        sent[0].AckType.ShouldBe(CommandAck.Types.AckType.Cumulative);
+        sent[0].MessageId[0].EntryId.ShouldBe(2UL);
+        sent[0].MessageId[0].HasBatchIndex.ShouldBeFalse();
+        sent[0].MessageId[0].BatchSize.ShouldBe(5);
+        sent[0].MessageId[0].AckSet.ShouldBeAckSet(0b11000L);
+        plainSentAfterIndex3.ShouldBe(0);
+        plainSent.Count.ShouldBe(1);
+        plainSent[0].MessageId[0].EntryId.ShouldBe(2UL);
+        plainSent[0].MessageId[0].BatchIndex.ShouldBe(-1);
+    }
+
+    [Fact]
+    public async Task SendTransactional_GivenNonBatchedId_ShouldSendNoAckSetNorBatchSize()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var connection = CreateTransactionalConnection(out var sent);
+        await using var channel = CreateChannel(connection, batchHandler, messageFactory);
+        var command = new CommandAck { AckType = CommandAck.Types.AckType.Individual, TxnidMostBits = 7, TxnidLeastBits = 8 };
+        command.MessageId.Add(BatchTestData.CreateEntryId(1, 2));
+
+        //Act
+        await channel.SendTransactional(command, Current.CancellationToken);
+
+        //Assert
+        sent.Count.ShouldBe(1);
+        sent[0].MessageId[0].EntryId.ShouldBe(2UL);
+        sent[0].MessageId[0].AckSet.Count.ShouldBe(0);
+        sent[0].MessageId[0].HasBatchSize.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task SendTransactional_GivenBatchIndexAckDisabled_ShouldStillSendAckSet()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var messages = BatchTestData.AddBatch(batchHandler, 1, 2, 5);
+        var connection = CreateTransactionalConnection(out var sent);
+        await using var channel = CreateChannel(connection, batchHandler, messageFactory, false, false);
+
+        //Act
+        await channel.SendTransactional(CreateTransactionalAck(CommandAck.Types.AckType.Individual, messages[0]), Current.CancellationToken);
+
+        //Assert
+        sent[0].MessageId[0].BatchSize.ShouldBe(5);
+        sent[0].MessageId[0].AckSet.ShouldBeAckSet(0b11110L);
+    }
+
+    [Fact]
+    public async Task SendTransactional_GivenIndividualAckOfBatchIndex_ShouldNotChangeTracker()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var messages = BatchTestData.AddBatch(batchHandler, 1, 2, 3);
+        var connection = CreateTransactionalConnection(out _);
+        await using var channel = CreateChannel(connection, batchHandler, messageFactory);
+        var plainConnection = CreateConnection(out var plainSent);
+        await using var plainChannel = CreateChannel(plainConnection, batchHandler, messageFactory);
+        await channel.SendTransactional(CreateTransactionalAck(CommandAck.Types.AckType.Individual, messages[1]), Current.CancellationToken);
+
+        //Act
+        await plainChannel.Send(CreateAck(CommandAck.Types.AckType.Individual, messages[0]), Current.CancellationToken);
+        await plainChannel.Send(CreateAck(CommandAck.Types.AckType.Individual, messages[2]), Current.CancellationToken);
+
+        //Assert
+        plainSent.ShouldBeEmpty();
+        batchHandler.TryGetBatchSize(BatchTestData.CreateBatchedId(1, 2, 0), out _).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task SendTransactional_GivenBatchOfMoreThan64Messages_ShouldSendMultipleWords()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var messages = BatchTestData.AddBatch(batchHandler, 1, 2, 130);
+        var connection = CreateTransactionalConnection(out var sent);
+        await using var channel = CreateChannel(connection, batchHandler, messageFactory);
+
+        //Act
+        await channel.SendTransactional(CreateTransactionalAck(CommandAck.Types.AckType.Cumulative, messages[70]), Current.CancellationToken);
+
+        //Assert
+        sent[0].MessageId[0].BatchSize.ShouldBe(130);
+        sent[0].MessageId[0].AckSet.ShouldBeAckSet(0L, unchecked((long) ~((1UL << 7) - 1)), 0b11L);
+    }
+
+    [Fact]
+    public async Task SendTransactional_GivenBatchedIdWithoutTrackerButWithBatchSize_ShouldUseBatchSizeOfId()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var connection = CreateTransactionalConnection(out var sent);
+        await using var channel = CreateChannel(connection, batchHandler, messageFactory);
+        var messageId = BatchTestData.CreateBatchedId(1, 2, 2);
+        messageId.BatchSize = 5;
+        var command = new CommandAck { AckType = CommandAck.Types.AckType.Individual, TxnidMostBits = 7, TxnidLeastBits = 8 };
+        command.MessageId.Add(messageId);
+
+        //Act
+        await channel.SendTransactional(command, Current.CancellationToken);
+
+        //Assert
+        sent[0].MessageId[0].HasBatchIndex.ShouldBeFalse();
+        sent[0].MessageId[0].BatchSize.ShouldBe(5);
+        sent[0].MessageId[0].AckSet.ShouldBeAckSet(0b11011L);
+    }
+
+    [Fact]
+    public async Task SendTransactional_GivenBatchedIdWithoutTrackerAndBatchSize_ShouldSendWholeEntry()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var connection = CreateTransactionalConnection(out var sent);
+        await using var channel = CreateChannel(connection, batchHandler, messageFactory);
+        var command = new CommandAck { AckType = CommandAck.Types.AckType.Individual, TxnidMostBits = 7, TxnidLeastBits = 8 };
+        command.MessageId.Add(BatchTestData.CreateBatchedId(1, 2, 2));
+
+        //Act
+        await channel.SendTransactional(command, Current.CancellationToken);
+
+        //Assert
+        sent[0].MessageId[0].EntryId.ShouldBe(2UL);
+        sent[0].MessageId[0].HasBatchIndex.ShouldBeFalse();
+        sent[0].MessageId[0].HasBatchSize.ShouldBeFalse();
+        sent[0].MessageId[0].AckSet.Count.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task SendTransactional_GivenMultipleIdsOfSameBatch_ShouldSendOneMessageIdDataPerId()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var messages = BatchTestData.AddBatch(batchHandler, 1, 2, 5);
+        var connection = CreateTransactionalConnection(out var sent);
+        await using var channel = CreateChannel(connection, batchHandler, messageFactory);
+        var command = CreateTransactionalAck(CommandAck.Types.AckType.Individual, messages[1], messages[3]);
+
+        //Act
+        await channel.SendTransactional(command, Current.CancellationToken);
+
+        //Assert
+        sent[0].MessageId.Count.ShouldBe(2);
+        sent[0].MessageId[0].AckSet.ShouldBeAckSet(0b11101L);
+        sent[0].MessageId[1].AckSet.ShouldBeAckSet(0b10111L);
+    }
+
+    [Fact]
+    public async Task SendTransactional_GivenCommandThatWasAlreadySent_ShouldSendItUnchangedWhenRetried()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var messages = BatchTestData.AddBatch(batchHandler, 1, 2, 5);
+        var connection = CreateTransactionalConnection(out var sent);
+        await using var channel = CreateChannel(connection, batchHandler, messageFactory);
+        var command = CreateTransactionalAck(CommandAck.Types.AckType.Cumulative, messages[2]);
+        await channel.SendTransactional(command, Current.CancellationToken);
+
+        //Act
+        await channel.SendTransactional(command, Current.CancellationToken);
+
+        //Assert
+        sent.Count.ShouldBe(2);
+        sent[1].MessageId[0].BatchSize.ShouldBe(5);
+        sent[1].MessageId[0].AckSet.ShouldBeAckSet(0b11000L);
+    }
+
+    [Fact]
+    public async Task SendTransactional_GivenProtocolVersionWithoutAckReceipt_ShouldThrowNotSupportedExceptionAndNotChangeTracker()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var messages = BatchTestData.AddBatch(batchHandler, 1, 2, 5);
+        var connection = Substitute.For<IConnection>();
+        connection.ProtocolVersion.Returns(16);
+        await using var channel = CreateChannel(connection, batchHandler, messageFactory);
+        var command = CreateTransactionalAck(CommandAck.Types.AckType.Cumulative, messages[2]);
+
+        //Act
+        var exception = await Record.ExceptionAsync(async () => await channel.SendTransactional(command, Current.CancellationToken));
+
+        //Assert
+        exception.ShouldBeOfType<NotSupportedException>();
+        await connection.DidNotReceive().SendWithResponse(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>());
+        command.MessageId[0].BatchIndex.ShouldBe(2);
+        command.MessageId[0].AckSet.Count.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Receive_GivenEntryWithAllIndexesAcked_ShouldContinueToNextEntryAndKeepFlowAccounting()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var connection = Substitute.For<IConnection>();
+        var queue = new AsyncQueue<MessagePackage>();
+        await using var channel = CreateChannel(connection, batchHandler, messageFactory, queue: queue, prefetchCount: 4);
+        queue.Enqueue(BatchTestData.CreateBatchPackage(BatchTestData.CreateEntryId(1, 1), 3, BatchTestData.CreateAckSet(0)));
+        queue.Enqueue(BatchTestData.CreateSinglePackage(BatchTestData.CreateEntryId(1, 2)));
+        queue.Enqueue(BatchTestData.CreateSinglePackage(BatchTestData.CreateEntryId(1, 3)));
+        queue.Enqueue(BatchTestData.CreateSinglePackage(BatchTestData.CreateEntryId(1, 4)));
+
+        //Act
+        var second = await channel.Receive(Current.CancellationToken);
+        var third = await channel.Receive(Current.CancellationToken);
+        var flowsAfterTwoMessages = connection.ReceivedCalls().Count(call => call.GetArguments().FirstOrDefault() is CommandFlow);
+        var fourth = await channel.Receive(Current.CancellationToken);
+
+        //Assert
+        second.MessageId.EntryId.ShouldBe(2UL);
+        third.MessageId.EntryId.ShouldBe(3UL);
+        fourth.MessageId.EntryId.ShouldBe(4UL);
+        flowsAfterTwoMessages.ShouldBe(1);
+        connection.ReceivedCalls().Count(call => call.GetArguments().FirstOrDefault() is CommandFlow).ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task Receive_GivenCompactedOutMessagesInBatch_ShouldCountThemAsReceivedForFlow()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var connection = Substitute.For<IConnection>();
+        var queue = new AsyncQueue<MessagePackage>();
+        await using var channel = CreateChannel(connection, batchHandler, messageFactory, queue: queue, prefetchCount: 4);
+        queue.Enqueue(BatchTestData.CreateBatchPackage(BatchTestData.CreateEntryId(1, 1), 3, null, 0, 1));
+        queue.Enqueue(BatchTestData.CreateSinglePackage(BatchTestData.CreateEntryId(1, 2)));
+
+        //Act
+        var first = await channel.Receive(Current.CancellationToken);
+        var flowsAfterFirstMessage = connection.ReceivedCalls().Count(call => call.GetArguments().FirstOrDefault() is CommandFlow);
+        var second = await channel.Receive(Current.CancellationToken);
+
+        //Assert
+        first.MessageId.BatchIndex.ShouldBe(2);
+        second.MessageId.EntryId.ShouldBe(2UL);
+        flowsAfterFirstMessage.ShouldBe(1);
+        connection.ReceivedCalls().Count(call => call.GetArguments().FirstOrDefault() is CommandFlow).ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task Receive_GivenBrokerAckSet_ShouldDeliverOnlyUnacknowledgedIndexes()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var connection = Substitute.For<IConnection>();
+        var queue = new AsyncQueue<MessagePackage>();
+        await using var channel = CreateChannel(connection, batchHandler, messageFactory, queue: queue);
+        queue.Enqueue(BatchTestData.CreateBatchPackage(BatchTestData.CreateEntryId(1, 1), 5, BatchTestData.CreateAckSet(0b10110)));
+
+        //Act
+        var received = new List<DotPulsar.Abstractions.IMessage<byte[]>>();
+        for (var i = 0; i < 3; ++i)
+        {
+            received.Add(await channel.Receive(Current.CancellationToken));
+        }
+
+        //Assert
+        received.Select(message => message.MessageId.BatchIndex).ShouldBeSequence(1, 2, 4);
+    }
+
+    [Fact]
+    public async Task Receive_GivenBatch_ShouldReturnMessageIdsWithTopic()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var connection = Substitute.For<IConnection>();
+        var queue = new AsyncQueue<MessagePackage>();
+        await using var channel = CreateChannel(connection, batchHandler, messageFactory, queue: queue);
+        queue.Enqueue(BatchTestData.CreateBatchPackage(BatchTestData.CreateEntryId(1, 1), 2));
+        queue.Enqueue(BatchTestData.CreateSinglePackage(BatchTestData.CreateEntryId(1, 2)));
+
+        //Act
+        var first = await channel.Receive(Current.CancellationToken);
+        var second = await channel.Receive(Current.CancellationToken);
+        var unbatched = await channel.Receive(Current.CancellationToken);
+
+        //Assert
+        first.MessageId.Topic.ShouldBe(BatchTestData.Topic);
+        second.MessageId.Topic.ShouldBe(BatchTestData.Topic);
+        unbatched.MessageId.Topic.ShouldBe(BatchTestData.Topic);
+    }
+
+    private static (BatchHandler<byte[]> Handler, MessageFactory<byte[]> Factory) CreateBatchHandler()
+    {
+        var messageFactory = new MessageFactory<byte[]>(DotPulsar.Schema.ByteArray);
+        return (new BatchHandler<byte[]>(true, messageFactory, BatchTestData.Topic), messageFactory);
+    }
+
+    private static IConnection CreateConnection(out List<CommandAck> sent)
+    {
+        var acks = new List<CommandAck>();
+        sent = acks;
+        var connection = Substitute.For<IConnection>();
+        connection.Send(Arg.Do<CommandAck>(ack => acks.Add(ack.Clone())), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
+        return connection;
+    }
+
+    private static IConnection CreateTransactionalConnection(out List<CommandAck> sent)
+    {
+        var acks = new List<CommandAck>();
+        sent = acks;
+        var connection = Substitute.For<IConnection>();
+        connection.ProtocolVersion.Returns(19);
+        var response = new BaseCommand { Type = BaseCommand.Types.Type.AckResponse, AckResponse = new CommandAckResponse() };
+        connection.SendWithResponse(Arg.Do<CommandAck>(ack => acks.Add(ack.Clone())), Arg.Any<CancellationToken>()).Returns(response);
+        return connection;
+    }
+
+    private static CommandAck CreateAck(CommandAck.Types.AckType ackType, params DotPulsar.Abstractions.IMessage<byte[]>[] messages)
+    {
+        var command = new CommandAck { AckType = ackType };
+
+        foreach (var message in messages)
+        {
+            command.MessageId.Add(ToProtocolId(message.MessageId));
+        }
+
+        return command;
+    }
+
+    private static CommandAck CreateTransactionalAck(CommandAck.Types.AckType ackType, params DotPulsar.Abstractions.IMessage<byte[]>[] messages)
+    {
+        var command = CreateAck(ackType, messages);
+        command.TxnidMostBits = 7;
+        command.TxnidLeastBits = 8;
+        return command;
+    }
+
     private static ConsumerChannel<byte[]> CreateChannel(
         IConnection connection,
         BatchHandler<byte[]> batchHandler,
         MessageFactory<byte[]> messageFactory,
-        bool ackReceiptEnabled = false)
-        => new(1, 100, new AsyncQueue<MessagePackage>(), connection, batchHandler, messageFactory, [], "persistent://public/default/test", ackReceiptEnabled);
+        bool ackReceiptEnabled = false,
+        bool batchIndexAckEnabled = false,
+        AsyncQueue<MessagePackage>? queue = null,
+        uint prefetchCount = 100)
+        => new(1, prefetchCount, queue ?? new AsyncQueue<MessagePackage>(), connection, batchHandler, messageFactory, [], BatchTestData.Topic, ackReceiptEnabled, batchIndexAckEnabled);
 
     private static MessageIdData ToProtocolId(MessageId messageId)
         => new()

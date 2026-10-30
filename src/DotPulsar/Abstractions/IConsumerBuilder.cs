@@ -102,6 +102,11 @@ public interface IConsumerBuilder<TMessage>
     IConsumerBuilder<TMessage> AckReceiptEnabled(bool ackReceiptEnabled);
 
     /// <summary>
+    /// Whether partial acknowledgments of batched messages are sent to the broker using batch index acknowledgment. The default is 'false'.
+    /// </summary>
+    IConsumerBuilder<TMessage> BatchIndexAckEnabled(bool batchIndexAckEnabled);
+
+    /// <summary>
     /// Create the consumer.
     /// </summary>
     IConsumer<TMessage> Create();

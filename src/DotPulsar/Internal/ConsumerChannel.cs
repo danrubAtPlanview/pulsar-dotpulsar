@@ -19,6 +19,7 @@ using DotPulsar.Exceptions;
 using DotPulsar.Internal.Abstractions;
 using DotPulsar.Internal.Extensions;
 using DotPulsar.Internal.PulsarApi;
+using Google.Protobuf.Collections;
 
 public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
 {
@@ -32,6 +33,7 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
     private readonly AsyncLock _lock;
     private readonly string _topic;
     private readonly bool _ackReceiptEnabled;
+    private readonly bool _batchIndexAckEnabled;
     private uint _sendWhenZero;
     private bool _firstFlow;
 
@@ -44,7 +46,8 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
         IMessageFactory<TMessage> messageFactory,
         IEnumerable<IDecompressorFactory> decompressorFactories,
         string topic,
-        bool ackReceiptEnabled)
+        bool ackReceiptEnabled,
+        bool batchIndexAckEnabled)
     {
         _id = id;
         _queue = queue;
@@ -53,6 +56,7 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
         _messageFactory = messageFactory;
         _topic = topic;
         _ackReceiptEnabled = ackReceiptEnabled;
+        _batchIndexAckEnabled = batchIndexAckEnabled;
 
         _decompressors = new IDecompress[5];
 
@@ -124,15 +128,32 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
 
                     if (metadata.HasNumMessagesInBatch)
                     {
+                        IMessage<TMessage>? batchMessage;
+                        int chargedButSkipped;
+
                         try
                         {
-                            return _batchHandler.Add(messageId, redeliveryCount, metadata, data);
+                            batchMessage = _batchHandler.Add(messageId, messagePackage.AckSet, redeliveryCount, metadata, data, out chargedButSkipped);
                         }
                         catch
                         {
                             await RejectPackage(messagePackage, CommandAck.Types.ValidationError.BatchDeSerializeError, cancellationToken).ConfigureAwait(false);
                             continue;
                         }
+
+                        // Nothing was received if every message of the batch was skipped
+                        if (batchMessage is null)
+                            _sendWhenZero++;
+
+                        // Upstream: ConsumerImpl#receiveIndividualMessagesFromBatch (increaseAvailablePermits)
+                        // The broker has deducted permits for the messages that were skipped, so they count as received
+                        if (chargedButSkipped > 0)
+                            _sendWhenZero = (uint) chargedButSkipped >= _sendWhenZero ? 0 : _sendWhenZero - (uint) chargedButSkipped;
+
+                        if (batchMessage is null)
+                            continue;
+
+                        return batchMessage;
                     }
 
                     return _messageFactory.Create(messageId.ToMessageId(_topic), redeliveryCount, data, metadata);
@@ -162,49 +183,187 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
         return null;
     }
 
+    // Upstream: PersistentAcknowledgmentsGroupingTracker#addAcknowledgment (C# deviation: the acknowledgments are not grouped)
+    // The message ids of the command are changed in place, because they belong to the command and may be pooled with it.
+    // An id that is kept by this method and has a batch index is the entry of a batch. Its batch index is cleared at the end.
     private bool PrepareAck(CommandAck command)
     {
-        if (command.MessageId.Count == 0)
+        var messageIds = command.MessageId;
+
+        if (messageIds.Count == 0)
             return false;
 
-        if (command.AckType == CommandAck.Types.AckType.Individual && command.MessageId.Count > 1)
+        var cumulative = command.AckType == CommandAck.Types.AckType.Cumulative;
+        var keep = 0;
+        var hasBatchedIds = false;
+
+        for (var i = 0; i < messageIds.Count; ++i)
         {
-            var readyCount = 0;
-            for (var i = 0; i < command.MessageId.Count; ++i)
+            var messageId = messageIds[i];
+
+            if (messageId.BatchIndex < 0)
             {
-                var messageId = command.MessageId[i];
-                if (messageId.BatchIndex != -1)
-                {
-                    var batchMessageId = _batchHandler.Acknowledge(messageId);
-                    if (batchMessageId is null)
-                        continue;
+                if (cumulative)
+                    _batchHandler.PruneUpTo(messageId);
+            }
+            else
+            {
+                hasBatchedIds = true;
 
-                    messageId = batchMessageId;
-                }
-
-                command.MessageId[readyCount++] = messageId;
+                if (!(cumulative ? PrepareCumulativeAck(messageId) : PrepareIndividualAck(messageId, messageIds, keep)))
+                    continue;
             }
 
-            if (readyCount == 0)
-                return false;
-
-            while (command.MessageId.Count > readyCount)
-                command.MessageId.RemoveAt(command.MessageId.Count - 1);
+            messageIds[keep++] = messageId;
         }
-        else
-        {
-            var messageId = command.MessageId[0];
-            if (messageId.BatchIndex != -1)
-            {
-                var batchMessageId = _batchHandler.Acknowledge(messageId);
-                if (batchMessageId is null)
-                    return false;
 
-                command.MessageId[0] = batchMessageId;
+        if (keep == 0)
+            return false;
+
+        while (messageIds.Count > keep)
+            messageIds.RemoveAt(messageIds.Count - 1);
+
+        if (hasBatchedIds)
+        {
+            for (var i = 0; i < keep; ++i)
+            {
+                if (messageIds[i].BatchIndex >= 0)
+                    messageIds[i].ClearBatchIndex();
             }
         }
 
         return true;
+    }
+
+    // Returns whether the message id is to be sent
+    private bool PrepareIndividualAck(MessageIdData messageId, RepeatedField<MessageIdData> keptMessageIds, int keptCount)
+    {
+        var tracker = _batchHandler.AcknowledgeIndividual(messageId, out var isComplete);
+        var kept = FindEntry(keptMessageIds, keptCount, messageId);
+
+        if (kept is not null)
+        {
+            // Another message of the same batch is already part of the command. A kept id that still has a batch index was created from a tracker.
+            if (kept.BatchIndex >= 0)
+            {
+                if (tracker is null || isComplete)
+                    kept.AckSet.Clear();
+                else if (_batchIndexAckEnabled)
+                    _batchHandler.CopyAckSetTo(tracker, kept.AckSet);
+            }
+
+            return false;
+        }
+
+        // A batch that is not tracked is acknowledged as a whole
+        if (tracker is null)
+        {
+            messageId.ClearBatchIndex();
+            return true;
+        }
+
+        if (isComplete)
+        {
+            messageId.AckSet.Clear();
+            return true;
+        }
+
+        if (!_batchIndexAckEnabled)
+            return false;
+
+        _batchHandler.CopyAckSetTo(tracker, messageId.AckSet);
+        return true;
+    }
+
+    // Returns whether the message id is to be sent
+    private bool PrepareCumulativeAck(MessageIdData messageId)
+    {
+        var tracker = _batchHandler.AcknowledgeCumulative(messageId, out var isComplete);
+
+        if (tracker is null || isComplete)
+        {
+            messageId.AckSet.Clear();
+            messageId.ClearBatchIndex();
+            return true;
+        }
+
+        if (_batchIndexAckEnabled)
+        {
+            _batchHandler.CopyAckSetTo(tracker, messageId.AckSet);
+            messageId.ClearBatchIndex();
+            return true;
+        }
+
+        // Only the entries before the batch are completely acknowledged
+        if (messageId.EntryId == 0)
+            return false;
+
+        messageId.EntryId--;
+        messageId.AckSet.Clear();
+        messageId.ClearBatchIndex();
+        return true;
+    }
+
+    private static MessageIdData? FindEntry(RepeatedField<MessageIdData> messageIds, int count, MessageIdData messageId)
+    {
+        for (var i = count - 1; i >= 0; --i)
+        {
+            var candidate = messageIds[i];
+
+            if (candidate.LedgerId == messageId.LedgerId && candidate.EntryId == messageId.EntryId && candidate.Partition == messageId.Partition)
+                return candidate;
+        }
+
+        return null;
+    }
+
+    // Upstream: ConsumerImpl#doTransactionAcknowledgeForResponse
+    // The batch index is not enough for the broker, so a message in a batch is acknowledged using the ack set of the batch.
+    // This is done regardless of BatchIndexAckEnabled, and the trackers are only changed by a cumulative acknowledgment.
+    public async Task<BaseCommand> SendTransactional(CommandAck command, CancellationToken cancellationToken)
+    {
+        if (_connection.ProtocolVersion < Constants.ProtocolVersionAckReceipt)
+            throw new NotSupportedException("The broker does not support acknowledgment receipts (protocol version < 17)");
+
+        var cumulative = command.AckType == CommandAck.Types.AckType.Cumulative;
+
+        for (var i = 0; i < command.MessageId.Count; ++i)
+        {
+            var messageId = command.MessageId[i];
+
+            if (messageId.BatchIndex < 0)
+                continue;
+
+            var batchSize = GetBatchSize(messageId);
+
+            if (batchSize > 0)
+            {
+                if (cumulative)
+                {
+                    _batchHandler.AcknowledgeCumulative(messageId, out _);
+                    AckSetWriter.WriteCumulative(messageId.AckSet, batchSize, messageId.BatchIndex);
+                }
+                else
+                {
+                    AckSetWriter.WriteIndividual(messageId.AckSet, batchSize, messageId.BatchIndex);
+                }
+
+                messageId.BatchSize = batchSize;
+            }
+
+            messageId.ClearBatchIndex();
+        }
+
+        command.ConsumerId = _id;
+        return await _connection.SendWithResponse(command, cancellationToken).ConfigureAwait(false);
+    }
+
+    private int GetBatchSize(MessageIdData messageId)
+    {
+        if (_batchHandler.TryGetBatchSize(messageId, out var batchSize))
+            return batchSize;
+
+        return messageId.HasBatchSize ? messageId.BatchSize : 0;
     }
 
     public async Task Send(CommandRedeliverUnacknowledgedMessages command, CancellationToken cancellationToken)

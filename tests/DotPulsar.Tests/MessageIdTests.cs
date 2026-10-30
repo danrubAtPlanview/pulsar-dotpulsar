@@ -16,6 +16,8 @@
 
 namespace DotPulsar.Tests;
 
+using DotPulsar.Tests.Internal;
+
 [Trait("Category", "Unit")]
 public class MessageIdTests
 {
@@ -229,6 +231,143 @@ public class MessageIdTests
         result.ShouldBeTrue();
         actual.ShouldBe(expected);
     }
-}
 
-#nullable enable
+    // Upstream: BatchMessageIdImplTest#compareToTest
+    [Fact]
+    public void CompareTo_GivenBatchIds0000And1111_ShouldOrder()
+    {
+        //Arrange
+        var batchMsgId1 = new MessageId(0, 0, 0, 0);
+        var batchMsgId2 = new MessageId(1, 1, 1, 1);
+
+        //Act
+        var first = batchMsgId1.CompareTo(batchMsgId2);
+        var second = batchMsgId2.CompareTo(batchMsgId1);
+        var same = batchMsgId2.CompareTo(batchMsgId2);
+
+        //Assert
+        first.ShouldBe(-1);
+        second.ShouldBe(1);
+        same.ShouldBe(0);
+    }
+
+    // Upstream: BatchMessageIdImplTest#hashCodeTest
+    [Fact]
+    public void GetHashCode_GivenDifferentBatchIds_ShouldDiffer()
+    {
+        //Arrange
+        var batchMsgId1 = new MessageId(0, 0, 0, 0);
+        var batchMsgId2 = new MessageId(1, 1, 1, 1);
+
+        //Act
+        var hashCode1 = batchMsgId1.GetHashCode();
+        var hashCode2 = batchMsgId2.GetHashCode();
+
+        //Assert
+        hashCode1.ShouldBe(batchMsgId1.GetHashCode());
+        hashCode1.ShouldNotBe(hashCode2);
+    }
+
+    // Upstream: BatchMessageIdImplTest#equalsTest
+    [Fact]
+    public void Equals_GivenBatchAndNonBatchIds_ShouldFollowJavaRules()
+    {
+        //Arrange
+        var batchMsgId1 = new MessageId(0, 0, 0, 0);
+        var batchMsgId2 = new MessageId(1, 1, 1, 1);
+        var batchMsgId3 = new MessageId(0, 0, 0, 1);
+        var batchMsgId4 = new MessageId(0, 0, 0, -1);
+        var msgId = new MessageId(0, 0, 0, -1);
+
+        //Assert
+        batchMsgId1.Equals(batchMsgId1).ShouldBeTrue();
+        batchMsgId2.Equals(batchMsgId1).ShouldBeFalse();
+        batchMsgId3.Equals(batchMsgId1).ShouldBeFalse();
+        batchMsgId4.Equals(batchMsgId1).ShouldBeFalse();
+        msgId.Equals(batchMsgId1).ShouldBeFalse();
+
+        msgId.Equals(msgId).ShouldBeTrue();
+        batchMsgId1.Equals(msgId).ShouldBeFalse();
+        batchMsgId2.Equals(msgId).ShouldBeFalse();
+        batchMsgId3.Equals(msgId).ShouldBeFalse();
+        batchMsgId4.Equals(msgId).ShouldBeTrue();
+        msgId.Equals(batchMsgId4).ShouldBeTrue();
+    }
+
+    // Upstream: BatchMessageIdImplTest#compareToUnbatchedTest
+    [Fact]
+    public void CompareTo_GivenUnbatchedAndBatchIndex0_ShouldBeLess()
+    {
+        //Arrange
+        var msgId = new MessageId(1, 2, 3, -1);
+        var batchMsgId = new MessageId(1, 2, 3, 0);
+        var unbatchedBatchMsgId = new MessageId(1, 2, 3, -1);
+
+        //Assert
+        msgId.CompareTo(batchMsgId).ShouldBe(-1);
+        batchMsgId.CompareTo(msgId).ShouldBe(1);
+        msgId.CompareTo(unbatchedBatchMsgId).ShouldBe(0);
+        unbatchedBatchMsgId.CompareTo(msgId).ShouldBe(0);
+    }
+
+    // Upstream: BatchMessageIdImplTest#equalsUnbatchedTest
+    [Fact]
+    public void Equals_GivenUnbatchedIds_ShouldCompareCoordinates()
+    {
+        //Arrange
+        var batchMsgId1 = new MessageId(0, 0, 0, -1);
+        var batchMsgId2 = new MessageId(1, 1, 1, -1);
+        var msgId1 = new MessageId(0, 0, 0, -1);
+        var msgId2 = new MessageId(1, 1, 1, -1);
+
+        //Assert
+        batchMsgId1.Equals(msgId1).ShouldBeTrue();
+        batchMsgId2.Equals(msgId2).ShouldBeTrue();
+        batchMsgId1.Equals(msgId2).ShouldBeFalse();
+        batchMsgId2.Equals(msgId1).ShouldBeFalse();
+    }
+
+    // Upstream: BatchMessageIdImplTest#hashCodeUnbatchedTest
+    [Fact]
+    public void GetHashCode_GivenEqualUnbatchedIds_ShouldBeEqual()
+    {
+        //Arrange
+        var batchMsgId1 = new MessageId(0, 0, 0, -1);
+        var batchMsgId2 = new MessageId(1, 1, 1, -1);
+        var msgId1 = new MessageId(0, 0, 0, -1);
+        var msgId2 = new MessageId(1, 1, 1, -1);
+
+        //Assert
+        batchMsgId1.GetHashCode().ShouldBe(msgId1.GetHashCode());
+        batchMsgId2.GetHashCode().ShouldBe(msgId2.GetHashCode());
+    }
+
+    [Fact]
+    public void BatchSize_ShouldNotTakePartInEqualityOrHashCode()
+    {
+        //Arrange
+        var withoutBatchSize = new MessageId(1, 2, 3, 4, "topic");
+        var withBatchSize = MessageIdInternals.Create(1, 2, 3, 4, "topic", 10);
+
+        //Assert
+        withBatchSize.GetBatchSize().ShouldBe(10);
+        withoutBatchSize.GetBatchSize().ShouldBe(0);
+        withBatchSize.Equals(withoutBatchSize).ShouldBeTrue();
+        withBatchSize.GetHashCode().ShouldBe(withoutBatchSize.GetHashCode());
+        withBatchSize.CompareTo(withoutBatchSize).ShouldBe(0);
+        withBatchSize.ToString().ShouldBe(withoutBatchSize.ToString());
+    }
+
+    [Fact]
+    public void TryParse_GivenValidString_ShouldNotSetBatchSize()
+    {
+        //Arrange
+        var messageId = MessageIdInternals.Create(1, 2, 3, 4, "topic", 10);
+
+        //Act
+        MessageId.TryParse(messageId.ToString(), out var actual);
+
+        //Assert
+        actual.GetBatchSize().ShouldBe(0);
+    }
+}

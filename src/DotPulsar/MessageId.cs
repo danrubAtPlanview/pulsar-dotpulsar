@@ -50,6 +50,10 @@ public sealed class MessageId : IEquatable<MessageId>, IComparable<MessageId>
         Topic = topic;
     }
 
+    internal MessageId(ulong ledgerId, ulong entryId, int partition, int batchIndex, string topic, int batchSize)
+        : this(ledgerId, entryId, partition, batchIndex, topic)
+        => BatchSize = batchSize;
+
     /// <summary>
     /// The id of the ledger.
     /// </summary>
@@ -74,6 +78,9 @@ public sealed class MessageId : IEquatable<MessageId>, IComparable<MessageId>
     /// Return the full topic name of a message.
     /// </summary>
     public string Topic { get; }
+
+    // The number of messages in the batch of the message, or 0 if unknown or not part of a batch. It is not part of equality, hashing and ToString.
+    internal int BatchSize { get; }
 
     public int CompareTo(MessageId? other)
     {

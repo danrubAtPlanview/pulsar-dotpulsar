@@ -463,9 +463,9 @@ public sealed class Consumer<TMessage> : IConsumer<TMessage>
 
         var messagePrefetchCount = _consumerOptions.MessagePrefetchCount;
         var messageFactory = new MessageFactory<TMessage>(_consumerOptions.Schema);
-        var batchHandler = new BatchHandler<TMessage>(true, messageFactory);
+        var batchHandler = new BatchHandler<TMessage>(true, messageFactory, topic);
         var decompressorFactories = CompressionFactories.DecompressorFactories();
-        var consumerChannelFactory = new ConsumerChannelFactory<TMessage>(correlationId, _processManager, _connectionPool, subscribe, messagePrefetchCount, batchHandler, messageFactory, decompressorFactories, topic, _consumerOptions.AckReceiptEnabled);
+        var consumerChannelFactory = new ConsumerChannelFactory<TMessage>(correlationId, _processManager, _connectionPool, subscribe, messagePrefetchCount, batchHandler, messageFactory, decompressorFactories, topic, _consumerOptions.AckReceiptEnabled, _consumerOptions.BatchIndexAckEnabled);
         var stateManager = CreateStateManager();
         var initialChannel = new NotReadyChannel<TMessage>();
         var executor = new Executor(correlationId, _processManager, _exceptionHandler);

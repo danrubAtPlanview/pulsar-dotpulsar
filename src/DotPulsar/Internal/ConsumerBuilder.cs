@@ -38,12 +38,14 @@ public sealed class ConsumerBuilder<TMessage> : IConsumerBuilder<TMessage>
     private IHandleStateChanged<ConsumerStateChanged>? _stateChangedHandler;
     private bool _allowOutOfOrderDeliver;
     private bool _ackReceiptEnabled;
+    private bool _batchIndexAckEnabled;
 
     public ConsumerBuilder(IPulsarClient pulsarClient, ISchema<TMessage> schema)
     {
         _schema = schema;
         _pulsarClient = pulsarClient;
         _ackReceiptEnabled = ConsumerOptions<TMessage>.DefaultAckReceiptEnabled;
+        _batchIndexAckEnabled = ConsumerOptions<TMessage>.DefaultBatchIndexAckEnabled;
         _initialPosition = ConsumerOptions<TMessage>.DefaultInitialPosition;
         _priorityLevel = ConsumerOptions<TMessage>.DefaultPriorityLevel;
         _messagePrefetchCount = ConsumerOptions<TMessage>.DefaultMessagePrefetchCount;
@@ -158,6 +160,12 @@ public sealed class ConsumerBuilder<TMessage> : IConsumerBuilder<TMessage>
         return this;
     }
 
+    public IConsumerBuilder<TMessage> BatchIndexAckEnabled(bool batchIndexAckEnabled)
+    {
+        _batchIndexAckEnabled = batchIndexAckEnabled;
+        return this;
+    }
+
     public IConsumer<TMessage> Create()
     {
         if (string.IsNullOrEmpty(_subscriptionName))
@@ -181,7 +189,8 @@ public sealed class ConsumerBuilder<TMessage> : IConsumerBuilder<TMessage>
             Topics = _topics,
             TopicsPattern = _topicsPattern,
             AllowOutOfOrderDeliver = _allowOutOfOrderDeliver,
-            AckReceiptEnabled = _ackReceiptEnabled
+            AckReceiptEnabled = _ackReceiptEnabled,
+            BatchIndexAckEnabled = _batchIndexAckEnabled
         };
 
         return _pulsarClient.CreateConsumer(options);

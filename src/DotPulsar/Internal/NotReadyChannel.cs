@@ -37,6 +37,9 @@ public sealed class NotReadyChannel<TMessage> : IConsumerChannel<TMessage>, IPro
     public Task<BaseCommand?> Send(CommandAck command, CancellationToken cancellationToken)
         => throw GetException();
 
+    public Task<BaseCommand> SendTransactional(CommandAck command, CancellationToken cancellationToken)
+        => throw GetException();
+
     public Task Send(CommandRedeliverUnacknowledgedMessages command, CancellationToken cancellationToken)
         => throw GetException();
 

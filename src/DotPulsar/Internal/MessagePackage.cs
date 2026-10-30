@@ -15,18 +15,21 @@
 namespace DotPulsar.Internal;
 
 using DotPulsar.Internal.PulsarApi;
+using Google.Protobuf.Collections;
 using System.Buffers;
 
 public readonly struct MessagePackage
 {
-    public MessagePackage(MessageIdData messageId, uint redeliveryCount, ReadOnlySequence<byte> data)
+    public MessagePackage(MessageIdData messageId, uint redeliveryCount, RepeatedField<long> ackSet, ReadOnlySequence<byte> data)
     {
         MessageId = messageId;
         RedeliveryCount = redeliveryCount;
+        AckSet = ackSet;
         Data = data;
     }
 
     public MessageIdData MessageId { get; }
     public uint RedeliveryCount { get; }
+    public RepeatedField<long> AckSet { get; }
     public ReadOnlySequence<byte> Data { get; }
 }

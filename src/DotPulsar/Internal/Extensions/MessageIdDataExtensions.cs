@@ -27,5 +27,8 @@ public static class MessageIdDataExtensions
         destination.EntryId = source.EntryId;
         destination.Partition = source.Partition;
         destination.BatchIndex = source.BatchIndex;
+        destination.AckSet.Clear();
+        destination.ClearBatchSize();
+        destination.FirstChunkMessageId = null;
     }
 }

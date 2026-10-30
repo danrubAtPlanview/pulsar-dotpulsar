@@ -228,7 +228,7 @@ public sealed class ChannelManager : IStateHolder<ChannelManagerState>, IDisposa
         => _incoming.Get(command.Type)(command);
 
     public void Incoming(CommandMessage command, ReadOnlySequence<byte> data)
-        => _consumerChannels[command.ConsumerId]?.Received(new MessagePackage(command.MessageId, command.RedeliveryCount, data));
+        => _consumerChannels[command.ConsumerId]?.Received(new MessagePackage(command.MessageId, command.RedeliveryCount, command.AckSet, data));
 
     public void Dispose()
     {

@@ -29,6 +29,7 @@ public sealed class ConsumerChannelFactory<TMessage> : IConsumerChannelFactory<T
     private readonly IEnumerable<IDecompressorFactory> _decompressorFactories;
     private readonly string _topic;
     private readonly bool _ackReceiptEnabled;
+    private readonly bool _batchIndexAckEnabled;
 
     public ConsumerChannelFactory(
         Guid correlationId,
@@ -40,7 +41,8 @@ public sealed class ConsumerChannelFactory<TMessage> : IConsumerChannelFactory<T
         IMessageFactory<TMessage> messageFactory,
         IEnumerable<IDecompressorFactory> decompressorFactories,
         string topic,
-        bool ackReceiptEnabled)
+        bool ackReceiptEnabled,
+        bool batchIndexAckEnabled)
     {
         _correlationId = correlationId;
         _eventRegister = eventRegister;
@@ -52,6 +54,7 @@ public sealed class ConsumerChannelFactory<TMessage> : IConsumerChannelFactory<T
         _decompressorFactories = decompressorFactories;
         _topic = topic;
         _ackReceiptEnabled = ackReceiptEnabled;
+        _batchIndexAckEnabled = batchIndexAckEnabled;
     }
 
     public async Task<IConsumerChannel<TMessage>> Create(CancellationToken cancellationToken)
@@ -60,6 +63,6 @@ public sealed class ConsumerChannelFactory<TMessage> : IConsumerChannelFactory<T
         var messageQueue = new AsyncQueue<MessagePackage>();
         var channel = new Channel(_correlationId, _eventRegister, messageQueue);
         var response = await connection.Send(_subscribe, channel, cancellationToken).ConfigureAwait(false);
-        return new ConsumerChannel<TMessage>(response.ConsumerId, _messagePrefetchCount, messageQueue, connection, _batchHandler, _messageFactory, _decompressorFactories, _topic, _ackReceiptEnabled);
+        return new ConsumerChannel<TMessage>(response.ConsumerId, _messagePrefetchCount, messageQueue, connection, _batchHandler, _messageFactory, _decompressorFactories, _topic, _ackReceiptEnabled, _batchIndexAckEnabled);
     }
 }

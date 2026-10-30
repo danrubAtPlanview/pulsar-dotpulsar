@@ -28,6 +28,11 @@ public sealed class ConsumerOptions<TMessage>
     public static readonly bool DefaultAckReceiptEnabled = false;
 
     /// <summary>
+    /// The default of whether to acknowledge individual messages inside a batch with batch index acknowledgment.
+    /// </summary>
+    public static readonly bool DefaultBatchIndexAckEnabled = false;
+
+    /// <summary>
     /// The default initial position.
     /// </summary>
     public static readonly SubscriptionInitialPosition DefaultInitialPosition = SubscriptionInitialPosition.Latest;
@@ -67,6 +72,7 @@ public sealed class ConsumerOptions<TMessage>
     private ConsumerOptions(string subscriptionName, ISchema<TMessage> schema, string topic, Regex? topicsPattern, IEnumerable<string> topics)
     {
         AckReceiptEnabled = DefaultAckReceiptEnabled;
+        BatchIndexAckEnabled = DefaultBatchIndexAckEnabled;
         InitialPosition = DefaultInitialPosition;
         PriorityLevel = DefaultPriorityLevel;
         MessagePrefetchCount = DefaultMessagePrefetchCount;
@@ -203,4 +209,9 @@ public sealed class ConsumerOptions<TMessage>
     /// Whether acknowledgments wait for a receipt from the broker, so that acknowledgment errors are reported to the caller. Transactional acknowledgments always wait for a receipt. The default is 'false'.
     /// </summary>
     public bool AckReceiptEnabled { get; set; }
+
+    /// <summary>
+    /// Whether partial acknowledgments of batched messages are sent to the broker using batch index acknowledgment (requires the broker setting 'acknowledgmentAtBatchIndexLevelEnabled'). Transactional acknowledgments always use batch index acknowledgment. The default is 'false'.
+    /// </summary>
+    public bool BatchIndexAckEnabled { get; set; }
 }

@@ -18,55 +18,90 @@ using DotPulsar.Abstractions;
 using DotPulsar.Internal.Abstractions;
 using DotPulsar.Internal.Extensions;
 using DotPulsar.Internal.PulsarApi;
+using Google.Protobuf.Collections;
 using System.Buffers;
-using System.Collections;
 
 public sealed class BatchHandler<TMessage>
 {
     private readonly object _lock;
     private readonly bool _trackBatches;
     private readonly IMessageFactory<TMessage> _messageFactory;
+    private readonly string _topic;
     private readonly Queue<IMessage<TMessage>> _messages;
-    private readonly LinkedList<Batch> _batches;
+    private readonly Dictionary<EntryKey, BatchAckTracker> _trackers;
+    private readonly List<EntryKey> _removals;
 
-    public BatchHandler(bool trackBatches, IMessageFactory<TMessage> messageFactory)
+    public BatchHandler(bool trackBatches, IMessageFactory<TMessage> messageFactory, string topic)
     {
         _lock = new object();
         _trackBatches = trackBatches;
         _messageFactory = messageFactory;
+        _topic = topic;
         _messages = new Queue<IMessage<TMessage>>();
-        _batches = new LinkedList<Batch>();
+        _trackers = [];
+        _removals = [];
     }
 
-    public IMessage<TMessage> Add(MessageIdData messageId, uint redeliveryCount, MessageMetadata metadata, ReadOnlySequence<byte> data)
+    // Upstream: ConsumerImpl#receiveIndividualMessagesFromBatch
+    // Returns the first message that is to be delivered, or null if every message of the batch was skipped.
+    // chargedButSkipped is the number of messages that were skipped although the broker has deducted permits for them.
+    public IMessage<TMessage>? Add(MessageIdData messageId, RepeatedField<long>? brokerAckSet, uint redeliveryCount, MessageMetadata metadata, ReadOnlySequence<byte> data, out int chargedButSkipped)
     {
-        var messages = new List<IMessage<TMessage>>(metadata.NumMessagesInBatch);
+        chargedButSkipped = 0;
 
-        long index = 0;
+        var numberOfMessages = metadata.NumMessagesInBatch;
+        var filterAcknowledged = brokerAckSet is not null && brokerAckSet.Count > 0;
+        var tracker = _trackBatches && numberOfMessages > 0 ? new BatchAckTracker(messageId, numberOfMessages, brokerAckSet) : null;
+        var messages = ArrayPool<IMessage<TMessage>>.Shared.Rent(numberOfMessages);
+        var deliverable = 0;
 
-        for (var i = 0; i < metadata.NumMessagesInBatch; ++i)
+        try
         {
-            var singleMetadataSize = data.ReadUInt32(index, true);
-            index += 4;
-            var singleMetadata = SingleMessageMetadata.Parser.ParseFrom(data.Slice(index, singleMetadataSize));
-            index += singleMetadataSize;
-            var singleMessageId = new MessageId(messageId.LedgerId, messageId.EntryId, messageId.Partition, i);
-            var message = _messageFactory.Create(singleMessageId, redeliveryCount, data.Slice(index, singleMetadata.PayloadSize), metadata, singleMetadata);
-            messages.Add(message);
-            index += (uint) singleMetadata.PayloadSize;
-        }
+            long index = 0;
 
-        lock (_lock)
-        {
-            if (_trackBatches)
-                _batches.AddLast(new Batch(messageId, metadata.NumMessagesInBatch));
-
-            foreach (var message in messages)
+            for (var i = 0; i < numberOfMessages; ++i)
             {
-                _messages.Enqueue(message);
+                // The messages that are skipped must still be parsed, so the position in the data is moved to the next message
+                var singleMetadataSize = data.ReadUInt32(index, true);
+                index += 4;
+                var singleMetadata = SingleMessageMetadata.Parser.ParseFrom(data.Slice(index, singleMetadataSize));
+                index += singleMetadataSize;
+
+                if (filterAcknowledged && IsAcknowledgedByBroker(brokerAckSet!, i))
+                {
+                    index += (uint) singleMetadata.PayloadSize;
+                    continue;
+                }
+
+                if (singleMetadata.CompactedOut)
+                {
+                    tracker?.AckIndividual(i);
+                    ++chargedButSkipped;
+                    index += (uint) singleMetadata.PayloadSize;
+                    continue;
+                }
+
+                var singleMessageId = new MessageId(messageId.LedgerId, messageId.EntryId, messageId.Partition, i, _topic, numberOfMessages);
+                messages[deliverable++] = _messageFactory.Create(singleMessageId, redeliveryCount, data.Slice(index, singleMetadata.PayloadSize), metadata, singleMetadata);
+                index += (uint) singleMetadata.PayloadSize;
             }
 
-            return _messages.Dequeue();
+            lock (_lock)
+            {
+                if (tracker is not null)
+                    Track(tracker);
+
+                for (var i = 0; i < deliverable; ++i)
+                {
+                    _messages.Enqueue(messages[i]);
+                }
+
+                return _messages.Count == 0 ? null : _messages.Dequeue();
+            }
+        }
+        finally
+        {
+            ArrayPool<IMessage<TMessage>>.Shared.Return(messages, true);
         }
     }
 
@@ -81,60 +116,140 @@ public sealed class BatchHandler<TMessage>
         lock (_lock)
         {
             _messages.Clear();
-            _batches.Clear();
+            _trackers.Clear();
         }
     }
 
-    public MessageIdData? Acknowledge(MessageIdData messageId)
+    public bool TryGetBatchSize(MessageIdData messageId, out int batchSize)
     {
         lock (_lock)
         {
-            foreach (var batch in _batches)
+            if (_trackers.TryGetValue(new EntryKey(messageId), out var tracker))
             {
-                if (messageId.LedgerId != batch.MessageId.LedgerId ||
-                    messageId.EntryId != batch.MessageId.EntryId ||
-                    messageId.Partition != batch.MessageId.Partition)
-                    continue;
+                batchSize = tracker.BatchSize;
+                return true;
+            }
+        }
 
-                batch.Acknowledge(messageId.BatchIndex);
+        batchSize = 0;
+        return false;
+    }
 
-                if (batch.IsAcknowledged())
-                {
-                    _batches.Remove(batch);
-                    return batch.MessageId;
-                }
+    public bool IsTracked(MessageIdData messageId)
+    {
+        lock (_lock)
+            return _trackers.ContainsKey(new EntryKey(messageId));
+    }
 
-                break;
+    // Upstream: MessageIdAdvUtils#acknowledge (individual)
+    // Returns null if the batch is not tracked. The tracker is removed when all messages of the batch are acknowledged.
+    public BatchAckTracker? AcknowledgeIndividual(MessageIdData messageId, out bool isComplete)
+    {
+        lock (_lock)
+        {
+            var key = new EntryKey(messageId);
+
+            if (!_trackers.TryGetValue(key, out var tracker))
+            {
+                isComplete = false;
+                return null;
             }
 
-            return null;
+            isComplete = tracker.AckIndividual(messageId.BatchIndex);
+
+            if (isComplete)
+                _trackers.Remove(key);
+
+            return tracker;
         }
     }
 
-    private sealed class Batch
+    // Upstream: MessageIdAdvUtils#acknowledge (cumulative)
+    // Returns null if the batch is not tracked. The trackers of the earlier entries are removed,
+    // and so is the tracker of the batch when all messages of the batch are acknowledged.
+    public BatchAckTracker? AcknowledgeCumulative(MessageIdData messageId, out bool isComplete)
     {
-        private readonly BitArray _acknowledgementIndex;
-
-        public Batch(MessageIdData messageId, int numberOfMessages)
+        lock (_lock)
         {
-            MessageId = messageId;
-            _acknowledgementIndex = new BitArray(numberOfMessages, false);
-        }
+            RemoveTrackers(messageId.LedgerId, messageId.EntryId, messageId.Partition, false);
 
-        public MessageIdData MessageId { get; }
+            var key = new EntryKey(messageId);
 
-        public void Acknowledge(int batchIndex)
-            => _acknowledgementIndex.Set(batchIndex, true);
-
-        public bool IsAcknowledged()
-        {
-            for (var i = 0; i < _acknowledgementIndex.Length; i++)
+            if (!_trackers.TryGetValue(key, out var tracker))
             {
-                if (!_acknowledgementIndex[i])
-                    return false;
+                isComplete = false;
+                return null;
             }
 
-            return true;
+            isComplete = tracker.AckCumulative(messageId.BatchIndex);
+
+            if (isComplete)
+                _trackers.Remove(key);
+
+            return tracker;
+        }
+    }
+
+    // Removes the trackers of the entries up to and including the entry of the message id
+    public void PruneUpTo(MessageIdData messageId)
+    {
+        lock (_lock)
+            RemoveTrackers(messageId.LedgerId, messageId.EntryId, messageId.Partition, true);
+    }
+
+    public void CopyAckSetTo(BatchAckTracker tracker, RepeatedField<long> target)
+    {
+        lock (_lock)
+            tracker.CopyAckSetTo(target);
+    }
+
+    private static bool IsAcknowledgedByBroker(RepeatedField<long> brokerAckSet, int batchIndex)
+    {
+        var word = batchIndex >> 6;
+        return word >= brokerAckSet.Count || (brokerAckSet[word] & (1L << (batchIndex & 63))) == 0;
+    }
+
+    // Must be called while holding the lock
+    private void Track(BatchAckTracker tracker)
+    {
+        var key = tracker.Key;
+
+        if (_trackers.TryGetValue(key, out var existing))
+        {
+            // The entry was delivered again. What is already acknowledged stays acknowledged.
+            existing.IntersectWith(tracker);
+
+            if (existing.IsEmpty)
+                _trackers.Remove(key);
+        }
+        else if (!tracker.IsEmpty)
+        {
+            _trackers.Add(key, tracker);
+        }
+    }
+
+    // Must be called while holding the lock
+    private void RemoveTrackers(ulong ledgerId, ulong entryId, int partition, bool includeEntry)
+    {
+        if (_trackers.Count == 0)
+            return;
+
+        _removals.Clear();
+
+        foreach (var key in _trackers.Keys)
+        {
+            if (key.Partition != partition)
+                continue;
+
+            var comparison = key.LedgerId != ledgerId ? key.LedgerId.CompareTo(ledgerId) : key.EntryId.CompareTo(entryId);
+
+            if (comparison < 0 || (includeEntry && comparison == 0))
+                _removals.Add(key);
+        }
+
+        for (var i = 0; i < _removals.Count; ++i)
+        {
+            _trackers.Remove(_removals[i]);
         }
     }
 }
