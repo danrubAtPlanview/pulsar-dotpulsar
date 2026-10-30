@@ -185,10 +185,85 @@ public sealed class DeadLetterTopicTests : IDisposable
         deadLettered.ShouldAllBe(message => expected.IsMatch(message.ProducerName));
     }
 
-    // Upstream: DeadLetterTopicTest#testDeadLetterTopic (produceLargeMessages = false, the producer batches)
+    // Upstream: DeadLetterTopicTest#testDeadLetterTopic
+    // The rows are produceLargeMessages false (the producer batches, and the messages are "Hello Pulsar [i]") and true (the producer chunks, and the messages are 10 KiB). The upstream producer batches,
+    // but it sends each message with a blocking send, so a batch has a single message. The messages of the second row are smaller than the maximum message size of the broker, so they are not split.
+    // The backlog of the subscription is asserted too, because a consumer that is created after the first one is closed does not receive the messages that the first one did not acknowledge.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Receive_GivenMessagesRedeliveredPastMaxRedeliverCount_ShouldSendAllToDeadLetterTopicAndAcknowledgeOriginals(bool produceLargeMessages)
+    {
+        //Arrange
+        const int maxRedeliverCount = 2;
+        const int sendMessages = 100;
+        var topicName = await _fixture.CreateTopic(_cts.Token);
+        await using var client = CreateClient();
+        await using var consumer = client.NewConsumer(Schema.ByteArray)
+            .AckTimeout(TimeSpan.FromSeconds(1))
+            .DeadLetterPolicy(new DeadLetterPolicy(maxRedeliverCount))
+            .InitialPosition(SubscriptionInitialPosition.Earliest)
+            .MessagePrefetchCount(100)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .SubscriptionName(SubscriptionName)
+            .SubscriptionType(SubscriptionType.Shared)
+            .Topic(topicName)
+            .Create();
+        await using var newClient = CreateClient();
+        await using var deadLetterConsumer = newClient.NewConsumer(Schema.ByteArray)
+            .InitialPosition(SubscriptionInitialPosition.Earliest)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .SubscriptionName(SubscriptionName)
+            .Topic($"{topicName}-{SubscriptionName}-DLQ")
+            .Create();
+        await using var producer = client.NewProducer(Schema.ByteArray)
+            .EnableBatching(!produceLargeMessages)
+            .EnableChunking(produceLargeMessages)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .Topic(topicName)
+            .Create();
+        await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+
+        var messageContent = new Dictionary<int, string>();
+        for (var i = 0; i < sendMessages; i++)
+        {
+            var data = produceLargeMessages ? CreateMessagePayload(1024 * 10) : $"Hello Pulsar [{i}]";
+            _ = await producer.NewMessage().Key(i.ToString()).Send(Encoding.UTF8.GetBytes(data), _cts.Token);
+            messageContent[i] = data;
+        }
+
+        //Act
+        await ReceiveWithoutAcknowledging(consumer, sendMessages * (maxRedeliverCount + 1), TimeSpan.FromSeconds(5));
+        var deadLettered = new List<IMessage<byte[]>>();
+        for (var i = 0; i < sendMessages; i++)
+        {
+            var message = await Receive(deadLetterConsumer, TimeSpan.FromSeconds(5));
+            await deadLetterConsumer.Acknowledge(message, _cts.Token);
+            deadLettered.Add(message);
+        }
+
+        var backlog = await GetBacklog(topicName, SubscriptionName);
+        await deadLetterConsumer.DisposeAsync();
+        await consumer.DisposeAsync();
+        await using var checkConsumer = client.NewConsumer(Schema.ByteArray)
+            .InitialPosition(SubscriptionInitialPosition.Earliest)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .SubscriptionName(SubscriptionName)
+            .SubscriptionType(SubscriptionType.Shared)
+            .Topic(topicName)
+            .Create();
+        var checkMessage = await TransactionFixture.ReceiveOrNull(checkConsumer, TimeSpan.FromSeconds(3), _cts.Token);
+
+        //Assert
+        deadLettered.ShouldAllBe(message => Encoding.UTF8.GetString(message.Value()) == messageContent[int.Parse(message.Key!)]);
+        deadLettered.Select(message => int.Parse(message.Key!)).ToHashSet().ShouldBe(messageContent.Keys.ToHashSet(), true);
+        checkMessage.ShouldBeNull();
+        backlog.ShouldBe(0);
+    }
+
     // Upstream: DeadLetterTopicTest#testDeadLetterTopicHasOriginalInfo
-    // The upstream producer batches, but it sends each message with a blocking send, so a batch has a single message. The batching row sends the messages without waiting for the broker,
-    // in batches of 10 messages, so the dead letter topic receives whole batches.
+    // Additional coverage: 100 messages and a maximum redelivery count of 3 instead of 10 messages and 1. The upstream producer batches, but it sends each message with a blocking send, so a batch has
+    // a single message. The batching row sends the messages without waiting for the broker, in batches of 10 messages, so the dead letter topic receives whole batches.
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -318,6 +393,279 @@ public sealed class DeadLetterTopicTests : IDisposable
         subscriptions.ShouldContain(initialSubscriptionName);
     }
 
+    // Upstream: DeadLetterTopicTest#testMultipleSameNameConsumersToDeadLetterTopic
+    // The message listeners of the upstream consumers only count the messages, and never acknowledge them. Here, a receive loop does the same.
+    [Fact]
+    public async Task Receive_GivenThreeConsumersWithSameNameNeverAcknowledging_ShouldDeliverEachMessageMaxRedeliverPlusOneTimesAndDeadLetterEachOnce()
+    {
+        //Arrange
+        const int maxRedeliverCount = 1;
+        const int messageCount = 10;
+        var topicName = await _fixture.CreateTopic(_cts.Token);
+        await using var client = CreateClient();
+        await using var consumer1 = CreateNeverAcknowledgingConsumer(client, topicName, maxRedeliverCount, "my-consumer");
+        await using var consumer2 = CreateNeverAcknowledgingConsumer(client, topicName, maxRedeliverCount, "my-consumer");
+        await using var consumer3 = CreateNeverAcknowledgingConsumer(client, topicName, maxRedeliverCount, "my-consumer");
+        await consumer1.StateChangedTo(ConsumerState.Active, _cts.Token);
+        await consumer2.StateChangedTo(ConsumerState.Active, _cts.Token);
+        await consumer3.StateChangedTo(ConsumerState.Active, _cts.Token);
+        using var receiveCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+        var totalReceived = new ReceivedCounter();
+        var receiving = Task.WhenAll(CountReceivedMessages(consumer1, totalReceived, receiveCts.Token), CountReceivedMessages(consumer2, totalReceived, receiveCts.Token), CountReceivedMessages(consumer3, totalReceived, receiveCts.Token));
+        await using var producer = CreateProducer(client, topicName);
+
+        for (var i = 0; i < messageCount; i++)
+        {
+            _ = await producer.Send($"Message [{i}]", _cts.Token);
+        }
+
+        await using var deadLetterConsumer = CreateDeadLetterConsumerOf(client, Schema.String, $"{topicName}-DLQ", "my-subscription-DuplicatedMessage-DLQ");
+
+        //Act
+        var totalInDeadLetter = 0;
+        while (await TransactionFixture.ReceiveOrNull(deadLetterConsumer, TimeSpan.FromSeconds(10), _cts.Token) is { } message)
+        {
+            await deadLetterConsumer.Acknowledge(message, _cts.Token);
+            totalInDeadLetter++;
+        }
+
+        await receiveCts.CancelAsync();
+        await receiving;
+
+        //Assert
+        totalReceived.Value.ShouldBe(messageCount * (maxRedeliverCount + 1));
+        totalInDeadLetter.ShouldBe(messageCount);
+    }
+
+    // Upstream: DeadLetterTopicTest#testDuplicatedMessageSendToDeadLetterTopic
+    // The message listeners of the upstream consumers only count the messages, and never acknowledge them. Here, a receive loop does the same.
+    [Fact]
+    public async Task Receive_GivenThreeConsumersNeverAcknowledging_ShouldNotSendDuplicatesToDeadLetterTopic()
+    {
+        //Arrange
+        const int maxRedeliverCount = 1;
+        const int messageCount = 10;
+        var topicName = await _fixture.CreateTopic(_cts.Token);
+        await using var client = CreateClient();
+        await using var consumer1 = CreateNeverAcknowledgingConsumer(client, topicName, maxRedeliverCount, null);
+        await using var consumer2 = CreateNeverAcknowledgingConsumer(client, topicName, maxRedeliverCount, null);
+        await using var consumer3 = CreateNeverAcknowledgingConsumer(client, topicName, maxRedeliverCount, null);
+        await consumer1.StateChangedTo(ConsumerState.Active, _cts.Token);
+        await consumer2.StateChangedTo(ConsumerState.Active, _cts.Token);
+        await consumer3.StateChangedTo(ConsumerState.Active, _cts.Token);
+        using var receiveCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+        var totalReceived = new ReceivedCounter();
+        var receiving = Task.WhenAll(CountReceivedMessages(consumer1, totalReceived, receiveCts.Token), CountReceivedMessages(consumer2, totalReceived, receiveCts.Token), CountReceivedMessages(consumer3, totalReceived, receiveCts.Token));
+        await using var producer = CreateProducer(client, topicName);
+
+        for (var i = 0; i < messageCount; i++)
+        {
+            _ = await producer.Send($"Message [{i}]", _cts.Token);
+        }
+
+        await using var deadLetterConsumer = CreateDeadLetterConsumerOf(client, Schema.String, $"{topicName}-DLQ", "my-subscription-DuplicatedMessage-DLQ");
+
+        //Act
+        var totalInDeadLetter = 0;
+        while (await TransactionFixture.ReceiveOrNull(deadLetterConsumer, TimeSpan.FromSeconds(10), _cts.Token) is { } message)
+        {
+            await deadLetterConsumer.Acknowledge(message, _cts.Token);
+            totalInDeadLetter++;
+        }
+
+        await receiveCts.CancelAsync();
+        await receiving;
+
+        //Assert
+        totalReceived.Value.ShouldBe(messageCount * (maxRedeliverCount + 1));
+        totalInDeadLetter.ShouldBe(messageCount);
+    }
+
+    // Upstream: DeadLetterTopicTest#testDeadLetterTopicUnderPartitionedTopicWithKeyShareType
+    // The upstream KeySharedPolicy autoSplitHashRange is the default of DotPulsar. The message has no key and is published to one of the partitions, so it is sent to the dead letter topic of that partition.
+    // The backlog of the subscription is asserted too, because a consumer that is created after the first one is closed does not receive the messages that the first one did not acknowledge.
+    [Fact]
+    public async Task Receive_GivenPartitionedTopicWithKeySharedSubscription_ShouldSendToPerPartitionDeadLetterTopics()
+    {
+        //Arrange
+        const int maxRedeliverCount = 2;
+        const int sendMessages = 1;
+        var topicName = await _fixture.CreatePartitionedTopic(2, _cts.Token);
+        await using var client = CreateClient();
+        await using var consumer = client.NewConsumer(Schema.ByteArray)
+            .AckTimeout(TimeSpan.FromSeconds(1))
+            .DeadLetterPolicy(new DeadLetterPolicy(maxRedeliverCount))
+            .InitialPosition(SubscriptionInitialPosition.Earliest)
+            .MessagePrefetchCount(100)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .SubscriptionName(SubscriptionName)
+            .SubscriptionType(SubscriptionType.KeyShared)
+            .Topic(topicName)
+            .Create();
+        await using var deadLetterConsumer0 = CreateDeadLetterConsumerOf(client, Schema.ByteArray, $"{topicName}-partition-0-{SubscriptionName}-DLQ", SubscriptionName);
+        await using var deadLetterConsumer1 = CreateDeadLetterConsumerOf(client, Schema.ByteArray, $"{topicName}-partition-1-{SubscriptionName}-DLQ", SubscriptionName);
+        await using var producer = client.NewProducer(Schema.ByteArray).StateChangedHandler(_testOutputHelper.Log).Topic(topicName).Create();
+
+        for (var i = 0; i < sendMessages; i++)
+        {
+            _ = await producer.Send(Encoding.UTF8.GetBytes($"Hello Pulsar [{i}]"), _cts.Token);
+        }
+
+        //Act
+        await ReceiveWithoutAcknowledging(consumer, sendMessages * (maxRedeliverCount + 1));
+        var totalInDeadLetter = 0;
+        do
+        {
+            var message = await TransactionFixture.ReceiveOrNull(deadLetterConsumer0, TimeSpan.FromSeconds(3), _cts.Token);
+
+            if (message is null)
+                break;
+
+            await deadLetterConsumer0.Acknowledge(message, _cts.Token);
+            totalInDeadLetter++;
+        } while (totalInDeadLetter < sendMessages);
+
+        do
+        {
+            var message = await TransactionFixture.ReceiveOrNull(deadLetterConsumer1, TimeSpan.FromSeconds(3), _cts.Token);
+
+            if (message is null)
+                break;
+
+            await deadLetterConsumer1.Acknowledge(message, _cts.Token);
+            totalInDeadLetter++;
+        } while (totalInDeadLetter < sendMessages);
+
+        var backlog = await GetBacklog(topicName, SubscriptionName, true);
+        await deadLetterConsumer0.DisposeAsync();
+        await deadLetterConsumer1.DisposeAsync();
+        await consumer.DisposeAsync();
+        await using var checkConsumer = client.NewConsumer(Schema.ByteArray)
+            .InitialPosition(SubscriptionInitialPosition.Earliest)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .SubscriptionName(SubscriptionName)
+            .SubscriptionType(SubscriptionType.KeyShared)
+            .Topic(topicName)
+            .Create();
+        var checkMessage = await TransactionFixture.ReceiveOrNull(checkConsumer, TimeSpan.FromSeconds(3), _cts.Token);
+
+        //Assert
+        totalInDeadLetter.ShouldBe(sendMessages);
+        checkMessage.ShouldBeNull();
+        backlog.ShouldBe(0);
+    }
+
+    // Upstream: DeadLetterTopicTest#testDeadLetterTopicWithInitialSubscriptionAndMultiConsumers
+    // Each consumer creates its dead letter producer after its final redelivery, so the dead letter topic has two publishers.
+    [Fact]
+    public async Task Receive_GivenTwoConsumersWithInitialSubscriptionName_ShouldCreateOneDeadLetterProducerPerConsumer()
+    {
+        //Arrange
+        const int maxRedeliverCount = 1;
+        const int sendMessages = 100;
+        const string initialSubscriptionName = "init-sub";
+        var topicName = await _fixture.CreateTopic(_cts.Token);
+        var deadLetterTopicName = $"{topicName}-{SubscriptionName}-DLQ";
+        await using var client = CreateClient();
+        await using var consumer = CreateConsumerWithInitialSubscription(client, topicName, maxRedeliverCount, initialSubscriptionName);
+        await using var otherConsumer = CreateConsumerWithInitialSubscription(client, topicName, maxRedeliverCount, initialSubscriptionName);
+        await using var newClient = CreateClient();
+        await using var producer = client.NewProducer(Schema.ByteArray).StateChangedHandler(_testOutputHelper.Log).Topic(topicName).Create();
+        await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+        await otherConsumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+
+        for (var i = 0; i < sendMessages; i++)
+        {
+            _ = await producer.Send(Encoding.UTF8.GetBytes($"Hello Pulsar [{i}]"), _cts.Token);
+        }
+
+        //Act
+        var totalReceived = new ReceivedCounter();
+        await Task.WhenAll(ReceiveForDeadLetterQueue(consumer, totalReceived, sendMessages, maxRedeliverCount), ReceiveForDeadLetterQueue(otherConsumer, totalReceived, sendMessages, maxRedeliverCount))
+            .WaitAsync(TimeSpan.FromSeconds(10), _cts.Token);
+        await Eventually(async () =>
+        {
+            (await GetTopics(topicName)).ShouldContain(deadLetterTopicName);
+            (await GetJson($"{ToAdminPath(deadLetterTopicName)}/subscriptions")).EnumerateArray().Select(element => element.GetString()).ShouldContain(initialSubscriptionName);
+            (await GetJson($"{ToAdminPath(deadLetterTopicName)}/stats")).GetProperty("publishers").GetArrayLength().ShouldBe(2);
+        }, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(1));
+        await using var deadLetterConsumer = newClient.NewConsumer(Schema.ByteArray)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .SubscriptionName(initialSubscriptionName)
+            .Topic(deadLetterTopicName)
+            .Create();
+        var deadLettered = await ReceiveAll(deadLetterConsumer, sendMessages, TimeSpan.FromSeconds(10));
+
+        foreach (var message in deadLettered)
+        {
+            await deadLetterConsumer.Acknowledge(message, _cts.Token);
+        }
+
+        //Assert
+        deadLettered.Count.ShouldBe(sendMessages);
+        totalReceived.Value.ShouldBe(sendMessages * (maxRedeliverCount + 1));
+    }
+
+    // Upstream: DeadLetterTopicTest#testDeadLetterTopicWithMaxUnackedMessagesBlocking
+    // The upstream negative acknowledge redelivery delay of 1 millisecond is below the minimum of DotPulsar, so it is 100 milliseconds. The broker sends the consumer no more than the maximum number of
+    // unacknowledged messages, so the messages must be negative acknowledged, or dead lettered, before the broker sends it more.
+    [Fact]
+    public async Task NegativeAcknowledge_GivenMaxUnackedMessagesPolicy_ShouldEventuallySendAllMessagesToDeadLetterTopic()
+    {
+        //Arrange
+        const int maxRedeliverCount = 3;
+        const int maxUnackedMessages = 100;
+        const int sendMessages = 1000;
+        var topicName = await _fixture.CreateTopic(_cts.Token);
+        var deadLetterTopicName = $"{topicName}-{SubscriptionName}-DLQ";
+        await SetTopicPolicy(topicName, "maxUnackedMessagesOnConsumer", maxUnackedMessages);
+        await SetTopicPolicy(topicName, "maxUnackedMessagesOnSubscription", maxUnackedMessages);
+        await using var client = CreateClient();
+        await using var consumer = client.NewConsumer(Schema.ByteArray)
+            .DeadLetterPolicy(new DeadLetterPolicy(maxRedeliverCount) { DeadLetterTopic = deadLetterTopicName })
+            .InitialPosition(SubscriptionInitialPosition.Earliest)
+            .MessagePrefetchCount(200)
+            .NegativeAcknowledgeRedeliveryDelay(TimeSpan.FromMilliseconds(1))
+            .StateChangedHandler(_testOutputHelper.Log)
+            .SubscriptionName(SubscriptionName)
+            .SubscriptionType(SubscriptionType.Shared)
+            .Topic(topicName)
+            .Create();
+        await using var deadLetterConsumer = client.NewConsumer(Schema.ByteArray)
+            .InitialPosition(SubscriptionInitialPosition.Earliest)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .SubscriptionName(SubscriptionName)
+            .Topic(deadLetterTopicName)
+            .Create();
+        await using var producer = client.NewProducer(Schema.ByteArray).StateChangedHandler(_testOutputHelper.Log).Topic(topicName).Create();
+
+        for (var i = 0; i < sendMessages; i++)
+        {
+            _ = await producer.NewMessage().Send(Encoding.UTF8.GetBytes($"Hello Pulsar [{i}]"), _cts.Token);
+        }
+
+        //Act
+        var receivedMessages = new HashSet<string>();
+        for (var totalReceived = 0; totalReceived < sendMessages * (maxRedeliverCount + 1); totalReceived++)
+        {
+            var message = await Receive(consumer);
+            _ = receivedMessages.Add(Encoding.UTF8.GetString(message.Value()));
+            await consumer.NegativeAcknowledge(message, _cts.Token);
+        }
+
+        var deadLettered = new List<IMessage<byte[]>>();
+        for (var i = 0; i < sendMessages; i++)
+        {
+            var message = await Receive(deadLetterConsumer);
+            await deadLetterConsumer.Acknowledge(message, _cts.Token);
+            deadLettered.Add(message);
+        }
+
+        //Assert
+        receivedMessages.Count.ShouldBe(sendMessages);
+        deadLettered.Select(message => Encoding.UTF8.GetString(message.Value())).ToHashSet().ShouldBe(receivedMessages, true);
+    }
+
     // Upstream: DeadLetterTopicTest#testDeadLetterTopicWithPoolMessages (redeliver the ids of the messages that were received in the last round, the data provider enableBatching)
     // The batching row has all 5 messages in one batch (BatchingMaxMessages of 5), so the whole batch is a candidate.
     [Theory]
@@ -435,39 +783,6 @@ public sealed class DeadLetterTopicTests : IDisposable
         (await GetBacklog(topicName, SubscriptionName)).ShouldBe(0);
     }
 
-    // Upstream: DeadLetterTopicTest#testDeadLetterTopic (produceLargeMessages = true)
-    // The upstream messages are 10 KiB, which is below the maximum message size of the broker, so they are not split, but the producer has chunking enabled.
-    [Fact]
-    public async Task Receive_GivenMessagesFromProducerWithChunkingRedeliveredPastMaxRedeliverCount_ShouldSendAllToDeadLetterTopic()
-    {
-        //Arrange
-        const int maxRedeliverCount = 2;
-        const int sendMessages = 100;
-        var topicName = await _fixture.CreateTopic(_cts.Token);
-        await using var client = CreateClient();
-        await using var producer = client.NewProducer(Schema.String).EnableChunking(true).StateChangedHandler(_testOutputHelper.Log).Topic(topicName).Create();
-        await using var consumer = CreateConsumer(client, topicName, maxRedeliverCount);
-        await using var deadLetterConsumer = CreateDeadLetterConsumer(client, topicName);
-        await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
-
-        var values = new Dictionary<string, string>();
-        for (var i = 0; i < sendMessages; i++)
-        {
-            var value = new string((char) ('a' + i % 26), 1024 * 10) + i;
-            values[i.ToString()] = value;
-            _ = await producer.NewMessage().Key(i.ToString()).Send(value, _cts.Token);
-        }
-
-        //Act
-        await ReceiveWithoutAcknowledging(consumer, sendMessages * (maxRedeliverCount + 1));
-        var deadLettered = await ReceiveAll(deadLetterConsumer, sendMessages);
-
-        //Assert
-        deadLettered.ShouldAllBe(message => values[message.Key!] == message.Value());
-        deadLettered.Select(message => message.Key).ToHashSet().ShouldBe(values.Keys.ToHashSet(), true);
-        (await TransactionFixture.ReceiveOrNull(consumer, TimeSpan.FromSeconds(3), _cts.Token)).ShouldBeNull();
-    }
-
     // Upstream: ConsumerImpl#initDeadLetterProducerIfNeeded (enableChunking(true)), C++ MessageChunkingTest#testChunkedMessageDLQ
     // A message that the consumer assembled from chunks is larger than the maximum message size of the broker, so the dead letter producer must split it in chunks again.
     [Fact]
@@ -497,14 +812,15 @@ public sealed class DeadLetterTopicTests : IDisposable
         (await GetBacklog(topicName, SubscriptionName)).ShouldBe(0);
     }
 
-    private async Task<long> GetBacklog(string topicName, string subscription)
+    private async Task<long> GetBacklog(string topicName, string subscription, bool partitioned = false)
     {
         using var adminClient = _fixture.CreateAdminClient();
         var path = ToAdminPath(topicName);
+        var statsPath = partitioned ? $"{path}/partitioned-stats" : $"{path}/stats";
 
         for (var attempt = 0; attempt < 10; attempt++)
         {
-            using var response = await adminClient.GetAsync($"{path}/stats", _cts.Token);
+            using var response = await adminClient.GetAsync(statsPath, _cts.Token);
             response.EnsureSuccessStatusCode();
             using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
             var backlog = document.RootElement.GetProperty("subscriptions").GetProperty(subscription).GetProperty("msgBacklog").GetInt64();
@@ -515,7 +831,7 @@ public sealed class DeadLetterTopicTests : IDisposable
             await Task.Delay(TimeSpan.FromSeconds(1), _cts.Token);
         }
 
-        using var lastResponse = await adminClient.GetAsync($"{path}/stats", _cts.Token);
+        using var lastResponse = await adminClient.GetAsync(statsPath, _cts.Token);
         using var lastDocument = JsonDocument.Parse(await lastResponse.Content.ReadAsStringAsync());
         return lastDocument.RootElement.GetProperty("subscriptions").GetProperty(subscription).GetProperty("msgBacklog").GetInt64();
     }
@@ -551,28 +867,169 @@ public sealed class DeadLetterTopicTests : IDisposable
         return $"/admin/v2/{topicName[..separator]}/{topicName[(separator + 3)..]}";
     }
 
-    private async Task ReceiveWithoutAcknowledging(IConsumer<string> consumer, int count)
+    private async Task<JsonElement> GetJson(string path)
     {
-        for (var i = 0; i < count; i++)
+        using var adminClient = _fixture.CreateAdminClient();
+        using var response = await adminClient.GetAsync(path, _cts.Token);
+        response.EnsureSuccessStatusCode();
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return document.RootElement.Clone();
+    }
+
+    private async Task<string> GetText(string path)
+    {
+        using var adminClient = _fixture.CreateAdminClient();
+        using var response = await adminClient.GetAsync(path, _cts.Token);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadAsStringAsync()).Trim();
+    }
+
+    // The topics of the namespace of the topic
+    private async Task<List<string>> GetTopics(string topicName)
+    {
+        var path = ToAdminPath(topicName);
+        return (await GetJson(path[..path.LastIndexOf('/')])).EnumerateArray().Select(element => element.GetString()!).ToList();
+    }
+
+    // The number of the topic policy is the body of the request. The policy is read back before the test goes on, because the broker applies it when it has read it from the system topic.
+    private async Task SetTopicPolicy(string topicName, string policy, int value)
+    {
+        var path = $"{ToAdminPath(topicName)}/{policy}";
+        using var adminClient = _fixture.CreateAdminClient();
+        using var content = new StringContent(value.ToString(), Encoding.UTF8, "application/json");
+        using var response = await adminClient.PostAsync(path, content, _cts.Token);
+        response.EnsureSuccessStatusCode();
+        await Eventually(async () => (await GetText(path)).ShouldBe(value.ToString()), TimeSpan.FromSeconds(10), TimeSpan.FromMilliseconds(500));
+    }
+
+    // Java Awaitility.await().atMost(...).pollInterval(...).untilAsserted(...)
+    private async Task Eventually(Func<Task> assertion, TimeSpan atMost, TimeSpan pollInterval)
+    {
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+        while (true)
         {
-            _ = await Receive(consumer);
+            try
+            {
+                await assertion();
+                return;
+            }
+            catch (Exception exception) when ((exception is ShouldAssertException || exception is HttpRequestException) && stopwatch.Elapsed < atMost)
+            {
+                await Task.Delay(pollInterval, _cts.Token);
+            }
         }
     }
 
-    private async Task<IMessage<string>> Receive(IConsumer<string> consumer)
+    private static string CreateMessagePayload(int size)
+        => string.Create(size, 0, static (span, _) =>
+        {
+            for (var i = 0; i < span.Length; ++i)
+            {
+                span[i] = (char) ('0' + Random.Shared.Next(10));
+            }
+        });
+
+    // The message listener of the upstream tests, which counts the messages and never acknowledges them
+    private static async Task CountReceivedMessages<TMessage>(IConsumer<TMessage> consumer, ReceivedCounter totalReceived, CancellationToken cancellationToken)
     {
-        var message = await TransactionFixture.ReceiveOrNull(consumer, TimeSpan.FromSeconds(30), _cts.Token);
+        try
+        {
+            await foreach (var _ in consumer.Messages(cancellationToken))
+            {
+                totalReceived.Increment();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // The test has stopped the receiving
+        }
+    }
+
+    // Upstream: DeadLetterTopicTest#consumerReceiveForDLQ
+    private async Task ReceiveForDeadLetterQueue<TMessage>(IConsumer<TMessage> consumer, ReceivedCounter totalReceived, int sendMessages, int maxRedeliverCount)
+    {
+        while (await TransactionFixture.ReceiveOrNull(consumer, TimeSpan.FromSeconds(3), _cts.Token) is not null)
+        {
+            totalReceived.Increment();
+
+            if (totalReceived.Value >= sendMessages * (maxRedeliverCount + 1))
+                break;
+        }
+    }
+
+    // The consumers of the upstream tests that have a message listener, with the ack timeout and the negative acknowledge redelivery delay of 1001 milliseconds of the upstream
+    private IConsumer<string> CreateNeverAcknowledgingConsumer(IPulsarClient client, string topicName, uint maxRedeliverCount, string? consumerName)
+    {
+        var builder = client.NewConsumer(Schema.String)
+            .AckTimeout(TimeSpan.FromMilliseconds(1001))
+            .DeadLetterPolicy(new DeadLetterPolicy(maxRedeliverCount) { DeadLetterTopic = $"{topicName}-DLQ" })
+            .InitialPosition(SubscriptionInitialPosition.Earliest)
+            .MessagePrefetchCount(100)
+            .NegativeAcknowledgeRedeliveryDelay(TimeSpan.FromMilliseconds(1001))
+            .StateChangedHandler(_testOutputHelper.Log)
+            .SubscriptionName("my-subscription-DuplicatedMessage")
+            .SubscriptionType(SubscriptionType.Shared)
+            .Topic(topicName);
+
+        if (consumerName is not null)
+            builder.ConsumerName(consumerName);
+
+        return builder.Create();
+    }
+
+    private IConsumer<byte[]> CreateConsumerWithInitialSubscription(IPulsarClient client, string topicName, uint maxRedeliverCount, string initialSubscriptionName)
+        => client.NewConsumer(Schema.ByteArray)
+            .AckTimeout(TimeSpan.FromSeconds(1))
+            .DeadLetterPolicy(new DeadLetterPolicy(maxRedeliverCount) { InitialSubscriptionName = initialSubscriptionName })
+            .InitialPosition(SubscriptionInitialPosition.Earliest)
+            .MessagePrefetchCount(20)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .SubscriptionName(SubscriptionName)
+            .SubscriptionType(SubscriptionType.Shared)
+            .Topic(topicName)
+            .Create();
+
+    // The default of the Java consumer is the exclusive subscription type
+    private IConsumer<TMessage> CreateDeadLetterConsumerOf<TMessage>(IPulsarClient client, ISchema<TMessage> schema, string topicName, string subscriptionName)
+        => client.NewConsumer(schema)
+            .InitialPosition(SubscriptionInitialPosition.Earliest)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .SubscriptionName(subscriptionName)
+            .Topic(topicName)
+            .Create();
+
+    private sealed class ReceivedCounter
+    {
+        private int _value;
+
+        public int Value => Volatile.Read(ref _value);
+
+        public void Increment() => Interlocked.Increment(ref _value);
+    }
+
+    private async Task ReceiveWithoutAcknowledging<TMessage>(IConsumer<TMessage> consumer, int count, TimeSpan? timeout = null)
+    {
+        for (var i = 0; i < count; i++)
+        {
+            _ = await Receive(consumer, timeout);
+        }
+    }
+
+    private async Task<IMessage<TMessage>> Receive<TMessage>(IConsumer<TMessage> consumer, TimeSpan? timeout = null)
+    {
+        var message = await TransactionFixture.ReceiveOrNull(consumer, timeout ?? TimeSpan.FromSeconds(30), _cts.Token);
         message.ShouldNotBeNull();
         return message;
     }
 
-    private async Task<List<IMessage<string>>> ReceiveAll(IConsumer<string> consumer, int count)
+    private async Task<List<IMessage<TMessage>>> ReceiveAll<TMessage>(IConsumer<TMessage> consumer, int count, TimeSpan? timeout = null)
     {
-        var messages = new List<IMessage<string>>();
+        var messages = new List<IMessage<TMessage>>();
 
         for (var i = 0; i < count; i++)
         {
-            messages.Add(await Receive(consumer));
+            messages.Add(await Receive(consumer, timeout));
         }
 
         return messages;
