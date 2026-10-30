@@ -105,4 +105,7 @@ public sealed class ProducerOptions<TMessage>
     /// Add/Set the producers's properties. This is optional.
     /// </summary>
     public Dictionary<string, string> ProducerProperties { get; set; }
+
+    // The name of the subscription that the broker creates on the topic when the producer is created. It is used by the dead letter producer of a consumer.
+    internal string? InitialSubscriptionName { get; set; }
 }

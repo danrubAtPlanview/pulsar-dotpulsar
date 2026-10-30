@@ -27,16 +27,18 @@ public sealed class BatchHandler<TMessage>
     private readonly bool _trackBatches;
     private readonly IMessageFactory<TMessage> _messageFactory;
     private readonly string _topic;
+    private readonly DeadLetterHandler<TMessage>? _deadLetterHandler;
     private readonly Queue<IMessage<TMessage>> _messages;
     private readonly Dictionary<EntryKey, BatchAckTracker> _trackers;
     private readonly List<EntryKey> _removals;
 
-    public BatchHandler(bool trackBatches, IMessageFactory<TMessage> messageFactory, string topic)
+    public BatchHandler(bool trackBatches, IMessageFactory<TMessage> messageFactory, string topic, DeadLetterHandler<TMessage>? deadLetterHandler)
     {
         _lock = new object();
         _trackBatches = trackBatches;
         _messageFactory = messageFactory;
         _topic = topic;
+        _deadLetterHandler = deadLetterHandler;
         _messages = new Queue<IMessage<TMessage>>();
         _trackers = [];
         _removals = [];
@@ -84,6 +86,26 @@ public sealed class BatchHandler<TMessage>
                 var singleMessageId = new MessageId(messageId.LedgerId, messageId.EntryId, messageId.Partition, i, _topic, numberOfMessages);
                 messages[deliverable++] = _messageFactory.Create(singleMessageId, redeliveryCount, data.Slice(index, singleMetadata.PayloadSize), metadata, singleMetadata);
                 index += (uint) singleMetadata.PayloadSize;
+            }
+
+            if (_deadLetterHandler is not null && redeliveryCount >= _deadLetterHandler.MaxRedeliverCount)
+            {
+                // Upstream: ConsumerImpl#receiveIndividualMessagesFromBatch (possibleToDeadLetter)
+                // The messages of the entry that are not acknowledged are the candidates. An entry that was delivered more often than allowed is not delivered,
+                // and it is redelivered, so that the candidates are sent to the dead letter topic. Its tracker is of no use, because the whole entry is acknowledged.
+                var candidates = new IMessage<TMessage>[deliverable];
+                Array.Copy(messages, candidates, deliverable);
+                _deadLetterHandler.Register(messageId.LedgerId, messageId.EntryId, candidates);
+
+                if (deliverable > 0 && redeliveryCount > _deadLetterHandler.MaxRedeliverCount)
+                {
+                    lock (_lock)
+                        _trackers.Remove(new EntryKey(messageId));
+
+                    chargedButSkipped += deliverable;
+                    _deadLetterHandler.OnRedeliveryCountExceeded(new MessageId(messageId.LedgerId, messageId.EntryId, messageId.Partition, -1, _topic));
+                    return null;
+                }
             }
 
             lock (_lock)

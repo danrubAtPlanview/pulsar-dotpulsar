@@ -782,7 +782,7 @@ public sealed class SubConsumerTests
         var connection = CreateTransactionalConnection(out _);
         var plainSent = new List<CommandAck>();
         connection.Send(Arg.Do<CommandAck>(ack => plainSent.Add(ack.Clone())), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
-        var channel = new ConsumerChannel<byte[]>(1, 100, queue, connection, batchHandler, messageFactory, [], BatchTestData.Topic, false, false, null);
+        var channel = new ConsumerChannel<byte[]>(1, 100, queue, connection, batchHandler, messageFactory, [], BatchTestData.Topic, false, false, null, null, null);
         await using var uut = CreateSubConsumer(false, channel: channel);
         queue.Enqueue(BatchTestData.CreateBatchPackage(BatchTestData.CreateEntryId(1, 2), 5));
         var delivered = new List<DotPulsar.Abstractions.IMessage<byte[]>>();
@@ -937,10 +937,432 @@ public sealed class SubConsumerTests
         return commands;
     }
 
+    // Upstream: ConsumerImpl#trackMessage
+    [Fact]
+    public async Task Track_GivenMessage_ShouldTrackItsEntry()
+    {
+        //Arrange
+        using var tracker = CreateTracker();
+        await using var uut = CreateSubConsumer(false, tracker: tracker);
+
+        //Act
+        uut.Track(CreateMessage(new MessageId(1, 2, 0, 3, _messageId.Topic)));
+        uut.Track(CreateMessage(new MessageId(1, 2, 0, 4, _messageId.Topic)));
+
+        //Assert
+        uut.UnAckedMessageCount.ShouldBe(1);
+        tracker.Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Track_GivenNoTracker_ShouldNotTrackAnything()
+    {
+        //Arrange
+        await using var uut = CreateSubConsumer(false);
+
+        //Act
+        uut.Track(CreateMessage(_messageId));
+
+        //Assert
+        uut.UnAckedMessageCount.ShouldBe(0);
+    }
+
+    // Upstream: ConsumerImpl#doTransactionAcknowledgeForResponse
+    // The entry is removed when the acknowledgment is sent, before the receipt, and also when the transaction is aborted
+    [Fact]
+    public async Task Acknowledge_GivenTransactionAndTrackedMessage_ShouldUntrackItBeforeTheReceiptArrives()
+    {
+        //Arrange
+        var receipt = new TaskCompletionSource<BaseCommand>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var sent = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _channel.SendTransactional(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            sent.TrySetResult();
+            return receipt.Task;
+        });
+        using var tracker = CreateTracker();
+        await using var uut = CreateSubConsumer(false, tracker: tracker);
+        uut.Track(CreateMessage(_messageId));
+        var transaction = CreateTransaction(out _);
+
+        //Act
+        var ackTask = uut.Acknowledge(_messageId, transaction, Current.CancellationToken).AsTask();
+        await sent.Task;
+
+        //Assert
+        ackTask.IsCompleted.ShouldBeFalse();
+        tracker.Count.ShouldBe(0);
+        receipt.SetResult(CreateAckResponse(ServerError.TransactionConflict));
+        await Should.ThrowAsync<TransactionConflictException>(async () => await ackTask);
+        tracker.Count.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Acknowledge_GivenTransactionAndBatchIndex_ShouldNotUntrackTheEntry()
+    {
+        //Arrange
+        _channel.SendTransactional(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>()).Returns(CreateAckResponse(null));
+        using var tracker = CreateTracker();
+        await using var uut = CreateSubConsumer(false, tracker: tracker);
+        var batchMessageId = new MessageId(1, 2, 0, 3, _messageId.Topic);
+        uut.Track(CreateMessage(batchMessageId));
+        var transaction = CreateTransaction(out _);
+
+        //Act
+        await uut.Acknowledge(batchMessageId, transaction, Current.CancellationToken);
+
+        //Assert
+        tracker.Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Acknowledge_GivenTransactionAndMessageIdList_ShouldUntrackTheEntriesWithoutBatchIndex()
+    {
+        //Arrange
+        _channel.SendTransactional(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>()).Returns(CreateAckResponse(null));
+        using var tracker = CreateTracker();
+        await using var uut = CreateSubConsumer(false, tracker: tracker);
+        uut.Track(CreateMessage(new MessageId(1, 1, 0, -1, _messageId.Topic)));
+        uut.Track(CreateMessage(new MessageId(1, 2, 0, 1, _messageId.Topic)));
+        uut.Track(CreateMessage(new MessageId(1, 3, 0, -1, _messageId.Topic)));
+        var transaction = CreateTransaction(out _);
+
+        //Act
+        await uut.Acknowledge([new MessageId(1, 1, 0, -1, _messageId.Topic), new MessageId(1, 2, 0, 1, _messageId.Topic)], transaction, Current.CancellationToken);
+
+        //Assert
+        tracker.Count.ShouldBe(2);
+        tracker.Remove(1, 2).ShouldBeTrue();
+        tracker.Remove(1, 3).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task AcknowledgeCumulative_GivenTransaction_ShouldUntrackAllEntriesUpToAndIncludingTheEntry()
+    {
+        //Arrange
+        _channel.SendTransactional(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>()).Returns(CreateAckResponse(null));
+        using var tracker = CreateTracker();
+        await using var uut = CreateSubConsumer(false, tracker: tracker);
+        for (ulong entryId = 1; entryId <= 5; ++entryId)
+        {
+            uut.Track(CreateMessage(new MessageId(1, entryId, 0, -1, _messageId.Topic)));
+        }
+
+        var transaction = CreateTransaction(out _);
+
+        //Act
+        await uut.AcknowledgeCumulative(new MessageId(1, 3, 0, 2, _messageId.Topic), transaction, Current.CancellationToken);
+
+        //Assert
+        tracker.Count.ShouldBe(2);
+        tracker.Remove(1, 4).ShouldBeTrue();
+        tracker.Remove(1, 5).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Acknowledge_GivenTransactionThatIsNotOpen_ShouldNotUntrackTheEntry()
+    {
+        //Arrange
+        using var tracker = CreateTracker();
+        await using var uut = CreateSubConsumer(false, tracker: tracker);
+        uut.Track(CreateMessage(_messageId));
+        var transaction = CreateTransaction(out _);
+        await transaction.Abort(Current.CancellationToken);
+
+        //Act
+        _ = await Record.ExceptionAsync(async () => await uut.Acknowledge(_messageId, transaction, Current.CancellationToken));
+
+        //Assert
+        tracker.Count.ShouldBe(1);
+    }
+
+    // Upstream: ConsumerImpl#redeliverUnacknowledgedMessages()
+    [Theory]
+    [InlineData(SubscriptionType.Exclusive)]
+    [InlineData(SubscriptionType.Failover)]
+    [InlineData(SubscriptionType.Shared)]
+    [InlineData(SubscriptionType.KeyShared)]
+    public async Task RedeliverUnacknowledgedMessages_GivenNoMessageIds_ShouldClearTracker(SubscriptionType subscriptionType)
+    {
+        //Arrange
+        using var tracker = CreateTracker();
+        await using var uut = CreateSubConsumer(false, subscriptionType: subscriptionType, tracker: tracker);
+        uut.Track(CreateMessage(_messageId));
+
+        //Act
+        await uut.RedeliverUnacknowledgedMessages(Current.CancellationToken);
+
+        //Assert
+        tracker.Count.ShouldBe(0);
+    }
+
+    [Theory]
+    [InlineData(SubscriptionType.Exclusive, 0)]
+    [InlineData(SubscriptionType.Failover, 0)]
+    [InlineData(SubscriptionType.Shared, 1)]
+    [InlineData(SubscriptionType.KeyShared, 1)]
+    public async Task RedeliverUnacknowledgedMessages_GivenMessageIds_ShouldClearTrackerOnlyWhenAllAreRedelivered(SubscriptionType subscriptionType, int expectedTracked)
+    {
+        //Arrange
+        using var tracker = CreateTracker();
+        await using var uut = CreateSubConsumer(false, subscriptionType: subscriptionType, tracker: tracker);
+        uut.Track(CreateMessage(_messageId));
+
+        //Act
+        await uut.RedeliverUnacknowledgedMessages([_messageId], Current.CancellationToken);
+
+        //Assert
+        tracker.Count.ShouldBe(expectedTracked);
+    }
+
+    // Upstream: ConsumerImpl#negativeAcknowledge
+    [Fact]
+    public async Task NegativeAcknowledge_GivenMessageId_ShouldUntrackTheEntryAndAddItToTheNegativeAcknowledgeTracker()
+    {
+        //Arrange
+        using var tracker = CreateTracker();
+        using var negativeAcknowledgeTracker = CreateNegativeAcknowledgeTracker();
+        await using var uut = CreateSubConsumer(false, tracker: tracker, negativeAcknowledgeTracker: negativeAcknowledgeTracker);
+        uut.Track(CreateMessage(new MessageId(1, 2, 0, 0, _messageId.Topic)));
+
+        //Act
+        await uut.NegativeAcknowledge(new MessageId(1, 2, 0, 1, _messageId.Topic), Current.CancellationToken);
+
+        //Assert
+        tracker.Count.ShouldBe(0);
+        negativeAcknowledgeTracker.Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task NegativeAcknowledge_GivenMessageIdsOfTheSameEntry_ShouldTrackTheEntryOnce()
+    {
+        //Arrange
+        using var negativeAcknowledgeTracker = CreateNegativeAcknowledgeTracker();
+        await using var uut = CreateSubConsumer(false, negativeAcknowledgeTracker: negativeAcknowledgeTracker);
+
+        //Act
+        await uut.NegativeAcknowledge(new MessageId(1, 2, 0, 0, _messageId.Topic), Current.CancellationToken);
+        await uut.NegativeAcknowledge(new MessageId(1, 2, 0, 1, _messageId.Topic), Current.CancellationToken);
+        await uut.NegativeAcknowledge(new MessageId(1, 2, 0, 2, _messageId.Topic), Current.CancellationToken);
+
+        //Assert
+        negativeAcknowledgeTracker.Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task NegativeAcknowledge_GivenDisposedConsumer_ShouldThrowConsumerDisposedException()
+    {
+        //Arrange
+        var uut = CreateSubConsumer(false);
+        await uut.DisposeAsync();
+
+        //Act
+        var exception = await Record.ExceptionAsync(async () => await uut.NegativeAcknowledge(_messageId, Current.CancellationToken));
+
+        //Assert
+        exception.ShouldBeOfType<ConsumerDisposedException>();
+    }
+
+    [Fact]
+    public async Task NegativeAcknowledge_GivenDueEntry_ShouldRedeliverItThroughTheConsumer()
+    {
+        //Arrange
+        var sent = CaptureRedeliverCommands();
+        var timers = new FakeOneShotTimerFactory();
+        var clock = new FakeMonotonicClock();
+        var negativeAcknowledgeTracker = (NegativeAcknowledgeTracker?) null;
+        await using var uut = CreateSubConsumer(false, subscriptionType: SubscriptionType.Shared, negativeAcknowledgeTrackerFactory: redeliver => negativeAcknowledgeTracker = new NegativeAcknowledgeTracker(TimeSpan.FromSeconds(1), redeliver, () => clock.Now, timers.Create));
+        await uut.NegativeAcknowledge(new MessageId(1, 2, 0, 1, _messageId.Topic), Current.CancellationToken);
+
+        //Act
+        clock.Advance(TimeSpan.FromSeconds(2));
+        timers.Timer.Fire();
+        await WaitUntil(() => sent.Count == 1);
+
+        //Assert
+        negativeAcknowledgeTracker!.Count.ShouldBe(0);
+        sent[0].MessageIds.Select(messageId => (messageId.LedgerId, messageId.EntryId)).ShouldBeSequence((1UL, 2UL));
+    }
+
+    // Upstream: ConsumerImpl#closeConsumerTasks
+    [Fact]
+    public async Task DisposeAsync_GivenTrackers_ShouldDisposeThem()
+    {
+        //Arrange
+        var tracker = CreateTracker();
+        var negativeAcknowledgeTracker = CreateNegativeAcknowledgeTracker();
+        var uut = CreateSubConsumer(false, tracker: tracker, negativeAcknowledgeTracker: negativeAcknowledgeTracker);
+        uut.Track(CreateMessage(_messageId));
+        var negativelyAcknowledged = new MessageId(1, 3, 0, -1, _messageId.Topic);
+        await uut.NegativeAcknowledge(negativelyAcknowledged, Current.CancellationToken);
+        tracker.Count.ShouldBe(1);
+        negativeAcknowledgeTracker.Count.ShouldBe(1);
+
+        //Act
+        await uut.DisposeAsync();
+
+        //Assert
+        tracker.Count.ShouldBe(0);
+        negativeAcknowledgeTracker.Count.ShouldBe(0);
+        negativeAcknowledgeTracker.Add(negativelyAcknowledged).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task ChannelFaulted_GivenTracker_ShouldDisposeIt()
+    {
+        //Arrange
+        using var tracker = CreateTracker();
+        await using var uut = CreateSubConsumer(false, tracker: tracker);
+        uut.Track(CreateMessage(_messageId));
+
+        //Act
+        await uut.ChannelFaulted(new Exception("fault"));
+
+        //Assert
+        tracker.Count.ShouldBe(0);
+    }
+
+    // Upstream: ConsumerImpl#redeliverUnacknowledgedMessages(Set), ConsumerImpl#processPossibleToDLQ
+    [Theory]
+    [InlineData(SubscriptionType.Shared)]
+    [InlineData(SubscriptionType.KeyShared)]
+    public async Task RedeliverUnacknowledgedMessages_GivenDeadLetterCandidate_ShouldDeadLetterTheEntryAndRedeliverTheOthers(SubscriptionType subscriptionType)
+    {
+        //Arrange
+        var sent = CaptureRedeliverCommands();
+        var acknowledged = CaptureAcknowledgments();
+        var (deadLetterHandler, producer) = CreateDeadLetterHandler();
+        await using var uut = CreateSubConsumer(false, subscriptionType: subscriptionType, deadLetterHandler: deadLetterHandler);
+        deadLetterHandler.Register(1, 2, CreateMessage(new MessageId(1, 2, 0, -1, _messageId.Topic)));
+
+        //Act
+        await uut.RedeliverUnacknowledgedMessages([new MessageId(1, 2, 0, 3, _messageId.Topic), new MessageId(1, 3, 0, -1, _messageId.Topic)], Current.CancellationToken);
+
+        //Assert
+        await producer.Received(1).Send(Arg.Any<DotPulsar.MessageMetadata>(), Arg.Any<ReadOnlySequence<byte>>(), Arg.Any<CancellationToken>());
+        acknowledged.Count.ShouldBe(1);
+        acknowledged[0].MessageId[0].EntryId.ShouldBe(2UL);
+        acknowledged[0].AckType.ShouldBe(CommandAck.Types.AckType.Individual);
+        sent.Count.ShouldBe(1);
+        sent[0].MessageIds.Select(messageId => messageId.EntryId).ShouldBeSequence(3UL);
+    }
+
+    [Fact]
+    public async Task RedeliverUnacknowledgedMessages_GivenOnlyDeadLetterCandidates_ShouldNotSendRedeliverCommand()
+    {
+        //Arrange
+        var sent = CaptureRedeliverCommands();
+        _ = CaptureAcknowledgments();
+        var (deadLetterHandler, _) = CreateDeadLetterHandler();
+        await using var uut = CreateSubConsumer(false, subscriptionType: SubscriptionType.Shared, deadLetterHandler: deadLetterHandler);
+        deadLetterHandler.Register(1, 2, CreateMessage(new MessageId(1, 2, 0, -1, _messageId.Topic)));
+
+        //Act
+        await uut.RedeliverUnacknowledgedMessages([new MessageId(1, 2, 0, -1, _messageId.Topic)], Current.CancellationToken);
+
+        //Assert
+        sent.ShouldBeEmpty();
+        deadLetterHandler.Count.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task RedeliverUnacknowledgedMessages_GivenDeadLetterFailure_ShouldRedeliverTheEntry()
+    {
+        //Arrange
+        var sent = CaptureRedeliverCommands();
+        var (deadLetterHandler, producer) = CreateDeadLetterHandler();
+        producer.Send(Arg.Any<DotPulsar.MessageMetadata>(), Arg.Any<ReadOnlySequence<byte>>(), Arg.Any<CancellationToken>()).Returns<ValueTask<MessageId>>(_ => throw new InvalidOperationException("send failed"));
+        await using var uut = CreateSubConsumer(false, subscriptionType: SubscriptionType.Shared, deadLetterHandler: deadLetterHandler);
+        deadLetterHandler.Register(1, 2, CreateMessage(new MessageId(1, 2, 0, -1, _messageId.Topic)));
+
+        //Act
+        await uut.RedeliverUnacknowledgedMessages([new MessageId(1, 2, 0, -1, _messageId.Topic)], Current.CancellationToken);
+
+        //Assert
+        sent.Count.ShouldBe(1);
+        sent[0].MessageIds.Select(messageId => messageId.EntryId).ShouldBeSequence(2UL);
+        deadLetterHandler.Contains(1, 2).ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData(SubscriptionType.Exclusive)]
+    [InlineData(SubscriptionType.Failover)]
+    public async Task RedeliverUnacknowledgedMessages_GivenDeadLetterCandidateOnSubscriptionWithSingleActiveConsumer_ShouldRedeliverAllWithoutDeadLettering(SubscriptionType subscriptionType)
+    {
+        //Arrange
+        var sent = CaptureRedeliverCommands();
+        var (deadLetterHandler, producer) = CreateDeadLetterHandler();
+        await using var uut = CreateSubConsumer(false, subscriptionType: subscriptionType, deadLetterHandler: deadLetterHandler);
+        deadLetterHandler.Register(1, 2, CreateMessage(new MessageId(1, 2, 0, -1, _messageId.Topic)));
+
+        //Act
+        await uut.RedeliverUnacknowledgedMessages([new MessageId(1, 2, 0, -1, _messageId.Topic)], Current.CancellationToken);
+
+        //Assert
+        await producer.DidNotReceive().Send(Arg.Any<DotPulsar.MessageMetadata>(), Arg.Any<ReadOnlySequence<byte>>(), Arg.Any<CancellationToken>());
+        sent.Count.ShouldBe(1);
+        sent[0].MessageIds.Count.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task DisposeAsync_GivenDeadLetterHandler_ShouldDisposeIt()
+    {
+        //Arrange
+        var (deadLetterHandler, producer) = CreateDeadLetterHandler();
+        var uut = CreateSubConsumer(false, deadLetterHandler: deadLetterHandler);
+        deadLetterHandler.Register(1, 2, CreateMessage(new MessageId(1, 2, 0, -1, _messageId.Topic)));
+        _ = await deadLetterHandler.TryDeadLetter(new MessageId(1, 3, 0, -1, _messageId.Topic), (_, _) => default, Current.CancellationToken);
+
+        //Act
+        await uut.DisposeAsync();
+
+        //Assert
+        deadLetterHandler.Count.ShouldBe(0);
+        (await deadLetterHandler.TryDeadLetter(new MessageId(1, 2, 0, -1, _messageId.Topic), (_, _) => default, Current.CancellationToken)).ShouldBeFalse();
+        await producer.DidNotReceive().Send(Arg.Any<DotPulsar.MessageMetadata>(), Arg.Any<ReadOnlySequence<byte>>(), Arg.Any<CancellationToken>());
+    }
+
+    private List<CommandAck> CaptureAcknowledgments()
+    {
+        var commands = new List<CommandAck>();
+        _channel.Send(Arg.Do<CommandAck>(command => commands.Add(command.Clone())), Arg.Any<CancellationToken>()).Returns(Task.FromResult<BaseCommand?>(null));
+        return commands;
+    }
+
+    private static UnAckedMessageTracker CreateTracker()
+        => new(TimeSpan.FromMinutes(1), TimeSpan.FromSeconds(1), (_, _) => default);
+
+    private static NegativeAcknowledgeTracker CreateNegativeAcknowledgeTracker()
+        => new(TimeSpan.FromMinutes(1), (_, _) => default);
+
+    private static (DeadLetterHandler<byte[]> Handler, IProducer<ReadOnlySequence<byte>> Producer) CreateDeadLetterHandler()
+    {
+        var producer = Substitute.For<IProducer<ReadOnlySequence<byte>>>();
+        producer.State.IsFinalState().Returns(false);
+        producer.DisposeAsync().Returns(default(ValueTask));
+        producer.Send(Arg.Any<DotPulsar.MessageMetadata>(), Arg.Any<ReadOnlySequence<byte>>(), Arg.Any<CancellationToken>()).Returns(new ValueTask<MessageId>(new MessageId(9, 9, 0, -1)));
+        var schemaInfo = new SchemaInfo("schema", Array.Empty<byte>(), SchemaType.String, System.Collections.Immutable.ImmutableDictionary<string, string>.Empty);
+        var handler = new DeadLetterHandler<byte[]>(new DeadLetterPolicy(3), _messageId.Topic, "subscription", "consumer", schemaInfo, (_, _) => producer);
+        return (handler, producer);
+    }
+
+    private static IMessage<byte[]> CreateMessage(MessageId messageId)
+        => new MessageFactory<byte[]>(DotPulsar.Schema.ByteArray).Create(messageId, 0, new ReadOnlySequence<byte>([1, 2, 3]), new DotPulsar.Internal.PulsarApi.MessageMetadata { ProducerName = "producer", SequenceId = 1, PublishTime = 1 });
+
+    private static async Task WaitUntil(Func<bool> condition)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+
+        while (!condition() && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(10, Current.CancellationToken);
+        }
+    }
+
     private static (BatchHandler<byte[]> Handler, MessageFactory<byte[]> Factory) CreateBatchHandler()
     {
         var messageFactory = new MessageFactory<byte[]>(DotPulsar.Schema.ByteArray);
-        return (new BatchHandler<byte[]>(true, messageFactory, BatchTestData.Topic), messageFactory);
+        return (new BatchHandler<byte[]>(true, messageFactory, BatchTestData.Topic, null), messageFactory);
     }
 
     private static IConnection CreateConnection(out List<CommandAck> sent)
@@ -954,7 +1376,7 @@ public sealed class SubConsumerTests
     }
 
     private static ConsumerChannel<byte[]> CreateChannel(IConnection connection, BatchHandler<byte[]> batchHandler, MessageFactory<byte[]> messageFactory, bool batchIndexAckEnabled, bool ackReceiptEnabled = false)
-        => new(1, 100, new AsyncQueue<MessagePackage>(), connection, batchHandler, messageFactory, [], BatchTestData.Topic, ackReceiptEnabled, batchIndexAckEnabled, null);
+        => new(1, 100, new AsyncQueue<MessagePackage>(), connection, batchHandler, messageFactory, [], BatchTestData.Topic, ackReceiptEnabled, batchIndexAckEnabled, null, null, null);
 
     private static Transaction CreateTransaction(out ITransactionCoordinatorClient tcClient)
     {
@@ -972,14 +1394,15 @@ public sealed class SubConsumerTests
         return connection;
     }
 
-    private SubConsumer<byte[]> CreateSubConsumer(bool ackReceiptEnabled, TimeSpan? operationTimeout = null, IConsumerChannel<byte[]>? channel = null, SubscriptionType subscriptionType = SubscriptionType.Exclusive, ConsumerEpoch? consumerEpoch = null)
+    private SubConsumer<byte[]> CreateSubConsumer(bool ackReceiptEnabled, TimeSpan? operationTimeout = null, IConsumerChannel<byte[]>? channel = null, SubscriptionType subscriptionType = SubscriptionType.Exclusive, ConsumerEpoch? consumerEpoch = null, UnAckedMessageTracker? tracker = null, NegativeAcknowledgeTracker? negativeAcknowledgeTracker = null, DeadLetterHandler<byte[]>? deadLetterHandler = null, Func<Func<MessageId[], CancellationToken, ValueTask>, NegativeAcknowledgeTracker>? negativeAcknowledgeTrackerFactory = null)
     {
         var correlationId = Guid.NewGuid();
         var executor = new Executor(correlationId, _eventRegister, new DefaultExceptionHandler());
         var state = Substitute.For<IState<ConsumerState>>();
         var factory = Substitute.For<IConsumerChannelFactory<byte[]>>();
 
-        return new SubConsumer<byte[]>(
+        SubConsumer<byte[]>? subConsumer = null;
+        subConsumer = new SubConsumer<byte[]>(
             correlationId,
             new Uri("pulsar://localhost:6650"),
             "subscription",
@@ -992,7 +1415,12 @@ public sealed class SubConsumerTests
             factory,
             ackReceiptEnabled,
             operationTimeout ?? TimeSpan.FromSeconds(30),
-            consumerEpoch ?? new ConsumerEpoch());
+            consumerEpoch ?? new ConsumerEpoch(),
+            tracker,
+            negativeAcknowledgeTracker ?? negativeAcknowledgeTrackerFactory?.Invoke((ids, ct) => subConsumer!.RedeliverUnacknowledgedMessages(ids, ct)) ?? new NegativeAcknowledgeTracker(TimeSpan.FromMinutes(1), (_, _) => default),
+            deadLetterHandler);
+
+        return subConsumer;
     }
 
     private static BaseCommand CreateAckResponse(ServerError? error)

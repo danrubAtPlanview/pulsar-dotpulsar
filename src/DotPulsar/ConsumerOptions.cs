@@ -33,6 +33,16 @@ public sealed class ConsumerOptions<TMessage>
     public static readonly bool DefaultBatchIndexAckEnabled = false;
 
     /// <summary>
+    /// The default ack timeout.
+    /// </summary>
+    public static readonly TimeSpan DefaultAckTimeout = TimeSpan.Zero;
+
+    /// <summary>
+    /// The default ack timeout tick time.
+    /// </summary>
+    public static readonly TimeSpan DefaultAckTimeoutTickTime = TimeSpan.FromSeconds(1);
+
+    /// <summary>
     /// The default initial position.
     /// </summary>
     public static readonly SubscriptionInitialPosition DefaultInitialPosition = SubscriptionInitialPosition.Latest;
@@ -41,6 +51,11 @@ public sealed class ConsumerOptions<TMessage>
     /// The default message prefetch count.
     /// </summary>
     public static readonly uint DefaultMessagePrefetchCount = 1000;
+
+    /// <summary>
+    /// The default delay before negatively acknowledged messages are redelivered.
+    /// </summary>
+    public static readonly TimeSpan DefaultNegativeAcknowledgeRedeliveryDelay = TimeSpan.FromMinutes(1);
 
     /// <summary>
     /// The default priority level.
@@ -72,8 +87,11 @@ public sealed class ConsumerOptions<TMessage>
     private ConsumerOptions(string subscriptionName, ISchema<TMessage> schema, string topic, Regex? topicsPattern, IEnumerable<string> topics)
     {
         AckReceiptEnabled = DefaultAckReceiptEnabled;
+        AckTimeout = DefaultAckTimeout;
+        AckTimeoutTickTime = DefaultAckTimeoutTickTime;
         BatchIndexAckEnabled = DefaultBatchIndexAckEnabled;
         InitialPosition = DefaultInitialPosition;
+        NegativeAcknowledgeRedeliveryDelay = DefaultNegativeAcknowledgeRedeliveryDelay;
         PriorityLevel = DefaultPriorityLevel;
         MessagePrefetchCount = DefaultMessagePrefetchCount;
         ReadCompacted = DefaultReadCompacted;
@@ -214,4 +232,35 @@ public sealed class ConsumerOptions<TMessage>
     /// Whether partial acknowledgments of batched messages are sent to the broker using batch index acknowledgment (requires the broker setting 'acknowledgmentAtBatchIndexLevelEnabled'). Transactional acknowledgments always use batch index acknowledgment. The default is 'false'.
     /// </summary>
     public bool BatchIndexAckEnabled { get; set; }
+
+    /// <summary>
+    /// Set the timeout for unacknowledged messages. Must be zero (disabled) or at least 1 second. The default is 'TimeSpan.Zero' (disabled).
+    /// </summary>
+    /// <remarks>
+    /// When enabled, a received message that is not acknowledged within the timeout is redelivered (possibly to another consumer on a shared subscription).
+    /// On subscriptions that are not 'Shared' or 'KeyShared' an expiry redelivers all unacknowledged messages.
+    /// The timeout is ignored for non-persistent topics.
+    /// </remarks>
+    public TimeSpan AckTimeout { get; set; }
+
+    /// <summary>
+    /// Set the granularity of the ack timeout redelivery. Must be at least 100 milliseconds. The default is 1 second.
+    /// </summary>
+    /// <remarks>
+    /// A higher tick time reduces the memory overhead of tracking messages when the ack timeout is large (e.g. 1 hour).
+    /// </remarks>
+    public TimeSpan AckTimeoutTickTime { get; set; }
+
+    /// <summary>
+    /// Set the dead letter policy. This is optional.
+    /// </summary>
+    /// <remarks>
+    /// Only has an effect for 'Shared' and 'KeyShared' subscriptions.
+    /// </remarks>
+    public DeadLetterPolicy? DeadLetterPolicy { get; set; }
+
+    /// <summary>
+    /// Set the delay before negatively acknowledged messages are redelivered. A delay below 100 milliseconds is raised to 100 milliseconds. The default is 1 minute.
+    /// </summary>
+    public TimeSpan NegativeAcknowledgeRedeliveryDelay { get; set; }
 }

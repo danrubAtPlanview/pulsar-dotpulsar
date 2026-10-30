@@ -39,6 +39,9 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
     private readonly bool _ackReceiptEnabled;
     private readonly TimeSpan _operationTimeout;
     private readonly ConsumerEpoch _consumerEpoch;
+    private readonly UnAckedMessageTracker? _unAckedMessageTracker;
+    private readonly NegativeAcknowledgeTracker _negativeAcknowledgeTracker;
+    private readonly DeadLetterHandler<TMessage>? _deadLetterHandler;
     private int _isDisposed;
     private Exception? _faultException;
 
@@ -47,6 +50,9 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
     public SubscriptionType SubscriptionType { get; }
     public string Topic { get; }
     public IState<ConsumerState> State => _state;
+
+    // The number of entries that the ack timeout waits for, which is 0 if the ack timeout is not enabled
+    public int UnAckedMessageCount => _unAckedMessageTracker?.Count ?? 0;
 
     public SubConsumer(
         Guid correlationId,
@@ -61,7 +67,10 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
         IConsumerChannelFactory<TMessage> factory,
         bool ackReceiptEnabled,
         TimeSpan operationTimeout,
-        ConsumerEpoch consumerEpoch)
+        ConsumerEpoch consumerEpoch,
+        UnAckedMessageTracker? unAckedMessageTracker,
+        NegativeAcknowledgeTracker negativeAcknowledgeTracker,
+        DeadLetterHandler<TMessage>? deadLetterHandler)
     {
         _correlationId = correlationId;
         ServiceUrl = serviceUrl;
@@ -76,6 +85,9 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
         _ackReceiptEnabled = ackReceiptEnabled;
         _operationTimeout = operationTimeout;
         _consumerEpoch = consumerEpoch;
+        _unAckedMessageTracker = unAckedMessageTracker;
+        _negativeAcknowledgeTracker = negativeAcknowledgeTracker;
+        _deadLetterHandler = deadLetterHandler;
         _commandAckPool = new DefaultObjectPool<CommandAck>(new DefaultPooledObjectPolicy<CommandAck>());
         _isDisposed = 0;
 
@@ -88,6 +100,12 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
             return;
 
         _eventRegister.Register(new ConsumerDisposed(_correlationId));
+        _unAckedMessageTracker?.Dispose();
+        _negativeAcknowledgeTracker.Dispose();
+
+        if (_deadLetterHandler is not null)
+            await _deadLetterHandler.DisposeAsync().ConfigureAwait(false);
+
         await DisposeChannel().ConfigureAwait(false);
     }
 
@@ -99,6 +117,11 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
 
     public async ValueTask<IMessage<TMessage>> Receive(CancellationToken cancellationToken)
         => await _executor.Execute(() => InternalReceive(cancellationToken), cancellationToken).ConfigureAwait(false);
+
+    // Upstream: ConsumerBase#trackUnAckedMsgIfNoListener
+    // The message is tracked when it is handed to the application, and not when it is received from the broker
+    public void Track(IMessage<TMessage> message)
+        => _unAckedMessageTracker?.Add(message.MessageId);
 
     public async ValueTask Acknowledge(MessageId messageId, CancellationToken cancellationToken)
         => await InternalAcknowledge(messageId, CommandAck.Types.AckType.Individual, cancellationToken).ConfigureAwait(false);
@@ -169,13 +192,16 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
             return;
         }
 
+        if (_deadLetterHandler is not null)
+            entries = await RemoveDeadLettered(entries, cancellationToken).ConfigureAwait(false);
+
         for (var offset = 0; offset < entries.Count; offset += MaxRedeliverUnacknowledged)
         {
             var command = new CommandRedeliverUnacknowledgedMessages();
 
             for (var i = offset; i < Math.Min(offset + MaxRedeliverUnacknowledged, entries.Count); ++i)
             {
-                command.MessageIds.Add(entries[i]);
+                command.MessageIds.Add(new MessageIdData { LedgerId = entries[i].LedgerId, EntryId = entries[i].EntryId, Partition = entries[i].Partition });
             }
 
             await _executor.Execute(() => InternalRedeliverUnacknowledgedMessages(command, cancellationToken), cancellationToken).ConfigureAwait(false);
@@ -191,8 +217,19 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
         if (SubscriptionType is SubscriptionType.Exclusive or SubscriptionType.Failover)
             _consumerEpoch.Increment();
 
+        _unAckedMessageTracker?.Clear();
+
         var command = new CommandRedeliverUnacknowledgedMessages { ConsumerEpoch = (ulong) _consumerEpoch.Value };
         await _executor.Execute(() => InternalRedeliverUnacknowledgedMessages(command, cancellationToken), cancellationToken).ConfigureAwait(false);
+    }
+
+    // Upstream: ConsumerImpl#negativeAcknowledge
+    public ValueTask NegativeAcknowledge(MessageId messageId, CancellationToken cancellationToken)
+    {
+        Guard();
+        _unAckedMessageTracker?.Remove(messageId);
+        _negativeAcknowledgeTracker.Add(messageId);
+        return default;
     }
 
     public async ValueTask Unsubscribe(CancellationToken cancellationToken)
@@ -245,6 +282,7 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
     public async ValueTask ChannelFaulted(Exception exception)
     {
         _faultException = exception;
+        _unAckedMessageTracker?.Dispose();
         await DisposeChannel().ConfigureAwait(false);
     }
 
@@ -403,6 +441,8 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
     {
         await transaction.RegisterAckedTopic(Topic, SubscriptionName, cancellationToken).ConfigureAwait(false);
 
+        RemoveFromUnAckedTracker(command);
+
         var response = await SendAndAwaitReceipt(command, true, cancellationToken).ConfigureAwait(false);
 
         // The response is evaluated outside the executor (see InternalAcknowledge), so that a conflict fails only this acknowledgment
@@ -430,20 +470,65 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
         return messageIdData;
     }
 
+    // Upstream: ConsumerImpl#doTransactionAcknowledgeForResponse
+    // An entry is no longer waited for when the acknowledgment is sent, whatever the outcome of the transaction is. A message of a batch is only acknowledged
+    // individually, and the entry is not complete until the other messages of the batch are acknowledged (C# deviation: Java does not remove the entry then either).
+    private void RemoveFromUnAckedTracker(CommandAck command)
+    {
+        if (_unAckedMessageTracker is null)
+            return;
+
+        if (command.AckType == CommandAck.Types.AckType.Cumulative)
+        {
+            var messageId = command.MessageId[0];
+            _unAckedMessageTracker.RemoveMessagesTill(messageId.LedgerId, messageId.EntryId);
+            return;
+        }
+
+        foreach (var messageId in command.MessageId)
+        {
+            if (messageId.BatchIndex < 0)
+                _unAckedMessageTracker.Remove(messageId.LedgerId, messageId.EntryId);
+        }
+    }
+
     // The broker redelivers entries, so the batch index of a message id is of no use. Every entry is only sent once.
     // Upstream: ConsumerImpl#getRedeliveryMessageIdData
-    private static List<MessageIdData> ToEntryLevel(IEnumerable<MessageId> messageIds)
+    private static List<MessageId> ToEntryLevel(IEnumerable<MessageId> messageIds)
     {
-        var entries = new List<MessageIdData>();
+        var entries = new List<MessageId>();
         var added = new HashSet<(ulong LedgerId, ulong EntryId)>();
 
         foreach (var messageId in messageIds)
         {
             if (added.Add((messageId.LedgerId, messageId.EntryId)))
-                entries.Add(new MessageIdData { LedgerId = messageId.LedgerId, EntryId = messageId.EntryId, Partition = messageId.Partition });
+                entries.Add(new MessageId(messageId.LedgerId, messageId.EntryId, messageId.Partition, -1, messageId.Topic));
         }
 
         return entries;
+    }
+
+    // The entries that are sent to the dead letter topic are acknowledged, and they are not redelivered. The others are redelivered.
+    // Upstream: ConsumerImpl#redeliverUnacknowledgedMessages(Set)
+    private async ValueTask<List<MessageId>> RemoveDeadLettered(List<MessageId> entries, CancellationToken cancellationToken)
+    {
+        var tasks = new Task<bool>[entries.Count];
+
+        for (var i = 0; i < tasks.Length; ++i)
+        {
+            tasks[i] = _deadLetterHandler!.TryDeadLetter(entries[i], Acknowledge, cancellationToken).AsTask();
+        }
+
+        var results = await Task.WhenAll(tasks).ConfigureAwait(false);
+        var remaining = new List<MessageId>(entries.Count);
+
+        for (var i = 0; i < results.Length; ++i)
+        {
+            if (!results[i])
+                remaining.Add(entries[i]);
+        }
+
+        return remaining;
     }
 
     private static void ResetPooledAck(CommandAck command)

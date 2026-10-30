@@ -102,6 +102,18 @@ public sealed class PulsarClient : IPulsarClient
     {
         ThrowIfDisposed();
 
+        if (options.AckTimeout != TimeSpan.Zero && options.AckTimeout < TimeSpan.FromSeconds(1))
+            throw new ConfigurationException("ConsumerOptions.AckTimeout must be TimeSpan.Zero (disabled) or at least 1 second");
+
+        if (options.AckTimeoutTickTime < TimeSpan.FromMilliseconds(100))
+            throw new ConfigurationException("ConsumerOptions.AckTimeoutTickTime must be at least 100 milliseconds");
+
+        if (options.DeadLetterPolicy is not null && options.DeadLetterPolicy.MaxRedeliverCount == 0)
+            throw new ConfigurationException("MaxRedeliverCount must be > 0.");
+
+        if (options.NegativeAcknowledgeRedeliveryDelay < TimeSpan.Zero)
+            throw new ConfigurationException("ConsumerOptions.NegativeAcknowledgeRedeliveryDelay may not be negative");
+
         var consumer = new Consumer<TMessage>(ServiceUrl, options, _connectionPool, _exceptionHandler, _operationTimeout);
         if (options.StateChangedHandler is not null)
             _ = StateMonitor.MonitorConsumer(consumer, options.StateChangedHandler);

@@ -15,6 +15,7 @@
 namespace DotPulsar.Tests.Internal;
 
 using DotPulsar.Abstractions;
+using DotPulsar.Exceptions;
 using DotPulsar.Internal;
 
 [Trait("Category", "Unit")]
@@ -70,6 +71,118 @@ public sealed class ConsumerBuilderTests
         //Assert
         ConsumerOptions<string>.DefaultBatchIndexAckEnabled.ShouldBeFalse();
         uut.BatchIndexAckEnabled.ShouldBe(ConsumerOptions<string>.DefaultBatchIndexAckEnabled);
+    }
+
+    [Fact]
+    public void Create_GivenNoAckTimeoutSettings_ShouldUseTheDefaults()
+    {
+        //Arrange
+        var (uut, options) = CreateBuilder();
+
+        //Act
+        uut.Create();
+
+        //Assert
+        options().AckTimeout.ShouldBe(TimeSpan.Zero);
+        options().AckTimeoutTickTime.ShouldBe(TimeSpan.FromSeconds(1));
+        ConsumerOptions<string>.DefaultAckTimeout.ShouldBe(TimeSpan.Zero);
+        ConsumerOptions<string>.DefaultAckTimeoutTickTime.ShouldBe(TimeSpan.FromSeconds(1));
+    }
+
+    [Fact]
+    public void Create_GivenAckTimeoutAndTickTime_ShouldPassThemOnInTheOptions()
+    {
+        //Arrange
+        var (uut, options) = CreateBuilder();
+
+        //Act
+        uut.AckTimeout(TimeSpan.FromSeconds(30)).AckTimeoutTickTime(TimeSpan.FromMilliseconds(250)).Create();
+
+        //Assert
+        options().AckTimeout.ShouldBe(TimeSpan.FromSeconds(30));
+        options().AckTimeoutTickTime.ShouldBe(TimeSpan.FromMilliseconds(250));
+    }
+
+    [Fact]
+    public void Create_GivenNoDeadLetterPolicy_ShouldNotSetOneInTheOptions()
+    {
+        //Arrange
+        var (uut, options) = CreateBuilder();
+
+        //Act
+        uut.Create();
+
+        //Assert
+        options().DeadLetterPolicy.ShouldBeNull();
+    }
+
+    [Fact]
+    public void Create_GivenDeadLetterPolicy_ShouldPassItOnInTheOptions()
+    {
+        //Arrange
+        var (uut, options) = CreateBuilder();
+        var deadLetterPolicy = new DeadLetterPolicy(3);
+
+        //Act
+        uut.DeadLetterPolicy(deadLetterPolicy).Create();
+
+        //Assert
+        options().DeadLetterPolicy.ShouldBeSameAs(deadLetterPolicy);
+    }
+
+    // Upstream: ConsumerBuilderImpl#deadLetterPolicy, DeadLetterPolicyTest
+    [Fact]
+    public void Create_GivenDeadLetterPolicyWithZeroMaxRedeliverCount_ShouldThrowConfigurationException()
+    {
+        //Arrange
+        var (uut, _) = CreateBuilder();
+        uut.DeadLetterPolicy(new DeadLetterPolicy(0));
+
+        //Act
+        var exception = Record.Exception(uut.Create);
+
+        //Assert
+        exception.ShouldBeOfType<ConfigurationException>().Message.ShouldBe("MaxRedeliverCount must be > 0.");
+    }
+
+    [Fact]
+    public void Create_GivenNoNegativeAcknowledgeRedeliveryDelay_ShouldUseTheDefault()
+    {
+        //Arrange
+        var (uut, options) = CreateBuilder();
+
+        //Act
+        uut.Create();
+
+        //Assert
+        options().NegativeAcknowledgeRedeliveryDelay.ShouldBe(TimeSpan.FromMinutes(1));
+        ConsumerOptions<string>.DefaultNegativeAcknowledgeRedeliveryDelay.ShouldBe(TimeSpan.FromMinutes(1));
+    }
+
+    [Fact]
+    public void Create_GivenNegativeAcknowledgeRedeliveryDelay_ShouldPassItOnInTheOptions()
+    {
+        //Arrange
+        var (uut, options) = CreateBuilder();
+
+        //Act
+        uut.NegativeAcknowledgeRedeliveryDelay(TimeSpan.FromSeconds(5)).Create();
+
+        //Assert
+        options().NegativeAcknowledgeRedeliveryDelay.ShouldBe(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public void Builder_GivenAckTimeoutDeadLetterPolicyAndNegativeAcknowledgeRedeliveryDelay_ShouldReturnTheBuilder()
+    {
+        //Arrange
+        var (uut, _) = CreateBuilder();
+
+        //Act & Assert
+        uut.AckTimeout(TimeSpan.Zero).ShouldBeSameAs(uut);
+        uut.AckTimeoutTickTime(TimeSpan.FromSeconds(1)).ShouldBeSameAs(uut);
+        uut.DeadLetterPolicy(new DeadLetterPolicy(1)).ShouldBeSameAs(uut);
+        uut.NegativeAcknowledgeRedeliveryDelay(TimeSpan.FromSeconds(1)).ShouldBeSameAs(uut);
     }
 
     private static (IConsumerBuilder<string> Builder, Func<ConsumerOptions<string>> Options) CreateBuilder()

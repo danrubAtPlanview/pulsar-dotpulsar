@@ -280,7 +280,7 @@ public sealed class BatchAckTrackerTests
 
         for (var iteration = 0; iteration < 100; ++iteration)
         {
-            var batchHandler = new BatchHandler<byte[]>(true, new MessageFactory<byte[]>(DotPulsar.Schema.ByteArray), BatchTestData.Topic);
+            var batchHandler = new BatchHandler<byte[]>(true, new MessageFactory<byte[]>(DotPulsar.Schema.ByteArray), BatchTestData.Topic, null);
             _ = BatchTestData.AddBatch(batchHandler, 1, 0, batchSize);
             var completed = 0;
             using var barrier = new Barrier(batchSize);

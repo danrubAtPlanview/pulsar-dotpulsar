@@ -31,6 +31,8 @@ public sealed class ConsumerChannelFactory<TMessage> : IConsumerChannelFactory<T
     private readonly bool _ackReceiptEnabled;
     private readonly bool _batchIndexAckEnabled;
     private readonly ConsumerEpoch? _consumerEpoch;
+    private readonly UnAckedMessageTracker? _unAckedMessageTracker;
+    private readonly DeadLetterHandler<TMessage>? _deadLetterHandler;
 
     public ConsumerChannelFactory(
         Guid correlationId,
@@ -44,7 +46,9 @@ public sealed class ConsumerChannelFactory<TMessage> : IConsumerChannelFactory<T
         string topic,
         bool ackReceiptEnabled,
         bool batchIndexAckEnabled,
-        ConsumerEpoch? consumerEpoch)
+        ConsumerEpoch? consumerEpoch,
+        UnAckedMessageTracker? unAckedMessageTracker,
+        DeadLetterHandler<TMessage>? deadLetterHandler)
     {
         _correlationId = correlationId;
         _eventRegister = eventRegister;
@@ -58,6 +62,8 @@ public sealed class ConsumerChannelFactory<TMessage> : IConsumerChannelFactory<T
         _ackReceiptEnabled = ackReceiptEnabled;
         _batchIndexAckEnabled = batchIndexAckEnabled;
         _consumerEpoch = consumerEpoch;
+        _unAckedMessageTracker = unAckedMessageTracker;
+        _deadLetterHandler = deadLetterHandler;
     }
 
     public async Task<IConsumerChannel<TMessage>> Create(CancellationToken cancellationToken)
@@ -65,6 +71,10 @@ public sealed class ConsumerChannelFactory<TMessage> : IConsumerChannelFactory<T
         var connection = await _connectionPool.FindConnectionForTopic(_subscribe.Topic, cancellationToken).ConfigureAwait(false);
         var messageQueue = new AsyncQueue<MessagePackage>();
         var channel = new Channel(_correlationId, _eventRegister, messageQueue);
+
+        // Upstream: ConsumerImpl#connectionOpened
+        // The messages of the earlier connection are redelivered, so they are no longer candidates
+        _deadLetterHandler?.Clear();
 
         var subscribeEpoch = _consumerEpoch?.Value ?? 0;
 
@@ -82,6 +92,6 @@ public sealed class ConsumerChannelFactory<TMessage> : IConsumerChannelFactory<T
         }
 
         var filterEpoch = _subscribe.SubType is CommandSubscribe.Types.SubType.Exclusive or CommandSubscribe.Types.SubType.Failover ? _consumerEpoch : null;
-        return new ConsumerChannel<TMessage>(response.ConsumerId, _messagePrefetchCount, messageQueue, connection, _batchHandler, _messageFactory, _decompressorFactories, _topic, _ackReceiptEnabled, _batchIndexAckEnabled, filterEpoch);
+        return new ConsumerChannel<TMessage>(response.ConsumerId, _messagePrefetchCount, messageQueue, connection, _batchHandler, _messageFactory, _decompressorFactories, _topic, _ackReceiptEnabled, _batchIndexAckEnabled, filterEpoch, _unAckedMessageTracker, _deadLetterHandler);
     }
 }

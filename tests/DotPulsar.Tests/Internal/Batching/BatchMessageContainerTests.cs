@@ -799,7 +799,7 @@ public sealed class BatchMessageContainerTests
 
         uut.CreateBatches(groups, MaxMessageSize);
         var batch = groups[0].Batch!;
-        var batchHandler = new BatchHandler<byte[]>(false, new MessageFactory<byte[]>(DotPulsar.Schema.ByteArray), BatchTestData.Topic);
+        var batchHandler = new BatchHandler<byte[]>(false, new MessageFactory<byte[]>(DotPulsar.Schema.ByteArray), BatchTestData.Topic, null);
 
         //Act
         var first = batchHandler.Add(BatchTestData.CreateEntryId(1, 2), null, 0, batch.Metadata, batch.Payload, out _);

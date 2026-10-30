@@ -39,6 +39,10 @@ public sealed class ConsumerBuilder<TMessage> : IConsumerBuilder<TMessage>
     private bool _allowOutOfOrderDeliver;
     private bool _ackReceiptEnabled;
     private bool _batchIndexAckEnabled;
+    private TimeSpan _ackTimeout;
+    private TimeSpan _ackTimeoutTickTime;
+    private DeadLetterPolicy? _deadLetterPolicy;
+    private TimeSpan _negativeAcknowledgeRedeliveryDelay;
 
     public ConsumerBuilder(IPulsarClient pulsarClient, ISchema<TMessage> schema)
     {
@@ -46,6 +50,9 @@ public sealed class ConsumerBuilder<TMessage> : IConsumerBuilder<TMessage>
         _pulsarClient = pulsarClient;
         _ackReceiptEnabled = ConsumerOptions<TMessage>.DefaultAckReceiptEnabled;
         _batchIndexAckEnabled = ConsumerOptions<TMessage>.DefaultBatchIndexAckEnabled;
+        _ackTimeout = ConsumerOptions<TMessage>.DefaultAckTimeout;
+        _ackTimeoutTickTime = ConsumerOptions<TMessage>.DefaultAckTimeoutTickTime;
+        _negativeAcknowledgeRedeliveryDelay = ConsumerOptions<TMessage>.DefaultNegativeAcknowledgeRedeliveryDelay;
         _initialPosition = ConsumerOptions<TMessage>.DefaultInitialPosition;
         _priorityLevel = ConsumerOptions<TMessage>.DefaultPriorityLevel;
         _messagePrefetchCount = ConsumerOptions<TMessage>.DefaultMessagePrefetchCount;
@@ -166,6 +173,30 @@ public sealed class ConsumerBuilder<TMessage> : IConsumerBuilder<TMessage>
         return this;
     }
 
+    public IConsumerBuilder<TMessage> AckTimeout(TimeSpan ackTimeout)
+    {
+        _ackTimeout = ackTimeout;
+        return this;
+    }
+
+    public IConsumerBuilder<TMessage> AckTimeoutTickTime(TimeSpan tickTime)
+    {
+        _ackTimeoutTickTime = tickTime;
+        return this;
+    }
+
+    public IConsumerBuilder<TMessage> DeadLetterPolicy(DeadLetterPolicy deadLetterPolicy)
+    {
+        _deadLetterPolicy = deadLetterPolicy;
+        return this;
+    }
+
+    public IConsumerBuilder<TMessage> NegativeAcknowledgeRedeliveryDelay(TimeSpan delay)
+    {
+        _negativeAcknowledgeRedeliveryDelay = delay;
+        return this;
+    }
+
     public IConsumer<TMessage> Create()
     {
         if (string.IsNullOrEmpty(_subscriptionName))
@@ -173,6 +204,9 @@ public sealed class ConsumerBuilder<TMessage> : IConsumerBuilder<TMessage>
 
         if (string.IsNullOrEmpty(_topic) && _topics.Count == 0 && _topicsPattern is null)
             throw new ConfigurationException("A 'Topic', multiple 'Topics', or a 'TopicsPattern' must be set");
+
+        if (_deadLetterPolicy is not null && _deadLetterPolicy.MaxRedeliverCount == 0)
+            throw new ConfigurationException("MaxRedeliverCount must be > 0.");
 
         var options = new ConsumerOptions<TMessage>(_subscriptionName!, _topic, _schema)
         {
@@ -190,7 +224,11 @@ public sealed class ConsumerBuilder<TMessage> : IConsumerBuilder<TMessage>
             TopicsPattern = _topicsPattern,
             AllowOutOfOrderDeliver = _allowOutOfOrderDeliver,
             AckReceiptEnabled = _ackReceiptEnabled,
-            BatchIndexAckEnabled = _batchIndexAckEnabled
+            BatchIndexAckEnabled = _batchIndexAckEnabled,
+            AckTimeout = _ackTimeout,
+            AckTimeoutTickTime = _ackTimeoutTickTime,
+            DeadLetterPolicy = _deadLetterPolicy,
+            NegativeAcknowledgeRedeliveryDelay = _negativeAcknowledgeRedeliveryDelay
         };
 
         return _pulsarClient.CreateConsumer(options);

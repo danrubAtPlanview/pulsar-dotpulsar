@@ -16,6 +16,7 @@ namespace DotPulsar.Tests.Internal;
 
 using DotPulsar.Internal;
 using DotPulsar.Internal.Abstractions;
+using DotPulsar.Internal.PulsarApi;
 using ProducerAccessMode = DotPulsar.Internal.PulsarApi.ProducerAccessMode;
 
 [Trait("Category", "Unit")]
@@ -59,8 +60,62 @@ public sealed class ProducerChannelFactoryTests
             "persistent://public/default/test",
             null,
             ProducerAccessMode.Shared,
-            Schema.ByteArray.SchemaInfo,
+            DotPulsar.Schema.ByteArray.SchemaInfo,
             null,
             null,
-            transactionsEnabled);
+            transactionsEnabled,
+            null);
+
+    // Upstream: ProducerBuilderImpl#initialSubscriptionName
+    [Fact]
+    public async Task Create_GivenInitialSubscriptionName_ShouldSetItOnCommandProducer()
+    {
+        //Arrange
+        var commands = new List<CommandProducer>();
+        var uut = CreateFactory("my-initial-subscription", commands);
+
+        //Act
+        await using var channel = await uut.Create(Current.CancellationToken);
+
+        //Assert
+        commands.Single().HasInitialSubscriptionName.ShouldBeTrue();
+        commands.Single().InitialSubscriptionName.ShouldBe("my-initial-subscription");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public async Task Create_GivenNoInitialSubscriptionName_ShouldNotSetItOnCommandProducer(string? initialSubscriptionName)
+    {
+        //Arrange
+        var commands = new List<CommandProducer>();
+        var uut = CreateFactory(initialSubscriptionName, commands);
+
+        //Act
+        await using var channel = await uut.Create(Current.CancellationToken);
+
+        //Assert
+        commands.Single().HasInitialSubscriptionName.ShouldBeFalse();
+    }
+
+    private static ProducerChannelFactory CreateFactory(string? initialSubscriptionName, List<CommandProducer> commands)
+    {
+        var connection = Substitute.For<IConnection>();
+        connection.Send(Arg.Do<CommandProducer>(command => commands.Add(command.Clone())), Arg.Any<IChannel>(), Arg.Any<CancellationToken>()).Returns(Task.FromResult(new ProducerResponse(1, "producer", 0)));
+        var connectionPool = Substitute.For<IConnectionPool>();
+        connectionPool.FindConnectionForTopic(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new ValueTask<IConnection>(connection));
+
+        return new ProducerChannelFactory(
+            Guid.NewGuid(),
+            Substitute.For<IRegisterEvent>(),
+            connectionPool,
+            "persistent://public/default/test",
+            null,
+            ProducerAccessMode.Shared,
+            DotPulsar.Schema.ByteArray.SchemaInfo,
+            null,
+            null,
+            false,
+            initialSubscriptionName);
+    }
 }

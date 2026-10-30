@@ -286,9 +286,9 @@ public sealed class Reader<TMessage> : IReader<TMessage>
         };
         var messagePrefetchCount = _readerOptions.MessagePrefetchCount;
         var messageFactory = new MessageFactory<TMessage>(_readerOptions.Schema);
-        var batchHandler = new BatchHandler<TMessage>(false, messageFactory, topic);
+        var batchHandler = new BatchHandler<TMessage>(false, messageFactory, topic, null);
         var decompressorFactories = CompressionFactories.DecompressorFactories();
-        var factory = new ConsumerChannelFactory<TMessage>(correlationId, _processManager, _connectionPool, subscribe, messagePrefetchCount, batchHandler, messageFactory, decompressorFactories, topic, false, false, null);
+        var factory = new ConsumerChannelFactory<TMessage>(correlationId, _processManager, _connectionPool, subscribe, messagePrefetchCount, batchHandler, messageFactory, decompressorFactories, topic, false, false, null, null, null);
         var stateManager = new StateManager<ReaderState>(ReaderState.Disconnected, ReaderState.Closed, ReaderState.ReachedEndOfTopic, ReaderState.Faulted);
         var initialChannel = new NotReadyChannel<TMessage>();
         var executor = new Executor(correlationId, _processManager, _exceptionHandler);

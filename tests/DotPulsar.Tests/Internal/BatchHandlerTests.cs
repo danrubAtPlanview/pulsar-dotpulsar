@@ -148,7 +148,7 @@ public sealed class BatchHandlerTests
     public void Add_GivenTrackBatchesIsFalse_ShouldNotTrackTheBatch()
     {
         //Arrange
-        var uut = new BatchHandler<byte[]>(false, new MessageFactory<byte[]>(DotPulsar.Schema.ByteArray), BatchTestData.Topic);
+        var uut = new BatchHandler<byte[]>(false, new MessageFactory<byte[]>(DotPulsar.Schema.ByteArray), BatchTestData.Topic, null);
 
         //Act
         var messages = BatchTestData.AddBatch(uut, 1, 2, 3);
@@ -552,6 +552,120 @@ public sealed class BatchHandlerTests
     private static DotPulsar.Abstractions.IMessage<byte[]>? AddBatchWithoutDelivering(BatchHandler<byte[]> batchHandler, ulong ledgerId, ulong entryId, int numberOfMessages)
         => batchHandler.Add(BatchTestData.CreateEntryId(ledgerId, entryId), null, 0, BatchTestData.CreateMetadata(numberOfMessages), new ReadOnlySequence<byte>(BatchTestData.CreateBatchPayload(numberOfMessages)), out _);
 
-    private static BatchHandler<byte[]> CreateHandler()
-        => new(true, new MessageFactory<byte[]>(DotPulsar.Schema.ByteArray), BatchTestData.Topic);
+    // Upstream: ConsumerImpl#receiveIndividualMessagesFromBatch (possibleToDeadLetter)
+    [Fact]
+    public void Add_GivenRedeliveryCountBelowMax_ShouldNotRegisterCandidates()
+    {
+        //Arrange
+        var deadLetterHandler = BatchTestData.CreateDeadLetterHandler(3, out var exceeded);
+        var uut = CreateHandler(deadLetterHandler);
+
+        //Act
+        var first = AddBatch(uut, 1, 2, 3, 2);
+
+        //Assert
+        first.ShouldNotBeNull();
+        deadLetterHandler.Count.ShouldBe(0);
+        exceeded.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Add_GivenRedeliveryCountEqualToMax_ShouldRegisterTheMessagesAndReturnTheFirst()
+    {
+        //Arrange
+        var deadLetterHandler = BatchTestData.CreateDeadLetterHandler(3, out var exceeded);
+        var uut = CreateHandler(deadLetterHandler);
+
+        //Act
+        var first = AddBatch(uut, 1, 2, 3, 3);
+
+        //Assert
+        first.ShouldNotBeNull();
+        first.MessageId.BatchIndex.ShouldBe(0);
+        deadLetterHandler.Contains(1, 2).ShouldBeTrue();
+        exceeded.ShouldBeEmpty();
+        uut.TryGetBatchSize(BatchTestData.CreateBatchedId(1, 2, 0), out _).ShouldBeTrue();
+        uut.GetNext().ShouldNotBeNull();
+        uut.GetNext().ShouldNotBeNull();
+        uut.GetNext().ShouldBeNull();
+    }
+
+    [Fact]
+    public void Add_GivenRedeliveryCountAboveMax_ShouldRegisterTheMessagesRequestRedeliveryOfTheEntryAndReturnNull()
+    {
+        //Arrange
+        var deadLetterHandler = BatchTestData.CreateDeadLetterHandler(3, out var exceeded);
+        var uut = CreateHandler(deadLetterHandler);
+
+        //Act
+        var first = AddBatch(uut, 1, 2, 3, 4, out var chargedButSkipped);
+
+        //Assert
+        first.ShouldBeNull();
+        chargedButSkipped.ShouldBe(3);
+        deadLetterHandler.Contains(1, 2).ShouldBeTrue();
+        exceeded.Select(messageId => (messageId.LedgerId, messageId.EntryId, messageId.BatchIndex)).ShouldBeSequence((1UL, 2UL, -1));
+        uut.GetNext().ShouldBeNull();
+        uut.TryGetBatchSize(BatchTestData.CreateBatchedId(1, 2, 0), out _).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Add_GivenRedeliveryCountAboveMaxAndTrackerOfEarlierDelivery_ShouldRemoveTheTracker()
+    {
+        //Arrange
+        var deadLetterHandler = BatchTestData.CreateDeadLetterHandler(3, out _);
+        var uut = CreateHandler(deadLetterHandler);
+        _ = AddBatch(uut, 1, 2, 3, 0);
+        uut.TryGetBatchSize(BatchTestData.CreateBatchedId(1, 2, 0), out _).ShouldBeTrue();
+
+        //Act
+        _ = AddBatch(uut, 1, 2, 3, 4);
+
+        //Assert
+        uut.TryGetBatchSize(BatchTestData.CreateBatchedId(1, 2, 0), out _).ShouldBeFalse();
+    }
+
+    // Upstream: DeadLetterTopicTest#testAckedBatchMessageNotSentToDeadLetterTopicOnFinalRedeliveryRound
+    [Fact]
+    public void Add_GivenRedeliveryCountEqualToMaxAndBrokerAckSet_ShouldOnlyRegisterTheMessagesThatAreNotAcknowledged()
+    {
+        //Arrange
+        var deadLetterHandler = BatchTestData.CreateDeadLetterHandler(3, out _);
+        var uut = CreateHandler(deadLetterHandler);
+
+        //Act
+        var first = AddBatch(uut, 1, 2, 5, 3, out _, BatchTestData.CreateAckSet(0b10110));
+
+        //Assert
+        first.ShouldNotBeNull();
+        deadLetterHandler.Contains(1, 2).ShouldBeTrue();
+        deadLetterHandler.Remove(1, 2);
+        deadLetterHandler.Count.ShouldBe(0);
+    }
+
+    [Fact]
+    public void Add_GivenRedeliveryCountAboveMaxAndAllMessagesAcknowledgedByBroker_ShouldNotRegisterOrRequestRedelivery()
+    {
+        //Arrange
+        var deadLetterHandler = BatchTestData.CreateDeadLetterHandler(3, out var exceeded);
+        deadLetterHandler.Register(1, 2, BatchTestData.CreateCandidate(1, 2));
+        var uut = CreateHandler(deadLetterHandler);
+
+        //Act
+        var first = AddBatch(uut, 1, 2, 3, 4, out _, BatchTestData.CreateAckSet(0));
+
+        //Assert
+        first.ShouldBeNull();
+        deadLetterHandler.Count.ShouldBe(0);
+        exceeded.ShouldBeEmpty();
+    }
+
+    private static DotPulsar.Abstractions.IMessage<byte[]>? AddBatch(BatchHandler<byte[]> batchHandler, ulong ledgerId, ulong entryId, int numberOfMessages, uint redeliveryCount)
+        => AddBatch(batchHandler, ledgerId, entryId, numberOfMessages, redeliveryCount, out _);
+
+    private static DotPulsar.Abstractions.IMessage<byte[]>? AddBatch(BatchHandler<byte[]> batchHandler, ulong ledgerId, ulong entryId, int numberOfMessages, uint redeliveryCount, out int chargedButSkipped, RepeatedField<long>? ackSet = null)
+        => batchHandler.Add(BatchTestData.CreateEntryId(ledgerId, entryId), ackSet, redeliveryCount, BatchTestData.CreateMetadata(numberOfMessages), new ReadOnlySequence<byte>(BatchTestData.CreateBatchPayload(numberOfMessages)), out chargedButSkipped);
+
+    private static BatchHandler<byte[]> CreateHandler(DeadLetterHandler<byte[]>? deadLetterHandler = null)
+        => new(true, new MessageFactory<byte[]>(DotPulsar.Schema.ByteArray), BatchTestData.Topic, deadLetterHandler);
 }

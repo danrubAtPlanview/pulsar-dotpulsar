@@ -13,6 +13,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 - Support for sending messages in a transaction using IMessageBuilder.Transaction and MessageMetadata.Transaction
 - Support for acknowledging messages in a transaction using the IConsumer.Acknowledge and IConsumer.AcknowledgeCumulative overloads that take an ITransaction
 - Support for batch index acknowledgment using ConsumerOptions.BatchIndexAckEnabled and IConsumerBuilder.BatchIndexAckEnabled
+- Support for ack timeout using ConsumerOptions.AckTimeout, ConsumerOptions.AckTimeoutTickTime, IConsumerBuilder.AckTimeout and IConsumerBuilder.AckTimeoutTickTime
+- Support for negative acknowledgment using IConsumer.NegativeAcknowledge, ConsumerOptions.NegativeAcknowledgeRedeliveryDelay and IConsumerBuilder.NegativeAcknowledgeRedeliveryDelay
+- Support for a dead letter topic using DeadLetterPolicy, ConsumerOptions.DeadLetterPolicy and IConsumerBuilder.DeadLetterPolicy
 - EnableTransaction and OperationTimeout on IPulsarClientBuilder
 - New exceptions: TransactionNotFoundException, TransactionHasOperationFailedException, TransactionCoordinatorClientException, TransactionCoordinatorClientStateException, MetaStoreHandlerNotExistsException, MetaStoreHandlerNotReadyException and OperationTimeoutException
 

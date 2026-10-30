@@ -35,6 +35,8 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
     private readonly bool _ackReceiptEnabled;
     private readonly bool _batchIndexAckEnabled;
     private readonly ConsumerEpoch? _consumerEpoch;
+    private readonly UnAckedMessageTracker? _unAckedMessageTracker;
+    private readonly DeadLetterHandler<TMessage>? _deadLetterHandler;
     private uint _sendWhenZero;
     private bool _firstFlow;
 
@@ -49,7 +51,9 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
         string topic,
         bool ackReceiptEnabled,
         bool batchIndexAckEnabled,
-        ConsumerEpoch? consumerEpoch)
+        ConsumerEpoch? consumerEpoch,
+        UnAckedMessageTracker? unAckedMessageTracker,
+        DeadLetterHandler<TMessage>? deadLetterHandler)
     {
         _id = id;
         _queue = queue;
@@ -60,6 +64,8 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
         _ackReceiptEnabled = ackReceiptEnabled;
         _batchIndexAckEnabled = batchIndexAckEnabled;
         _consumerEpoch = consumerEpoch;
+        _unAckedMessageTracker = unAckedMessageTracker;
+        _deadLetterHandler = deadLetterHandler;
 
         _decompressors = new IDecompress[5];
 
@@ -168,7 +174,23 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
                         return batchMessage;
                     }
 
-                    return _messageFactory.Create(messageId.ToMessageId(_topic), redeliveryCount, data, metadata);
+                    var receivedMessage = _messageFactory.Create(messageId.ToMessageId(_topic), redeliveryCount, data, metadata);
+
+                    // Upstream: ConsumerImpl#messageReceived (possibleSendToDeadLetterTopicMessages)
+                    // A message that was delivered more often than allowed is not delivered. The redelivery sends it to the dead letter topic.
+                    // Its permit is counted as received, like the permits of the messages that are rejected.
+                    if (_deadLetterHandler is not null && redeliveryCount >= _deadLetterHandler.MaxRedeliverCount)
+                    {
+                        _deadLetterHandler.Register(messageId.LedgerId, messageId.EntryId, receivedMessage);
+
+                        if (redeliveryCount > _deadLetterHandler.MaxRedeliverCount)
+                        {
+                            _deadLetterHandler.OnRedeliveryCountExceeded(receivedMessage.MessageId);
+                            continue;
+                        }
+                    }
+
+                    return receivedMessage;
                 }
                 catch (Exception e) when (e is not CompressionException)
                 {
@@ -182,8 +204,13 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
 
     public async Task<BaseCommand?> Send(CommandAck command, CancellationToken cancellationToken)
     {
+        if (command.AckType == CommandAck.Types.AckType.Cumulative && command.MessageId.Count > 0)
+            _unAckedMessageTracker?.RemoveMessagesTill(command.MessageId[0].LedgerId, command.MessageId[0].EntryId);
+
         if (!PrepareAck(command))
             return null;
+
+        RemoveAcknowledgedEntries(command);
 
         command.ConsumerId = _id;
 
@@ -193,6 +220,24 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
         command.ClearRequestId();
         await _connection.Send(command, cancellationToken).ConfigureAwait(false);
         return null;
+    }
+
+    // Upstream: PersistentAcknowledgmentsGroupingTracker#addIndividualAcknowledgment
+    // An entry is acknowledged as a whole when the message id of the command has no ack set. It is then no longer waited for, and it is no longer a dead letter candidate.
+    // A cumulative acknowledgment removes the entries from the tracker before the command is prepared, and it does not remove dead letter candidates.
+    private void RemoveAcknowledgedEntries(CommandAck command)
+    {
+        if (command.AckType != CommandAck.Types.AckType.Individual || (_unAckedMessageTracker is null && _deadLetterHandler is null))
+            return;
+
+        foreach (var messageId in command.MessageId)
+        {
+            if (messageId.AckSet.Count != 0)
+                continue;
+
+            _unAckedMessageTracker?.Remove(messageId.LedgerId, messageId.EntryId);
+            _deadLetterHandler?.Remove(messageId.LedgerId, messageId.EntryId);
+        }
     }
 
     // Upstream: PersistentAcknowledgmentsGroupingTracker#addAcknowledgment (C# deviation: the acknowledgments are not grouped)
@@ -406,6 +451,7 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
         var response = await _connection.Send(command, cancellationToken).ConfigureAwait(false);
         response.Expect(BaseCommand.Types.Type.Success);
         _batchHandler.Clear();
+        _deadLetterHandler?.Clear();
     }
 
     public async Task<MessageId> Send(CommandGetLastMessageId command, CancellationToken cancellationToken)

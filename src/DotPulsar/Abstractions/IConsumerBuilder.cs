@@ -107,6 +107,26 @@ public interface IConsumerBuilder<TMessage>
     IConsumerBuilder<TMessage> BatchIndexAckEnabled(bool batchIndexAckEnabled);
 
     /// <summary>
+    /// Set the timeout for unacknowledged messages. Must be zero (disabled) or at least 1 second. The default is 'TimeSpan.Zero' (disabled).
+    /// </summary>
+    IConsumerBuilder<TMessage> AckTimeout(TimeSpan ackTimeout);
+
+    /// <summary>
+    /// Set the granularity of the ack timeout redelivery. Must be at least 100 milliseconds. The default is 1 second.
+    /// </summary>
+    IConsumerBuilder<TMessage> AckTimeoutTickTime(TimeSpan tickTime);
+
+    /// <summary>
+    /// Set the dead letter policy. This is optional.
+    /// </summary>
+    IConsumerBuilder<TMessage> DeadLetterPolicy(DeadLetterPolicy deadLetterPolicy);
+
+    /// <summary>
+    /// Set the delay before negatively acknowledged messages are redelivered. A delay below 100 milliseconds is raised to 100 milliseconds. The default is 1 minute.
+    /// </summary>
+    IConsumerBuilder<TMessage> NegativeAcknowledgeRedeliveryDelay(TimeSpan delay);
+
+    /// <summary>
     /// Create the consumer.
     /// </summary>
     IConsumer<TMessage> Create();

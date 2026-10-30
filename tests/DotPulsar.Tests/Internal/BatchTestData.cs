@@ -135,4 +135,25 @@ public static class BatchTestData
 
         return messages;
     }
+
+    // A handler that records the message ids that it asks to be redelivered, and that sends to a producer that does nothing
+    public static DeadLetterHandler<byte[]> CreateDeadLetterHandler(uint maxRedeliverCount, out List<MessageId> exceeded)
+    {
+        var producer = Substitute.For<DotPulsar.Abstractions.IProducer<ReadOnlySequence<byte>>>();
+        var schemaInfo = new SchemaInfo("schema", Array.Empty<byte>(), SchemaType.String, System.Collections.Immutable.ImmutableDictionary<string, string>.Empty);
+        var requested = new List<MessageId>();
+        exceeded = requested;
+
+        var handler = new DeadLetterHandler<byte[]>(new DeadLetterPolicy(maxRedeliverCount), Topic, "subscription", "consumer", schemaInfo, (_, _) => producer);
+        handler.RedeliveryCountExceeded = messageId =>
+        {
+            requested.Add(messageId);
+            return default;
+        };
+
+        return handler;
+    }
+
+    public static DotPulsar.Abstractions.IMessage<byte[]> CreateCandidate(ulong ledgerId, ulong entryId)
+        => new MessageFactory<byte[]>(DotPulsar.Schema.ByteArray).Create(new MessageId(ledgerId, entryId, 0, -1, Topic), 3, new ReadOnlySequence<byte>([1]), new MessageMetadata { ProducerName = "test", PublishTime = 1, SequenceId = 1 });
 }

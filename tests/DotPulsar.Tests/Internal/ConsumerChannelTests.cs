@@ -1318,6 +1318,338 @@ public sealed class ConsumerChannelTests
         connection.ReceivedCalls().Count(call => call.GetArguments().FirstOrDefault() is CommandFlow).ShouldBe(2);
     }
 
+    // Upstream: PersistentAcknowledgmentsGroupingTracker#addIndividualAcknowledgment
+    [Fact]
+    public async Task Send_GivenIndividualAckOfEntry_ShouldRemoveItFromTrackerAndKeepTheOthers()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var connection = CreateConnection(out _);
+        using var tracker = CreateTracker();
+        tracker.Add(new MessageId(1, 3, 0, -1));
+        tracker.Add(new MessageId(1, 4, 0, -1));
+        await using var uut = CreateChannel(connection, batchHandler, messageFactory, unAckedMessageTracker: tracker);
+        var command = new CommandAck { AckType = CommandAck.Types.AckType.Individual };
+        command.MessageId.Add(BatchTestData.CreateEntryId(1, 3));
+
+        //Act
+        await uut.Send(command, Current.CancellationToken);
+
+        //Assert
+        tracker.Count.ShouldBe(1);
+        tracker.Remove(1, 4).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Send_GivenIndividualAckOfCompletedBatch_ShouldRemoveTheEntryFromTrackerOnlyWhenTheLastMessageIsAcknowledged()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var connection = CreateConnection(out _);
+        using var tracker = CreateTracker();
+        var messages = BatchTestData.AddBatch(batchHandler, 1, 2, 3);
+        tracker.Add(messages[0].MessageId);
+        await using var uut = CreateChannel(connection, batchHandler, messageFactory, unAckedMessageTracker: tracker);
+
+        //Act
+        await uut.Send(CreateAck(CommandAck.Types.AckType.Individual, messages[0]), Current.CancellationToken);
+        var trackedAfterFirstMessage = tracker.Count;
+        await uut.Send(CreateAck(CommandAck.Types.AckType.Individual, messages[1]), Current.CancellationToken);
+        var trackedAfterSecondMessage = tracker.Count;
+        await uut.Send(CreateAck(CommandAck.Types.AckType.Individual, messages[2]), Current.CancellationToken);
+
+        //Assert
+        trackedAfterFirstMessage.ShouldBe(1);
+        trackedAfterSecondMessage.ShouldBe(1);
+        tracker.Count.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Send_GivenIndividualAckOfBatchMessageWithBatchIndexAckEnabled_ShouldNotRemoveTheEntryFromTracker()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var connection = CreateConnection(out var sent);
+        using var tracker = CreateTracker();
+        var messages = BatchTestData.AddBatch(batchHandler, 1, 2, 3);
+        tracker.Add(messages[0].MessageId);
+        await using var uut = CreateChannel(connection, batchHandler, messageFactory, batchIndexAckEnabled: true, unAckedMessageTracker: tracker);
+
+        //Act
+        await uut.Send(CreateAck(CommandAck.Types.AckType.Individual, messages[1]), Current.CancellationToken);
+
+        //Assert
+        sent.Count.ShouldBe(1);
+        sent[0].MessageId[0].AckSet.Count.ShouldBe(1);
+        tracker.Count.ShouldBe(1);
+    }
+
+    // Upstream: PersistentAcknowledgmentsGroupingTracker#doCumulativeAck
+    [Fact]
+    public async Task Send_GivenCumulativeAck_ShouldRemoveAllEntriesUpToAndIncludingTheEntryFromTracker()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var connection = CreateConnection(out _);
+        using var tracker = CreateTracker();
+        for (ulong entryId = 1; entryId <= 4; ++entryId)
+        {
+            tracker.Add(new MessageId(1, entryId, 0, -1));
+        }
+
+        await using var uut = CreateChannel(connection, batchHandler, messageFactory, unAckedMessageTracker: tracker);
+        var command = new CommandAck { AckType = CommandAck.Types.AckType.Cumulative };
+        command.MessageId.Add(BatchTestData.CreateEntryId(1, 3));
+
+        //Act
+        await uut.Send(command, Current.CancellationToken);
+
+        //Assert
+        tracker.Count.ShouldBe(1);
+        tracker.Remove(1, 4).ShouldBeTrue();
+    }
+
+    // Upstream: PersistentAcknowledgmentsGroupingTracker#doCumulativeAck
+    // The acknowledgment of a batch that is not completely acknowledged is not sent when the entry before it is not known, but the tracker is still updated
+    [Fact]
+    public async Task Send_GivenCumulativeAckOfPartialBatchThatIsNotSent_ShouldRemoveEntriesFromTracker()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var connection = CreateConnection(out var sent);
+        using var tracker = CreateTracker();
+        var messages = BatchTestData.AddBatch(batchHandler, 1, 0, 3);
+        tracker.Add(messages[0].MessageId);
+        await using var uut = CreateChannel(connection, batchHandler, messageFactory, unAckedMessageTracker: tracker);
+
+        //Act
+        await uut.Send(CreateAck(CommandAck.Types.AckType.Cumulative, messages[1]), Current.CancellationToken);
+
+        //Assert
+        sent.ShouldBeEmpty();
+        tracker.Count.ShouldBe(0);
+    }
+
+    // Upstream: ConsumerImpl#messageReceived (possibleSendToDeadLetterTopicMessages)
+    [Fact]
+    public async Task Receive_GivenNonBatchedMessageBelowMaxRedeliverCount_ShouldNotRegisterCandidate()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var connection = Substitute.For<IConnection>();
+        var queue = new AsyncQueue<MessagePackage>();
+        var deadLetterHandler = BatchTestData.CreateDeadLetterHandler(3, out var exceeded);
+        await using var uut = CreateChannel(connection, batchHandler, messageFactory, queue: queue, deadLetterHandler: deadLetterHandler);
+        queue.Enqueue(BatchTestData.CreateSinglePackage(BatchTestData.CreateEntryId(1, 1), redeliveryCount: 2));
+
+        //Act
+        var actual = await uut.Receive(Current.CancellationToken);
+
+        //Assert
+        actual.MessageId.EntryId.ShouldBe(1UL);
+        deadLetterHandler.Count.ShouldBe(0);
+        exceeded.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Receive_GivenNonBatchedMessageWithMaxRedeliverCount_ShouldRegisterCandidateAndReturnTheMessage()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var connection = Substitute.For<IConnection>();
+        var queue = new AsyncQueue<MessagePackage>();
+        var deadLetterHandler = BatchTestData.CreateDeadLetterHandler(3, out var exceeded);
+        await using var uut = CreateChannel(connection, batchHandler, messageFactory, queue: queue, deadLetterHandler: deadLetterHandler);
+        queue.Enqueue(BatchTestData.CreateSinglePackage(BatchTestData.CreateEntryId(1, 1), redeliveryCount: 3));
+
+        //Act
+        var actual = await uut.Receive(Current.CancellationToken);
+
+        //Assert
+        actual.MessageId.EntryId.ShouldBe(1UL);
+        deadLetterHandler.Contains(1, 1).ShouldBeTrue();
+        exceeded.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Receive_GivenNonBatchedMessageAboveMaxRedeliverCount_ShouldSkipItAndRequestRedelivery()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var connection = Substitute.For<IConnection>();
+        var queue = new AsyncQueue<MessagePackage>();
+        var deadLetterHandler = BatchTestData.CreateDeadLetterHandler(3, out var exceeded);
+        await using var uut = CreateChannel(connection, batchHandler, messageFactory, queue: queue, deadLetterHandler: deadLetterHandler);
+        queue.Enqueue(BatchTestData.CreateSinglePackage(BatchTestData.CreateEntryId(1, 1), redeliveryCount: 4));
+        queue.Enqueue(BatchTestData.CreateSinglePackage(BatchTestData.CreateEntryId(1, 2)));
+
+        //Act
+        var actual = await uut.Receive(Current.CancellationToken);
+
+        //Assert
+        actual.MessageId.EntryId.ShouldBe(2UL);
+        deadLetterHandler.Contains(1, 1).ShouldBeTrue();
+        exceeded.Select(messageId => (messageId.LedgerId, messageId.EntryId, messageId.BatchIndex)).ShouldBeSequence((1UL, 1UL, -1));
+    }
+
+    [Fact]
+    public async Task Receive_GivenNonBatchedMessageAboveMaxRedeliverCount_ShouldCountItsPermitAsReceived()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var connection = Substitute.For<IConnection>();
+        var queue = new AsyncQueue<MessagePackage>();
+        var deadLetterHandler = BatchTestData.CreateDeadLetterHandler(3, out _);
+        await using var uut = CreateChannel(connection, batchHandler, messageFactory, queue: queue, prefetchCount: 4, deadLetterHandler: deadLetterHandler);
+        queue.Enqueue(BatchTestData.CreateSinglePackage(BatchTestData.CreateEntryId(1, 1), redeliveryCount: 4));
+        queue.Enqueue(BatchTestData.CreateSinglePackage(BatchTestData.CreateEntryId(1, 2)));
+        queue.Enqueue(BatchTestData.CreateSinglePackage(BatchTestData.CreateEntryId(1, 3)));
+
+        //Act
+        _ = await uut.Receive(Current.CancellationToken);
+        _ = await uut.Receive(Current.CancellationToken);
+
+        //Assert
+        connection.ReceivedCalls().Count(call => call.GetArguments().FirstOrDefault() is CommandFlow).ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task Receive_GivenNoDeadLetterHandler_ShouldReturnMessageWithHighRedeliveryCount()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var connection = Substitute.For<IConnection>();
+        var queue = new AsyncQueue<MessagePackage>();
+        await using var uut = CreateChannel(connection, batchHandler, messageFactory, queue: queue);
+        queue.Enqueue(BatchTestData.CreateSinglePackage(BatchTestData.CreateEntryId(1, 1), redeliveryCount: 100));
+
+        //Act
+        var actual = await uut.Receive(Current.CancellationToken);
+
+        //Assert
+        actual.RedeliveryCount.ShouldBe(100U);
+    }
+
+    [Fact]
+    public async Task Send_GivenIndividualAckOfRegisteredEntry_ShouldRemoveCandidate()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var connection = CreateConnection(out _);
+        var deadLetterHandler = BatchTestData.CreateDeadLetterHandler(3, out _);
+        deadLetterHandler.Register(1, 3, BatchTestData.CreateCandidate(1, 3));
+        deadLetterHandler.Register(1, 4, BatchTestData.CreateCandidate(1, 4));
+        await using var uut = CreateChannel(connection, batchHandler, messageFactory, deadLetterHandler: deadLetterHandler);
+        var command = new CommandAck { AckType = CommandAck.Types.AckType.Individual };
+        command.MessageId.Add(BatchTestData.CreateEntryId(1, 3));
+
+        //Act
+        await uut.Send(command, Current.CancellationToken);
+
+        //Assert
+        deadLetterHandler.Contains(1, 3).ShouldBeFalse();
+        deadLetterHandler.Contains(1, 4).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Send_GivenCumulativeAck_ShouldNotRemoveCandidate()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var connection = CreateConnection(out _);
+        var deadLetterHandler = BatchTestData.CreateDeadLetterHandler(3, out _);
+        deadLetterHandler.Register(1, 3, BatchTestData.CreateCandidate(1, 3));
+        await using var uut = CreateChannel(connection, batchHandler, messageFactory, deadLetterHandler: deadLetterHandler);
+        var command = new CommandAck { AckType = CommandAck.Types.AckType.Cumulative };
+        command.MessageId.Add(BatchTestData.CreateEntryId(1, 3));
+
+        //Act
+        await uut.Send(command, Current.CancellationToken);
+
+        //Assert
+        deadLetterHandler.Contains(1, 3).ShouldBeTrue();
+    }
+
+    // Upstream: ConsumerImpl#doTransactionAcknowledgeForResponse
+    [Fact]
+    public async Task SendTransactional_GivenAckOfRegisteredEntry_ShouldNotRemoveCandidate()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var connection = CreateTransactionalConnection(out _);
+        var deadLetterHandler = BatchTestData.CreateDeadLetterHandler(3, out _);
+        deadLetterHandler.Register(1, 3, BatchTestData.CreateCandidate(1, 3));
+        await using var uut = CreateChannel(connection, batchHandler, messageFactory, deadLetterHandler: deadLetterHandler);
+        var command = new CommandAck { AckType = CommandAck.Types.AckType.Individual, TxnidMostBits = 7, TxnidLeastBits = 8 };
+        command.MessageId.Add(BatchTestData.CreateEntryId(1, 3));
+
+        //Act
+        await uut.SendTransactional(command, Current.CancellationToken);
+
+        //Assert
+        deadLetterHandler.Contains(1, 3).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Send_GivenIndividualAckOfBatchMessageWithBatchIndexAckEnabled_ShouldNotRemoveCandidateUntilTheBatchIsAcknowledged()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var connection = CreateConnection(out _);
+        var deadLetterHandler = BatchTestData.CreateDeadLetterHandler(3, out _);
+        var messages = BatchTestData.AddBatch(batchHandler, 1, 2, 2);
+        deadLetterHandler.Register(1, 2, BatchTestData.CreateCandidate(1, 2));
+        await using var uut = CreateChannel(connection, batchHandler, messageFactory, batchIndexAckEnabled: true, deadLetterHandler: deadLetterHandler);
+
+        //Act
+        await uut.Send(CreateAck(CommandAck.Types.AckType.Individual, messages[0]), Current.CancellationToken);
+        var containedAfterFirstMessage = deadLetterHandler.Contains(1, 2);
+        await uut.Send(CreateAck(CommandAck.Types.AckType.Individual, messages[1]), Current.CancellationToken);
+
+        //Assert
+        containedAfterFirstMessage.ShouldBeTrue();
+        deadLetterHandler.Contains(1, 2).ShouldBeFalse();
+    }
+
+    // Upstream: ConsumerImpl#seekAsyncInternal
+    [Fact]
+    public async Task Send_GivenSeek_ShouldClearCandidates()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var connection = Substitute.For<IConnection>();
+        connection.Send(Arg.Any<CommandSeek>(), Arg.Any<CancellationToken>()).Returns(new BaseCommand { Type = BaseCommand.Types.Type.Success, Success = new CommandSuccess() });
+        var deadLetterHandler = BatchTestData.CreateDeadLetterHandler(3, out _);
+        deadLetterHandler.Register(1, 3, BatchTestData.CreateCandidate(1, 3));
+        await using var uut = CreateChannel(connection, batchHandler, messageFactory, deadLetterHandler: deadLetterHandler);
+
+        //Act
+        await uut.Send(new CommandSeek { MessagePublishTime = 1 }, Current.CancellationToken);
+
+        //Assert
+        deadLetterHandler.Count.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Send_GivenRedeliverAll_ShouldNotClearCandidates()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var connection = Substitute.For<IConnection>();
+        var deadLetterHandler = BatchTestData.CreateDeadLetterHandler(3, out _);
+        deadLetterHandler.Register(1, 3, BatchTestData.CreateCandidate(1, 3));
+        await using var uut = CreateChannel(connection, batchHandler, messageFactory, deadLetterHandler: deadLetterHandler);
+
+        //Act
+        await uut.Send(new CommandRedeliverUnacknowledgedMessages(), Current.CancellationToken);
+
+        //Assert
+        deadLetterHandler.Contains(1, 3).ShouldBeTrue();
+    }
+
+    private static UnAckedMessageTracker CreateTracker()
+        => new(TimeSpan.FromMinutes(1), TimeSpan.FromSeconds(1), (_, _) => default);
+
     private static List<object> GetRedeliverAndFlowCommands(IConnection connection)
         => connection.ReceivedCalls()
             .Select(call => call.GetArguments().FirstOrDefault())
@@ -1340,7 +1672,7 @@ public sealed class ConsumerChannelTests
     private static (BatchHandler<byte[]> Handler, MessageFactory<byte[]> Factory) CreateBatchHandler()
     {
         var messageFactory = new MessageFactory<byte[]>(DotPulsar.Schema.ByteArray);
-        return (new BatchHandler<byte[]>(true, messageFactory, BatchTestData.Topic), messageFactory);
+        return (new BatchHandler<byte[]>(true, messageFactory, BatchTestData.Topic, null), messageFactory);
     }
 
     private static IConnection CreateConnection(out List<CommandAck> sent)
@@ -1391,8 +1723,10 @@ public sealed class ConsumerChannelTests
         bool batchIndexAckEnabled = false,
         AsyncQueue<MessagePackage>? queue = null,
         uint prefetchCount = 100,
-        ConsumerEpoch? consumerEpoch = null)
-        => new(1, prefetchCount, queue ?? new AsyncQueue<MessagePackage>(), connection, batchHandler, messageFactory, [], BatchTestData.Topic, ackReceiptEnabled, batchIndexAckEnabled, consumerEpoch);
+        ConsumerEpoch? consumerEpoch = null,
+        UnAckedMessageTracker? unAckedMessageTracker = null,
+        DeadLetterHandler<byte[]>? deadLetterHandler = null)
+        => new(1, prefetchCount, queue ?? new AsyncQueue<MessagePackage>(), connection, batchHandler, messageFactory, [], BatchTestData.Topic, ackReceiptEnabled, batchIndexAckEnabled, consumerEpoch, unAckedMessageTracker, deadLetterHandler);
 
     private static MessageIdData ToProtocolId(MessageId messageId)
         => new()

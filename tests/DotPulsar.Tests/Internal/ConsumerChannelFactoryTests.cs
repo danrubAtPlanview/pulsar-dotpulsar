@@ -116,7 +116,49 @@ public sealed class ConsumerChannelFactoryTests
         actual.MessageId.EntryId.ShouldBe(expectedEntryId);
     }
 
-    private static ConsumerChannelFactory<byte[]> CreateFactory(IConnection connection, CommandSubscribe.Types.SubType subscriptionType, ConsumerEpoch? consumerEpoch)
+    // Upstream: ConsumerImpl#connectionOpened
+    [Fact]
+    public async Task Create_GivenDeadLetterHandler_ShouldClearTheCandidatesBeforeSubscribing()
+    {
+        //Arrange
+        var deadLetterHandler = BatchTestData.CreateDeadLetterHandler(3, out _);
+        deadLetterHandler.Register(1, 2, BatchTestData.CreateCandidate(1, 2));
+        var candidatesWhenSubscribing = -1;
+        var connection = CreateConnection(onSubscribe: _ => candidatesWhenSubscribing = deadLetterHandler.Count);
+        var uut = CreateFactory(connection, CommandSubscribe.Types.SubType.Shared, new ConsumerEpoch(), null, deadLetterHandler);
+
+        //Act
+        await using var channel = await uut.Create(Current.CancellationToken);
+
+        //Assert
+        candidatesWhenSubscribing.ShouldBe(0);
+        deadLetterHandler.Count.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task Create_GivenTrackerAndDeadLetterHandler_ShouldGiveThemToTheChannel()
+    {
+        //Arrange
+        using var tracker = new UnAckedMessageTracker(TimeSpan.FromMinutes(1), TimeSpan.FromSeconds(1), (_, _) => default);
+        tracker.Add(new MessageId(1, 2, 0, -1));
+        var deadLetterHandler = BatchTestData.CreateDeadLetterHandler(3, out _);
+        var connection = CreateConnection();
+        connection.Send(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
+        var uut = CreateFactory(connection, CommandSubscribe.Types.SubType.Shared, new ConsumerEpoch(), tracker, deadLetterHandler);
+        await using var channel = await uut.Create(Current.CancellationToken);
+        deadLetterHandler.Register(1, 2, BatchTestData.CreateCandidate(1, 2));
+        var command = new CommandAck { AckType = CommandAck.Types.AckType.Individual };
+        command.MessageId.Add(BatchTestData.CreateEntryId(1, 2));
+
+        //Act
+        await channel.Send(command, Current.CancellationToken);
+
+        //Assert
+        tracker.Count.ShouldBe(0);
+        deadLetterHandler.Count.ShouldBe(0);
+    }
+
+    private static ConsumerChannelFactory<byte[]> CreateFactory(IConnection connection, CommandSubscribe.Types.SubType subscriptionType, ConsumerEpoch? consumerEpoch, UnAckedMessageTracker? tracker = null, DeadLetterHandler<byte[]>? deadLetterHandler = null)
     {
         var connectionPool = Substitute.For<IConnectionPool>();
         connectionPool.FindConnectionForTopic(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new ValueTask<IConnection>(connection));
@@ -129,13 +171,15 @@ public sealed class ConsumerChannelFactoryTests
             connectionPool,
             subscribe,
             100,
-            new BatchHandler<byte[]>(true, messageFactory, BatchTestData.Topic),
+            new BatchHandler<byte[]>(true, messageFactory, BatchTestData.Topic, null),
             messageFactory,
             [],
             BatchTestData.Topic,
             false,
             false,
-            consumerEpoch);
+            consumerEpoch,
+            tracker,
+            deadLetterHandler);
     }
 
     private static IConnection CreateConnection(List<CommandSubscribe>? subscriptions = null, List<CommandRedeliverUnacknowledgedMessages>? redeliveries = null, Action<IChannel>? onSubscribe = null)

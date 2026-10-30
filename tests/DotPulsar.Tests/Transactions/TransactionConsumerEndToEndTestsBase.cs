@@ -569,19 +569,51 @@ public abstract class TransactionConsumerEndToEndTestsBase<TFixture> : IDisposab
         (await TransactionFixture.ReceiveOrNull(consumer, _waitTimeForCannotReceiveMsg, _cts.Token)).ShouldBeNull();
     }
 
-    // TODO(WP7): Remove the skip. The test needs the dead letter policy (DeadLetterPolicy with a MaxRedeliverCount of 1) and the send timeout.
-    // Steps of TransactionEndToEndTest#testSendTxnAckMessageToDLQ: a Shared consumer on the topic and a Shared consumer on the dead letter topic "{topic}-test-DLQ", send "test", receive the
-    // message and ack it in a transaction that is aborted (twice, the redelivery count is 1 the second time), expect no more message on the consumer and "test" on the dead letter consumer.
     // Upstream: TransactionEndToEndTest#testSendTxnAckMessageToDLQ
-    [Fact(Skip = "Requires dead letter policy (WP7)")]
-    public Task Abort_GivenMessageExceedsMaxRedeliverCount_ShouldSendMessageToDeadLetterTopic()
-        => Task.CompletedTask;
+    // The assertion of the Java test on the available permits of the consumer is dropped, it is a counter of the Java client. The dead letter consumer receiving the message covers it.
+    // TODO(WP7): The producer of the upstream test has a send timeout of 1 second, and DotPulsar has no send timeout yet.
+    [Fact]
+    public async Task Abort_GivenMessageExceedsMaxRedeliverCount_ShouldSendMessageToDeadLetterTopic()
+    {
+        //Arrange
+        const string value = "test";
+        var topicName = TransactionFixture.CreateTopicName("testSendTxnAckMessageToDLQ");
+        await Fixture.CreateTopic(topicName, _cts.Token);
+        await using var client = CreateClient();
+        await using var producer = client.NewProducer(Schema.ByteArray)
+            .Topic(topicName)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .Create();
+        await using var consumer = CreateDeadLetterConsumer(client, topicName);
+        await using var deadLetterConsumer = CreateDeadLetterConsumer(client, $"{topicName}-test-DLQ");
+        await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+        await deadLetterConsumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+        _ = await producer.Send(Encoding.UTF8.GetBytes(value), _cts.Token);
 
-    // TODO(WP7): Remove the skip. The test needs the dead letter policy and the send timeout, and also producer batching (WP6).
-    // Steps of TransactionEndToEndTest#testSendTxnAckBatchMessageToDLQ: as above, but with "test1" and "test2" in one batch. Acknowledging "test1" and "test2" in an aborted
-    // transaction sends the batch to the dead letter topic, where "test1" and then "test2" are received.
+        //Act
+        var transaction = await client.NewTransaction().Timeout(TimeSpan.FromMinutes(1)).Create(_cts.Token);
+        var message = await ReceiveMessage(consumer);
+        message.RedeliveryCount.ShouldBe(0U);
+        await consumer.Acknowledge(message.MessageId, transaction, _cts.Token);
+        await transaction.Abort(_cts.Token);
+
+        transaction = await client.NewTransaction().Timeout(TimeSpan.FromMinutes(5)).Create(_cts.Token);
+        message = await ReceiveMessage(consumer);
+        message.RedeliveryCount.ShouldBe(1U);
+        await consumer.Acknowledge(message.MessageId, transaction, _cts.Token);
+        await transaction.Abort(_cts.Token);
+
+        //Assert
+        (await TransactionFixture.ReceiveOrNull(consumer, _waitTimeForCannotReceiveMsg, _cts.Token)).ShouldBeNull();
+        var deadLetter = await ReceiveMessage(deadLetterConsumer);
+        Encoding.UTF8.GetString(deadLetter.Value()).ShouldBe(value);
+    }
+
+    // TODO(WP6): Remove the skip. The test needs the producer to batch messages ("test1" and "test2" are sent as one batch). Use the steps of
+    // Abort_GivenMessageExceedsMaxRedeliverCount_ShouldSendMessageToDeadLetterTopic: receive "test1", acknowledge it in a transaction that is aborted, receive "test2" and then "test1"
+    // and "test2" again (redelivery count 1), acknowledge "test2" in an aborted transaction, expect no message on the consumer, and "test1" and then "test2" on the dead letter consumer.
     // Upstream: TransactionEndToEndTest#testSendTxnAckBatchMessageToDLQ
-    [Fact(Skip = "Requires dead letter policy (WP7)")]
+    [Fact(Skip = "Requires producer batching (WP6)")]
     public Task Abort_GivenBatchMessageExceedsMaxRedeliverCount_ShouldSendBatchToDeadLetterTopic()
         => Task.CompletedTask;
 
@@ -716,6 +748,7 @@ public abstract class TransactionConsumerEndToEndTestsBase<TFixture> : IDisposab
         await using var consumer = client.NewConsumer(Schema.ByteArray)
             .Topic(normalTopic)
             .StateChangedHandler(_testOutputHelper.Log)
+            .AckTimeout(TimeSpan.FromMinutes(1)) // It must not expire while the test runs
             .SubscriptionName("test")
             .SubscriptionType(subscriptionType)
             .Create();
@@ -792,6 +825,16 @@ public abstract class TransactionConsumerEndToEndTestsBase<TFixture> : IDisposab
     // Upstream: TransactionEndToEndTest#getTxn
     private async ValueTask<ITransaction> GetTxn(IPulsarClient client)
         => await client.NewTransaction().Timeout(TimeSpan.FromMinutes(10)).Create(_cts.Token);
+
+    // Upstream: TransactionEndToEndTest#testSendTxnAckMessageToDLQ (the dead letter consumer has the same dead letter policy)
+    private IConsumer<byte[]> CreateDeadLetterConsumer(IPulsarClient client, string topicName)
+        => client.NewConsumer(Schema.ByteArray)
+        .DeadLetterPolicy(new DeadLetterPolicy(1))
+        .StateChangedHandler(_testOutputHelper.Log)
+        .SubscriptionName("test")
+        .SubscriptionType(SubscriptionType.Shared)
+        .Topic(topicName)
+        .Create();
 
     private IConsumer<byte[]> CreateSharedConsumer(IPulsarClient client, string topicName, string subscription)
         => client.NewConsumer(Schema.ByteArray)

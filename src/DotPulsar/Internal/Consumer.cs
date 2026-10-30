@@ -20,6 +20,7 @@ using DotPulsar.Extensions;
 using DotPulsar.Internal.Abstractions;
 using DotPulsar.Internal.Compression;
 using DotPulsar.Internal.PulsarApi;
+using System.Buffers;
 
 public sealed class Consumer<TMessage> : IConsumer<TMessage>
 {
@@ -49,6 +50,9 @@ public sealed class Consumer<TMessage> : IConsumer<TMessage>
     public SubscriptionType SubscriptionType { get; }
     public string Topic { get; }
     public IState<ConsumerState> State => _state;
+
+    // The number of entries that the ack timeout waits for, which is 0 if the ack timeout is not enabled
+    public int UnAckedMessageCount => _subConsumers.Values.Sum(subConsumer => subConsumer.UnAckedMessageCount);
 
     public Consumer(
         Uri serviceUrl,
@@ -218,7 +222,11 @@ public sealed class Consumer<TMessage> : IConsumer<TMessage>
         await Guard(cancellationToken).ConfigureAwait(false);
 
         if (_singleSubConsumer is not null)
-            return await _singleSubConsumer.Receive(cancellationToken).ConfigureAwait(false);
+        {
+            var message = await _singleSubConsumer.Receive(cancellationToken).ConfigureAwait(false);
+            _singleSubConsumer.Track(message);
+            return message;
+        }
 
         using (await _lock.Lock(cancellationToken).ConfigureAwait(false))
         {
@@ -230,7 +238,9 @@ public sealed class Consumer<TMessage> : IConsumer<TMessage>
                     if (task.IsCompleted)
                     {
                         _receiveTasks[i] = _neverEndingTask.Task;
-                        return task.Result;
+                        var message = task.Result;
+                        _receivers[i].Track(message);
+                        return message;
                     }
                 }
 
@@ -247,7 +257,11 @@ public sealed class Consumer<TMessage> : IConsumer<TMessage>
 
                     var receiveTask = subConsumer.Receive(_cts.Token);
                     if (receiveTask.IsCompleted)
-                        return receiveTask.Result;
+                    {
+                        var message = receiveTask.Result;
+                        subConsumer.Track(message);
+                        return message;
+                    }
 
                     _receiveTasks[_receiveIndex] = receiveTask.AsTask();
                 }
@@ -360,6 +374,16 @@ public sealed class Consumer<TMessage> : IConsumer<TMessage>
             redeliverTasks.Add(_subConsumers[group.Key].RedeliverUnacknowledgedMessages(group, cancellationToken).AsTask());
         }
         await Task.WhenAll(redeliverTasks).ConfigureAwait(false);
+    }
+
+    public async ValueTask NegativeAcknowledge(MessageId messageId, CancellationToken cancellationToken)
+    {
+        await Guard(cancellationToken).ConfigureAwait(false);
+
+        if (_singleSubConsumer is not null)
+            await _singleSubConsumer.NegativeAcknowledge(messageId, cancellationToken).ConfigureAwait(false);
+        else
+            await _subConsumers[messageId.Topic].NegativeAcknowledge(messageId, cancellationToken).ConfigureAwait(false);
     }
 
     public async ValueTask RedeliverUnacknowledgedMessages(CancellationToken cancellationToken)
@@ -504,18 +528,43 @@ public sealed class Consumer<TMessage> : IConsumer<TMessage>
 
         var messagePrefetchCount = _consumerOptions.MessagePrefetchCount;
         var messageFactory = new MessageFactory<TMessage>(_consumerOptions.Schema);
-        var batchHandler = new BatchHandler<TMessage>(true, messageFactory, topic);
         var decompressorFactories = CompressionFactories.DecompressorFactories();
         var consumerEpoch = new ConsumerEpoch();
-        var consumerChannelFactory = new ConsumerChannelFactory<TMessage>(correlationId, _processManager, _connectionPool, subscribe, messagePrefetchCount, batchHandler, messageFactory, decompressorFactories, topic, _consumerOptions.AckReceiptEnabled, _consumerOptions.BatchIndexAckEnabled, consumerEpoch);
+
+        // The trackers and the handler redeliver through the sub-consumer, which needs them to be created
+        SubConsumer<TMessage>? subConsumer = null;
+
+        // Upstream: ConsumerImpl#isAckTimeoutTrackingEnabled
+        UnAckedMessageTracker? unAckedMessageTracker = null;
+        if (_consumerOptions.AckTimeout > TimeSpan.Zero && !topic.StartsWith("non-persistent://", StringComparison.Ordinal))
+            unAckedMessageTracker = new UnAckedMessageTracker(_consumerOptions.AckTimeout, _consumerOptions.AckTimeoutTickTime, (ids, ct) => subConsumer!.RedeliverUnacknowledgedMessages(ids, ct));
+
+        var negativeAcknowledgeTracker = new NegativeAcknowledgeTracker(_consumerOptions.NegativeAcknowledgeRedeliveryDelay, (ids, ct) => subConsumer!.RedeliverUnacknowledgedMessages(ids, ct));
+
+        DeadLetterHandler<TMessage>? deadLetterHandler = null;
+        if (_consumerOptions.DeadLetterPolicy is not null)
+        {
+            deadLetterHandler = new DeadLetterHandler<TMessage>(_consumerOptions.DeadLetterPolicy, topic, _consumerOptions.SubscriptionName, consumerName, _consumerOptions.Schema.SchemaInfo, CreateDeadLetterProducer);
+            deadLetterHandler.RedeliveryCountExceeded = id => subConsumer!.RedeliverUnacknowledgedMessages([id], CancellationToken.None);
+        }
+
+        var batchHandler = new BatchHandler<TMessage>(true, messageFactory, topic, deadLetterHandler);
+        var consumerChannelFactory = new ConsumerChannelFactory<TMessage>(correlationId, _processManager, _connectionPool, subscribe, messagePrefetchCount, batchHandler, messageFactory, decompressorFactories, topic, _consumerOptions.AckReceiptEnabled, _consumerOptions.BatchIndexAckEnabled, consumerEpoch, unAckedMessageTracker, deadLetterHandler);
         var stateManager = CreateStateManager();
         var initialChannel = new NotReadyChannel<TMessage>();
         var executor = new Executor(correlationId, _processManager, _exceptionHandler);
-        var subConsumer = new SubConsumer<TMessage>(correlationId, ServiceUrl, _consumerOptions.SubscriptionName, _consumerOptions.SubscriptionType, topic, _processManager, initialChannel, executor, stateManager, consumerChannelFactory, _consumerOptions.AckReceiptEnabled, _operationTimeout, consumerEpoch);
+        subConsumer = new SubConsumer<TMessage>(correlationId, ServiceUrl, _consumerOptions.SubscriptionName, _consumerOptions.SubscriptionType, topic, _processManager, initialChannel, executor, stateManager, consumerChannelFactory, _consumerOptions.AckReceiptEnabled, _operationTimeout, consumerEpoch, unAckedMessageTracker, negativeAcknowledgeTracker, deadLetterHandler);
         var process = new ConsumerProcess(correlationId, stateManager, subConsumer, _consumerOptions.SubscriptionType == SubscriptionType.Failover);
         _processManager.Add(process);
         process.Start();
+        unAckedMessageTracker?.Start();
         return subConsumer;
+    }
+
+    private IProducer<ReadOnlySequence<byte>> CreateDeadLetterProducer(ProducerOptions<ReadOnlySequence<byte>> options, string? initialSubscriptionName)
+    {
+        options.InitialSubscriptionName = initialSubscriptionName;
+        return new Producer<ReadOnlySequence<byte>>(ServiceUrl, options, _exceptionHandler, _connectionPool, null, false);
     }
 
     private static string GetPartitionedTopicName(string topic, int partitionNumber) => $"{topic}-partition-{partitionNumber}";

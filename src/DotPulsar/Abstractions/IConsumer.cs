@@ -89,4 +89,9 @@ public interface IConsumer : IGetLastMessageIds, ISeek, IStateHolder<ConsumerSta
     /// Redeliver all pending messages that were pushed to this consumer that are not yet acknowledged.
     /// </summary>
     ValueTask RedeliverUnacknowledgedMessages(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Negatively acknowledge a single message using the MessageId, so it will be redelivered after the configured negative acknowledge redelivery delay.
+    /// </summary>
+    ValueTask NegativeAcknowledge(MessageId messageId, CancellationToken cancellationToken = default);
 }
