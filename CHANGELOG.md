@@ -9,19 +9,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 ### Added
 
 - Support for acknowledgment receipts using ConsumerOptions.AckReceiptEnabled and IConsumerBuilder.AckReceiptEnabled
-- OperationTimeout on IPulsarClientBuilder
-- New exceptions: TransactionNotFoundException and OperationTimeoutException
+- Support for transactions using IPulsarClient.CreateTransaction and IPulsarClient.NewTransaction()
+- Support for batch index acknowledgment using ConsumerOptions.BatchIndexAckEnabled and IConsumerBuilder.BatchIndexAckEnabled
+- EnableTransaction and OperationTimeout on IPulsarClientBuilder
+- New exceptions: TransactionNotFoundException, TransactionHasOperationFailedException, TransactionCoordinatorClientException, TransactionCoordinatorClientStateException, MetaStoreHandlerNotExistsException, MetaStoreHandlerNotReadyException and OperationTimeoutException
 
 ### Changed
 
 - Updated the protocol version from 14 to 19
-- IPulsarClientBuilder and IConsumerBuilder have new members. This is a breaking change for custom implementations of these interfaces
+- IPulsarClient, IPulsarClientBuilder and IConsumerBuilder have new members. This is a breaking change for custom implementations of these interfaces
 - PulsarClientClosedException has a new constructor that takes a message
 
 ### Fixed
 
 - A command from the broker that DotPulsar has no response handler for no longer ends the connection
 - The protocol version and client version are now sent in the authentication response, so a multi-round initial authentication is no longer recorded by the broker as protocol version 0
+- A cumulative acknowledgment of a partially acknowledged batch was dropped
+- Batch acknowledgment trackers were not released after a cumulative acknowledgment
+- Messages in a batch had a MessageId without the topic
+- The ordering key of a message in a batch was taken from the batch instead of from the message
+- The pooled acknowledgment command kept the MessageIdData instance of the broker
 
 ## [5.3.4] - 2026-10-09
 
