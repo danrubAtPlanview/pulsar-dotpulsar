@@ -18,8 +18,7 @@ using DotPulsar.Abstractions;
 using DotPulsar.Extensions;
 using DotPulsar.Internal;
 
-// The ack timeout tests of Java UnAcknowledgedMessagesTimeoutTest, PerMessageUnAcknowledgedRedeliveryTest and ConsumerRedeliveryTest that do not need the redelivery backoff (not supported)
-// or a producer that batches messages (TODO(WP6)).
+// The ack timeout tests of Java UnAcknowledgedMessagesTimeoutTest, PerMessageUnAcknowledgedRedeliveryTest and ConsumerRedeliveryTest that do not need the redelivery backoff (not supported).
 [Collection("Integration"), Trait("Category", "Integration")]
 public sealed class AckTimeoutTests : IDisposable
 {
@@ -365,22 +364,99 @@ public sealed class AckTimeoutTests : IDisposable
         UnAckedMessageCount(consumer).ShouldBe(notAcknowledged.Count);
     }
 
-    // TODO(WP6): Remove the skip. The test needs the producer to batch messages (BatchingMaxPublishDelay of 10 seconds and a flush): the entry of a single message batch is tracked
-    // after the message is received, and it is not tracked after the message is acknowledged.
-    // Upstream: UnAcknowledgedMessagesTimeoutTest#testSingleMessageBatch
-    [Fact(Skip = "Requires producer batching (WP6)")]
-    public Task Acknowledge_GivenSingleMessageBatch_ShouldUntrackEntry()
-        => Task.CompletedTask;
+    // Upstream: UnAcknowledgedMessagesTimeoutTest#testSingleMessageBatch (the first half, the second half uses the redelivery backoff that is not supported)
+    // The producer batches the message with a publish delay of 10 seconds, so the message is only sent because of the flush. The entry of the single message batch is tracked after the message
+    // is received, and it is not tracked after the message is acknowledged.
+    [Fact]
+    public async Task Acknowledge_GivenSingleMessageBatch_ShouldUntrackEntry()
+    {
+        //Arrange
+        var topicName = await _fixture.CreateTopic(_cts.Token);
+        await using var client = CreateClient();
+        await using var producer = client.NewProducer(Schema.String)
+            .BatchingMaxPublishDelay(TimeSpan.FromSeconds(10))
+            .EnableBatching(true)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .Topic(topicName)
+            .Create();
+        await using var consumer = client.NewConsumer(Schema.String)
+            .AckTimeout(TimeSpan.FromHours(1))
+            .InitialPosition(SubscriptionInitialPosition.Earliest)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .SubscriptionName("subscription")
+            .Topic(topicName)
+            .Create();
+        await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
 
-    // TODO(WP6): Remove the skip. The test needs the producer to batch messages (5 messages or 1 second), and the row that uses BatchIndexAckEnabled and AckReceiptEnabled.
+        // Force the creation of a batch with a single message
+        var receipt = await SendAsync(producer, "hello");
+        await producer.Flush(_cts.Token);
+        await receipt.WaitAsync(TimeSpan.FromSeconds(5), _cts.Token);
+
+        //Act
+        var message = await Receive(consumer, TimeSpan.FromSeconds(5));
+        var trackedAfterReceive = UnAckedMessageCount(consumer);
+        await consumer.Acknowledge(message, _cts.Token);
+
+        //Assert
+        trackedAfterReceive.ShouldBe(1);
+        UnAckedMessageCount(consumer).ShouldBe(0);
+    }
+
     // Upstream: ConsumerRedeliveryTest#testUnAckMessageRedeliveryWithReceiveAsync
-    [Theory(Skip = "Requires producer batching (WP6)")]
+    // Java receiveAsync is ten Receive calls that are waiting when the messages are sent. The producer batches the 10 messages in 2 batches of 5 messages.
+    // The first 10 messages are not acknowledged, so the ack timeout of 3 seconds redelivers them, and the 10 messages that are received next are acknowledged.
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public Task Receive_GivenUnacknowledgedBatchedMessages_ShouldRedeliverAfterAckTimeout(bool batchIndexAckEnabled)
+    public async Task Receive_GivenUnacknowledgedBatchedMessages_ShouldRedeliverAfterAckTimeout(bool batchIndexAckEnabled)
     {
-        _ = batchIndexAckEnabled;
-        return Task.CompletedTask;
+        //Arrange
+        const int numberOfMessages = 10;
+        var topicName = await _fixture.CreateTopic(_cts.Token);
+        await using var client = CreateClient();
+        await using var consumer = client.NewConsumer(Schema.String)
+            .AckReceiptEnabled(batchIndexAckEnabled)
+            .AckTimeout(TimeSpan.FromSeconds(3))
+            .BatchIndexAckEnabled(batchIndexAckEnabled)
+            .InitialPosition(SubscriptionInitialPosition.Earliest)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .SubscriptionName("s1")
+            .Topic(topicName)
+            .Create();
+        await using var producer = client.NewProducer(Schema.String)
+            .BatchingMaxMessages(5)
+            .BatchingMaxPublishDelay(TimeSpan.FromSeconds(1))
+            .EnableBatching(true)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .Topic(topicName)
+            .Create();
+        await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+
+        var pendingReceives = Enumerable.Range(0, numberOfMessages).Select(_ => consumer.Receive(_cts.Token).AsTask()).ToList();
+        var receipts = new List<Task<MessageId>>();
+        for (var i = 0; i < numberOfMessages; i++)
+        {
+            receipts.Add(await SendAsync(producer, $"my-message-{i}"));
+        }
+
+        //Act
+        // The messages are not acknowledged, the ack timeout redelivers them
+        var firstDelivery = await Task.WhenAll(pendingReceives).WaitAsync(TimeSpan.FromSeconds(30), _cts.Token);
+        await Task.WhenAll(receipts).WaitAsync(TimeSpan.FromSeconds(30), _cts.Token);
+        var redelivered = new List<IMessage<string>>();
+        for (var i = 0; i < numberOfMessages; i++)
+        {
+            var message = await Receive(consumer, TimeSpan.FromSeconds(10));
+            redelivered.Add(message);
+            await consumer.Acknowledge(message, _cts.Token);
+        }
+
+        //Assert
+        firstDelivery.Length.ShouldBe(numberOfMessages);
+        firstDelivery.Select(message => message.Value()).ToHashSet().ShouldBe(Enumerable.Range(0, numberOfMessages).Select(i => $"my-message-{i}").ToHashSet(), true);
+        redelivered.Count.ShouldBe(numberOfMessages);
+        redelivered.Select(message => message.Value()).ToHashSet().ShouldBe(firstDelivery.Select(message => message.Value()).ToHashSet(), true);
     }
 
     private static int UnAckedMessageCount(IConsumer<string> consumer)
@@ -392,6 +468,20 @@ public sealed class AckTimeoutTests : IDisposable
         {
             _ = await producer.Send($"my-message-{i}", _cts.Token);
         }
+    }
+
+    // The Java producer.sendAsync: the message is queued in the order of the calls, and the task completes when the broker has stored the message
+    private async ValueTask<Task<MessageId>> SendAsync(IProducer<string> producer, string value)
+    {
+        var receipt = new TaskCompletionSource<MessageId>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        await producer.SendChannel.Send(new MessageMetadata(), value, messageId =>
+        {
+            _ = receipt.TrySetResult(messageId);
+            return ValueTask.CompletedTask;
+        }, _cts.Token);
+
+        return receipt.Task;
     }
 
     private async Task<IMessage<string>> Receive(IConsumer<string> consumer, TimeSpan timeout)
