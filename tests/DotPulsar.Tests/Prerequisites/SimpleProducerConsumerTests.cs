@@ -103,13 +103,16 @@ public sealed class SimpleProducerConsumerTests : IDisposable
     }
 
     // Upstream: SimpleProducerConsumerTest#testSendTimeoutAndRecover
-    // Java checks that the flush throws, but the messages that failed are not waiting any longer in DotPulsar, so there is nothing for the flush to wait for.
+    // The Java producer fails the send when the send timeout expires, and the flush throws that failure once ("handleOnce"). That is how it works in DotPulsar too: a message that failed is
+    // removed from the send queue, and a flush waits for the last message of the queue, so the first flush throws the failure of the message and the second flush has nothing to wait for.
+    // The Java getOriginalLastSendFuture is the task of the send, which is awaited twice. The messages are sent while the connection is cut, like the Java test stops the broker first.
     [Theory]
     [InlineData(0)]
     [InlineData(1000)]
     public async Task Send_GivenSendTimeoutAndBrokerRecovers_ShouldSendAfterRecovery(int batchMessageDelayMs)
     {
         //Arrange
+        const string message = "my-message";
         var topic = await _fixture.CreatePartitionedTopic(6, _cts.Token);
         await using var client = CreateClient();
         await using var consumer = CreateConsumer(client, topic);
@@ -121,24 +124,54 @@ public sealed class SimpleProducerConsumerTests : IDisposable
 
         await using var producer = builder.Create();
         await producer.StateChangedTo(ProducerState.Connected, _cts.Token);
-        Exception? exception;
+        Task failedSend;
+        Exception? firstFlushException;
+        Exception? secondFlushException;
+        Exception? firstFailure;
+        Exception? secondFailure;
 
+        //Act
+        // 1. Trigger the send timeout
         await using (await _fixture.DisableThePulsarConnection())
         {
             await producer.StateChangedTo(ProducerState.Disconnected, _cts.Token);
-            exception = await Record.ExceptionAsync(async () => await producer.Send("before", _cts.Token));
+            failedSend = producer.Send(message, _cts.Token).AsTask();
+
+            // 2. Flush to get the result. It fails because of step 1.
+            firstFlushException = await Record.ExceptionAsync(async () => await producer.Flush(_cts.Token));
+
+            // 3. Flush to get the result. It does not fail, because the failure was handled in step 2.
+            secondFlushException = await Record.ExceptionAsync(async () => await producer.Flush(_cts.Token));
+
+            // 4. The task of the failed send fails with the same message each time that it is awaited
+            firstFailure = await Record.ExceptionAsync(() => failedSend);
+            secondFailure = await Record.ExceptionAsync(() => failedSend);
         }
 
         await producer.StateChangedTo(ProducerState.Connected, _cts.Token);
 
-        //Act
-        await producer.Send("after", _cts.Token);
+        // 5. The failed message was not sent
+        var notReceived = await TransactionFixture.ReceiveOrNull(consumer, _receiveTimeout, _cts.Token);
+
+        // 6. Keep sending after the connection is restored
+        var sent = producer.Send(message, _cts.Token).AsTask();
+
+        // 7. This flush must succeed
+        var thirdFlushException = await Record.ExceptionAsync(async () => await producer.Flush(_cts.Token));
+
+        // 8. The message is received
+        var received = await TransactionFixture.ReceiveOrNull(consumer, TimeSpan.FromSeconds(30), _cts.Token);
 
         //Assert
-        exception.ShouldBeOfType<OperationTimeoutException>();
-        var message = await TransactionFixture.ReceiveOrNull(consumer, TimeSpan.FromSeconds(30), _cts.Token);
-        message.ShouldNotBeNull();
-        message.Value().ShouldBe("after");
+        var timeout = firstFlushException.ShouldBeOfType<OperationTimeoutException>();
+        secondFlushException.ShouldBeNull();
+        firstFailure.ShouldBeOfType<OperationTimeoutException>().Message.ShouldBe(timeout.Message);
+        secondFailure.ShouldBeOfType<OperationTimeoutException>().Message.ShouldBe(timeout.Message);
+        notReceived.ShouldBeNull();
+        thirdFlushException.ShouldBeNull();
+        (await sent.WaitAsync(_receiveTimeout, _cts.Token)).ShouldNotBeNull();
+        received.ShouldNotBeNull();
+        received.Value().ShouldBe(message);
     }
 
     // Upstream: SimpleProducerConsumerTest#testSendMsgGreaterThanBatchingMaxBytes
