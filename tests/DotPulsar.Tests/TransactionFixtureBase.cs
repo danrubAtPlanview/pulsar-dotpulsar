@@ -180,7 +180,8 @@ public abstract class TransactionFixtureBase : IAsyncLifetime
             .WithEnvironment("PULSAR_PREFIX_dispatcherRetryBackoffInitialTimeInMs", "0")
             .WithEnvironment("PULSAR_PREFIX_dispatcherRetryBackoffMaxTimeInMs", "0")
             .WithEnvironment("PULSAR_PREFIX_activeConsumerFailoverDelayTimeMillis", "0")
-            .WithEnvironment("PULSAR_PREFIX_brokerDeleteInactiveTopicsEnabled", "false");
+            .WithEnvironment("PULSAR_PREFIX_brokerDeleteInactiveTopicsEnabled", "false")
+            .WithEnvironment("PULSAR_PREFIX_forceDeleteNamespaceAllowed", "true");
 
         _pulsarCluster = ConfigureBroker(builder).Build();
 
@@ -322,9 +323,6 @@ public abstract class TransactionFixtureBase : IAsyncLifetime
     public async Task UnloadTopic(string topic, CancellationToken cancellationToken)
         => await RunAdminCommand($"topics unload {topic}", "Could not unload the topic", cancellationToken);
 
-    public async Task UnloadNamespace(string @namespace, CancellationToken cancellationToken)
-        => await RunAdminCommand($"namespaces unload {@namespace}", "Could not unload the namespace", cancellationToken);
-
     // Unloads the topic and returns when the consumer is connected to it again (Java: admin.topics().unload(topic) followed by Awaitility.await().until(consumer::isConnected)).
     // The consumer is observed from before the unload, because it has usually reconnected before the unload command returns, and the state it left would be missed.
     public async Task UnloadTopic(string topic, IConsumer consumer, CancellationToken cancellationToken)
@@ -340,6 +338,37 @@ public abstract class TransactionFixtureBase : IAsyncLifetime
 
     public async Task CreateNamespace(string ns, int numberOfBundles, CancellationToken cancellationToken)
         => await RunAdminCommand($"namespaces create {ns} --bundles {numberOfBundles}", "Could not create the namespace", cancellationToken);
+
+    // The broker only deletes a namespace that has topics when it is told to force it, and when forceDeleteNamespaceAllowed is true
+    public async Task DeleteNamespace(string ns, bool force, CancellationToken cancellationToken)
+    {
+        var path = $"/admin/v2/namespaces/{ns}?force={(force ? "true" : "false")}";
+
+        using var httpClient = CreateAdminClient();
+        using var response = await httpClient.DeleteAsync(path, cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+            throw new Exception($"DELETE {path} failed: {response.StatusCode} {await response.Content.ReadAsStringAsync(cancellationToken)}");
+    }
+
+    public async Task UnloadNamespace(string @namespace, CancellationToken cancellationToken)
+    {
+        var path = $"/admin/v2/namespaces/{@namespace}/unload";
+
+        using var httpClient = CreateAdminClient();
+        using var content = new StringContent(string.Empty, Encoding.UTF8, "application/json");
+        using var response = await httpClient.PutAsync(path, content, cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+            throw new Exception($"PUT {path} failed: {response.StatusCode} {await response.Content.ReadAsStringAsync(cancellationToken)}");
+    }
+
+    // The broker does not list its system topics, like the pending ack topic of a subscription that has transactional acks
+    public async Task<string[]> GetTopicList(string ns, CancellationToken cancellationToken)
+    {
+        var topics = await GetJson($"/admin/v2/persistent/{ns}", cancellationToken);
+        return topics.EnumerateArray().Select(topic => topic.GetString()!).ToArray();
+    }
 
     private async Task RunAdminCommand(string command, string errorMessage, CancellationToken cancellationToken)
     {
@@ -423,6 +452,28 @@ public abstract class TransactionFixtureBase : IAsyncLifetime
     public Task<JsonElement> GetInternalStats(string topic, CancellationToken cancellationToken)
         => GetJson($"/admin/v2/{ToRestPath(topic)}/internalStats", cancellationToken);
 
+    // The state of the managed ledger of a topic, for example LedgerOpened. The broker loads a topic that is not loaded when it is asked for its stats, so after an unload it is the state of the new managed ledger.
+    public async Task WaitForManagedLedgerState(string topic, string state, CancellationToken cancellationToken)
+    {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(30));
+
+        while (true)
+        {
+            try
+            {
+                if ((await GetInternalStats(topic, cts.Token)).GetProperty("state").GetString() == state)
+                    return;
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                // The topic is not available while the broker loads it
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(100), cts.Token);
+        }
+    }
+
     public async Task<long> GetUnackedMessages(string topic, string subscription, CancellationToken cancellationToken)
     {
         var stats = await GetTopicStats(topic, cancellationToken);
@@ -440,6 +491,64 @@ public abstract class TransactionFixtureBase : IAsyncLifetime
 
     public Task SetTopicDelayedDeliveryPolicy(string topic, bool active, long tickTimeMillis, long maxDeliveryDelayInMillis, CancellationToken cancellationToken)
         => PostJson($"/admin/v2/{ToRestPath(topic)}/delayedDelivery", $"{{\"active\":{(active ? "true" : "false")},\"tickTime\":{tickTimeMillis},\"maxDeliveryDelayInMillis\":{maxDeliveryDelayInMillis}}}", cancellationToken);
+
+    // Without the deduplication of the broker a message is not dropped when its sequence id is not larger than the one of the message before it.
+    // The broker applies a topic policy when it has read it back from the system topic of the namespace, so this waits until it has.
+    public async Task SetTopicDeduplication(string topic, bool enabled, CancellationToken cancellationToken)
+    {
+        var path = $"/admin/v2/{ToRestPath(topic)}/deduplicationEnabled";
+        var json = enabled ? "true" : "false";
+        await PostJson(path, json, cancellationToken);
+
+        using var httpClient = CreateAdminClient();
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(10));
+
+        while (true)
+        {
+            using var response = await httpClient.GetAsync(path, cts.Token);
+
+            if (response.IsSuccessStatusCode && await response.Content.ReadAsStringAsync(cts.Token) == json)
+                return;
+
+            await Task.Delay(TimeSpan.FromMilliseconds(100), cts.Token);
+        }
+    }
+
+    public Task SetTopicCompactionThreshold(string topic, long bytes, CancellationToken cancellationToken)
+        => PostJson($"/admin/v2/{ToRestPath(topic)}/compactionThreshold", bytes.ToString(System.Globalization.CultureInfo.InvariantCulture), cancellationToken);
+
+    // ---- Prometheus metrics ----
+
+    // The metrics of the broker as text. The broker writes the metrics of the topics that are loaded in it, and it does not load a topic to do so.
+    public async Task<string> GetPrometheusMetricsText(CancellationToken cancellationToken)
+    {
+        using var httpClient = CreateAdminClient();
+        using var response = await httpClient.GetAsync("/metrics/", cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+            throw new Exception($"GET /metrics/ failed: {response.StatusCode} {await response.Content.ReadAsStringAsync(cancellationToken)}");
+
+        return await response.Content.ReadAsStringAsync(cancellationToken);
+    }
+
+    // ---- Compaction (admin v2) ----
+
+    public async Task TriggerCompaction(string topic, CancellationToken cancellationToken)
+    {
+        var path = $"/admin/v2/{ToRestPath(topic)}/compaction";
+
+        using var httpClient = CreateAdminClient();
+        using var content = new StringContent(string.Empty, Encoding.UTF8, "application/json");
+        using var response = await httpClient.PutAsync(path, content, cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+            throw new Exception($"PUT {path} failed: {response.StatusCode} {await response.Content.ReadAsStringAsync(cancellationToken)}");
+    }
+
+    // NOT_RUN, RUNNING, SUCCESS or ERROR
+    public async Task<string> GetCompactionStatus(string topic, CancellationToken cancellationToken)
+        => (await GetJson($"/admin/v2/{ToRestPath(topic)}/compaction", cancellationToken)).GetProperty("status").GetString()!;
 
     // ---- Transaction admin (admin v3) ----
 
@@ -587,6 +696,27 @@ public abstract class TransactionFixtureBase : IAsyncLifetime
         return response.StatusCode;
     }
 
+    // The reason the broker gives for the failure of an admin request, which is the message of the PulsarAdminException of the Java client
+    public async Task<(HttpStatusCode StatusCode, string? Reason)> GetErrorReason(HttpMethod method, string path, string? json, CancellationToken cancellationToken)
+    {
+        using var httpClient = CreateAdminClient();
+        using var request = new HttpRequestMessage(method, path);
+
+        if (json is not null)
+            request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        if (response.IsSuccessStatusCode)
+            throw new Exception($"{method} {path} did not fail: {response.StatusCode} {body}");
+
+        using var document = JsonDocument.Parse(body);
+        var reason = document.RootElement.ValueKind == JsonValueKind.Object && document.RootElement.TryGetProperty("reason", out var property) ? property.GetString() : null;
+
+        return (response.StatusCode, reason);
+    }
+
     private async Task<JsonElement> GetJson(string path, CancellationToken cancellationToken)
     {
         using var httpClient = CreateAdminClient();
@@ -634,15 +764,7 @@ public abstract class TransactionFixtureBase : IAsyncLifetime
 
     // The metrics of the broker. The samples are parsed like the Java tests parse them (PrometheusMetricsTest.parseMetrics): the samples without labels are left out.
     public async Task<IReadOnlyList<PrometheusSample>> GetPrometheusMetrics(CancellationToken cancellationToken)
-    {
-        using var httpClient = CreateAdminClient();
-        using var response = await httpClient.GetAsync("/metrics/", cancellationToken);
-
-        if (!response.IsSuccessStatusCode)
-            throw new Exception($"GET /metrics/ failed: {response.StatusCode} {await response.Content.ReadAsStringAsync(cancellationToken)}");
-
-        return ParsePrometheusMetrics(await response.Content.ReadAsStringAsync(cancellationToken));
-    }
+        => ParsePrometheusMetrics(await GetPrometheusMetricsText(cancellationToken));
 
     public sealed record PrometheusSample(string Name, IReadOnlyDictionary<string, string> Labels, double Value);
 
@@ -727,5 +849,58 @@ public abstract class TransactionFixtureBase : IAsyncLifetime
         {
             return null;
         }
+    }
+
+    // ---- Reading until nothing is left ----
+
+    // Java: while (true) { message = receiver.receive(timeout); if (message == null) break; values.add(message.getValue()); }
+    public static async Task<List<TMessage>> DrainValues<TMessage>(IReceive<IMessage<TMessage>> receiver, TimeSpan receiveTimeout, CancellationToken cancellationToken)
+    {
+        var values = new List<TMessage>();
+
+        while (true)
+        {
+            var message = await ReceiveOrNull(receiver, receiveTimeout, cancellationToken);
+
+            if (message is null)
+                return values;
+
+            values.Add(message.Value());
+        }
+    }
+
+    // Java: ConsumerImpl#hasMessageAvailableAsync, for a reader that starts at startMessageId (earliest or a message id) and reads without inclusive.
+    // The reader has a message to read when the last message id that the broker gives is after the last message that was read, or after the start when none was read.
+    // The broker gives an entry id of -1 (ulong.MaxValue) when there is no message to read in its last ledger, even if a transaction is open there.
+    public static async Task<bool> HasMessageAvailable(IReader reader, MessageId startMessageId, MessageId? lastRead, CancellationToken cancellationToken)
+    {
+        var last = (await reader.GetLastMessageIds(cancellationToken)).Single();
+
+        if (last.EntryId == ulong.MaxValue)
+            return false;
+
+        var reference = lastRead ?? startMessageId;
+
+        // Earliest is not before every other message id when compared as numbers
+        if (reference == MessageId.Earliest)
+            return true;
+
+        return last.LedgerId > reference.LedgerId || (last.LedgerId == reference.LedgerId && last.EntryId > reference.EntryId);
+    }
+
+    // Java: while (reader.hasMessageAvailable()) { messages.add(reader.readNext()); }
+    public static async Task<List<IMessage<TMessage>>> ReadAllAvailable<TMessage>(IReader<TMessage> reader, MessageId startMessageId, CancellationToken cancellationToken)
+    {
+        var messages = new List<IMessage<TMessage>>();
+
+        while (await HasMessageAvailable(reader, startMessageId, messages.Count == 0 ? null : messages[^1].MessageId, cancellationToken))
+        {
+            // readNext of Java waits until there is a message. The broker has said that there is one, so it must come quickly.
+            var message = await ReceiveOrNull(reader, TimeSpan.FromSeconds(30), cancellationToken);
+            message.ShouldNotBeNull("the reader has a message available, but it did not receive it");
+            messages.Add(message);
+        }
+
+        return messages;
     }
 }
