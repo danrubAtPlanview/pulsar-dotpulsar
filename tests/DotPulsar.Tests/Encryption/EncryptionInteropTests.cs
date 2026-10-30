@@ -80,7 +80,7 @@ public sealed class EncryptionInteropTests : IDisposable
         actual.EncryptionContext.Keys.Keys.ShouldBe(["client-ecdsa.pem"]);
     }
 
-    // Upstream: SimpleProducerConsumerTest#testECDSAEncryption (the messages are produced by the Java client)
+    // Additional coverage: the messages of SimpleProducerConsumerTest#testECDSAEncryption are produced by the Java client, the test with a DotPulsar producer is ConsumerEncryptionTests
     [Fact]
     public async Task Receive_GivenJavaProducedEcdsaEncryptedLz4Messages_ShouldDecrypt()
     {
@@ -103,7 +103,7 @@ public sealed class EncryptionInteropTests : IDisposable
         actual.ShouldAllBe(message => message.EncryptionContext!.Keys.ContainsKey("client-ecdsa.pem"));
     }
 
-    // Upstream: SimpleProducerConsumerTest#testCryptoWithChunking (the message is produced by the Java client, which splits it in chunks that are encrypted one by one)
+    // Additional coverage: the message of SimpleProducerConsumerTest#testCryptoWithChunking is produced by the Java client, which splits it in chunks that are encrypted one by one, the test with a DotPulsar producer is ConsumerEncryptionTests
     [Fact]
     public async Task Receive_GivenJavaProducedEcdsaEncryptedChunkedMessage_ShouldDecryptEveryChunkAndAssembleThem()
     {

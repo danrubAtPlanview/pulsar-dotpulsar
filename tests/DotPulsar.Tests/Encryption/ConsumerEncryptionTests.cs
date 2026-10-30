@@ -20,6 +20,7 @@ using DotPulsar.Internal.Crypto;
 using DotPulsar.Internal.PulsarApi;
 using DotPulsar.Tests.Internal;
 using DotPulsar.Tests.Internal.Crypto;
+using K4os.Compression.LZ4;
 using System.Buffers;
 using System.Text;
 using System.Text.Json;
@@ -63,23 +64,25 @@ public sealed class ConsumerEncryptionTests : IDisposable
         await using var consumer = CreateConsumer(client, topic, subscription, cryptoKeyReader);
         await using var consumerWithoutKeys = CreateConsumer(client, topic, CreateSubscriptionName());
         await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
-        var expected = new List<string>();
+        await using var producer1 = CreateProducer(client, topic, RsaKeyName, CreatePublicKeyReader("ClientRsa"));
+        await using var producer2 = CreateProducer(client, topic, RsaKeyName, CreatePublicKeyReader("ClientRsa"));
+        await using var producer3 = CreateProducer(client, topic, RsaPkcs8KeyName, CreatePublicKeyReader("ClientRsaPkcs8"));
+        var expected = Enumerable.Range(0, 30).Select(i => $"my-message-{i}").ToArray();
 
         //Act
-        foreach (var (keyName, keySet) in new[] { (RsaKeyName, "ClientRsa"), (RsaKeyName, "ClientRsa"), (RsaPkcs8KeyName, "ClientRsaPkcs8") })
-        {
-            var messages = Enumerable.Range(0, 10).Select(i => $"my-message-{i}").ToArray();
-            expected.AddRange(messages);
-            await using var producer = CreateProducer(client, topic, keyName, CreatePublicKeyReader(keySet));
-            await Send(producer, messages);
-        }
+        await Send(producer1, expected[..10]);
+        await Send(producer2, expected[10..20]);
+        await Send(producer3, expected[20..]);
 
         //Assert
-        var actual = await Receive(consumer, expected.Count);
+        var actual = await Receive(consumer, expected.Length);
         actual.Select(message => Encoding.UTF8.GetString(message.Data.ToArray())).ShouldBe(expected);
         actual.ShouldAllBe(message => message.EncryptionContext != null && !message.EncryptionContext.IsEncrypted);
         actual.Select(message => message.EncryptionContext!.Keys.Keys.Single()).Distinct().ShouldBe([RsaKeyName, RsaPkcs8KeyName], ignoreOrder: true);
         (await TransactionFixture.ReceiveOrNull(consumerWithoutKeys, TimeSpan.FromSeconds(3), _cts.Token)).ShouldBeNull();
+
+        // Acknowledge the consumption of all messages at once
+        await consumer.AcknowledgeCumulative(actual[^1], _cts.Token);
     }
 
     // Upstream: SimpleProducerConsumerTest#testECDSAEncryption
@@ -88,24 +91,33 @@ public sealed class ConsumerEncryptionTests : IDisposable
     {
         //Arrange
         SkipWhenExplicitCurvesAreNotSupported();
+        const string subscription = "my-subscriber-name";
         var topic = await _fixture.CreateTopic(_cts.Token);
         await using var client = CreateClient();
-        await using var consumer = CreateConsumer(client, topic, CreateSubscriptionName(), CreatePrivateKeyReader("ClientEcdsa"));
-        await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
-        var expected = Enumerable.Range(0, 10).Select(_ => CreateRandomBytes(100)).ToArray();
+        await using var cryptoConsumer = CreateConsumer(client, topic, subscription, CreatePrivateKeyReader("ClientEcdsa"));
+        await using var normalConsumer = CreateConsumer(client, topic, $"{subscription}-normal");
+        await cryptoConsumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+        await normalConsumer.StateChangedTo(ConsumerState.Active, _cts.Token);
         await using var producer = CreateProducer(client, topic, EcdsaKeyName, CreatePublicKeyReader("ClientEcdsa"), builder => builder.CompressionType(DotPulsar.CompressionType.Lz4));
+        var expected = Enumerable.Range(0, 10).Select(i => $"my-message-{i}").ToArray();
 
         //Act
-        foreach (var message in expected)
-        {
-            _ = await producer.Send(message, _cts.Token);
-        }
+        await Send(producer, expected);
 
         //Assert
-        var actual = await Receive(consumer, expected.Length);
-        actual.Select(message => Convert.ToHexString(message.Data.ToArray())).ShouldBe(expected.Select(Convert.ToHexString));
+        // The admin API is able to fetch a message that is compressed and encrypted
+        await PeekMessage(topic, subscription);
+
+        // A consumer without a key reader is not able to read the messages
+        (await TransactionFixture.ReceiveOrNull(normalConsumer, TimeSpan.FromSeconds(1), _cts.Token)).ShouldBeNull();
+
+        var actual = await Receive(cryptoConsumer, expected.Length);
+        actual.Select(message => Encoding.UTF8.GetString(message.Data.ToArray())).ShouldBe(expected);
         actual.ShouldAllBe(message => message.EncryptionContext != null && !message.EncryptionContext.IsEncrypted && message.EncryptionContext.CompressionType == DotPulsar.CompressionType.Lz4);
         actual.ShouldAllBe(message => message.EncryptionContext!.Keys.ContainsKey(EcdsaKeyName));
+
+        // Acknowledge the consumption of all messages at once
+        await cryptoConsumer.AcknowledgeCumulative(actual[^1], _cts.Token);
     }
 
     // Upstream: SimpleProducerConsumerTest#testCryptoWithChunking
@@ -116,22 +128,33 @@ public sealed class ConsumerEncryptionTests : IDisposable
         //Arrange
         SkipWhenExplicitCurvesAreNotSupported();
         var topic = await _fixture.CreateTopic(_cts.Token);
-        await using var client = CreateClient();
-        await using var consumer = CreateConsumer(client, topic, CreateSubscriptionName(), CreatePrivateKeyReader("ClientEcdsa"));
-        await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
-        await using var producer = CreateProducer(client, topic, EcdsaKeyName, CreatePublicKeyReader("ClientEcdsa"), builder => builder.EnableChunking(true).ChunkMaxMessageSize(1000));
-        var data = CreateRandomBytes(5100);
+        var directory = Directory.CreateTempSubdirectory("dotpulsar-keys-");
 
-        //Act
-        var sentId = await producer.Send(data, _cts.Token);
-        var message = await Receive(consumer);
+        try
+        {
+            var ecdsaPublicKeyFile = CreateKeyFile(directory, "public-key.client-ecdsa.pem", CryptoTestKeys.Public("ClientEcdsa"));
+            var ecdsaPrivateKeyFile = CreateKeyFile(directory, "private-key.client-ecdsa.pem", CryptoTestKeys.Private("ClientEcdsa"));
+            await using var client = CreateClient();
+            await using var consumer1 = CreateConsumer(client, topic, "sub1", new DefaultCryptoKeyReader(null, ecdsaPrivateKeyFile));
+            await consumer1.StateChangedTo(ConsumerState.Active, _cts.Token);
+            await using var producer1 = CreateProducer(client, topic, EcdsaKeyName, new DefaultCryptoKeyReader(ecdsaPublicKeyFile, null), builder => builder.EnableBatching(false).EnableChunking(true).ChunkMaxMessageSize(1000));
+            var data = CreateRandomBytes(5100);
 
-        //Assert
-        message.Data.ToArray().ShouldBe(data);
-        message.EncryptionContext.ShouldNotBeNull().IsEncrypted.ShouldBeFalse();
-        message.EncryptionContext.Keys.Count.ShouldBe(1);
-        sentId.GetChunkMessageIds()!.Length.ShouldBe(6);
-        message.MessageId.GetChunkMessageIds()!.Length.ShouldBe(6);
+            //Act
+            var sentId = await producer1.Send(data, _cts.Token);
+            var message = await Receive(consumer1);
+
+            //Assert
+            message.Data.ToArray().ShouldBe(data);
+            message.EncryptionContext.ShouldNotBeNull().IsEncrypted.ShouldBeFalse();
+            message.EncryptionContext.Keys.Count.ShouldBe(1);
+            sentId.GetChunkMessageIds()!.Length.ShouldBe(6);
+            message.MessageId.GetChunkMessageIds()!.Length.ShouldBe(6);
+        }
+        finally
+        {
+            directory.Delete(true);
+        }
     }
 
     // The chunks cannot be assembled as long as they are encrypted, so the chunks of a message that cannot be decrypted are not delivered, whatever the action is
@@ -167,17 +190,10 @@ public sealed class ConsumerEncryptionTests : IDisposable
 
         try
         {
-            string WriteFile(string name, byte[] key)
-            {
-                var path = Path.Combine(directory.FullName, name);
-                File.WriteAllBytes(path, key);
-                return new Uri(path).AbsoluteUri;
-            }
-
-            var ecdsaPublicFile = WriteFile("public-key.client-ecdsa.pem", CryptoTestKeys.Public("ClientEcdsa"));
-            var ecdsaPrivateFile = WriteFile("private-key.client-ecdsa.pem", CryptoTestKeys.Private("ClientEcdsa"));
-            var rsaPublicFile = WriteFile("public-key.client-rsa.pem", CryptoTestKeys.Public("ClientRsa"));
-            var rsaPrivateFile = WriteFile("private-key.client-rsa.pem", CryptoTestKeys.Private("ClientRsa"));
+            var ecdsaPublicFile = CreateKeyFile(directory, "public-key.client-ecdsa.pem", CryptoTestKeys.Public("ClientEcdsa"));
+            var ecdsaPrivateFile = CreateKeyFile(directory, "private-key.client-ecdsa.pem", CryptoTestKeys.Private("ClientEcdsa"));
+            var rsaPublicFile = CreateKeyFile(directory, "public-key.client-rsa.pem", CryptoTestKeys.Public("ClientRsa"));
+            var rsaPrivateFile = CreateKeyFile(directory, "private-key.client-rsa.pem", CryptoTestKeys.Private("ClientRsa"));
             var ecdsaPublicData = CreateDataUri(CryptoTestKeys.Public("ClientEcdsa"));
             var ecdsaPrivateData = CreateDataUri(CryptoTestKeys.Private("ClientEcdsa"));
             var rsaPublicData = CreateDataUri(CryptoTestKeys.Public("ClientRsa"));
@@ -190,12 +206,11 @@ public sealed class ConsumerEncryptionTests : IDisposable
             await using var consumer4 = CreateConsumer(client, topic, "sub4", new DefaultCryptoKeyReader(null, null, null, new Dictionary<string, string> { [EcdsaKeyName] = ecdsaPrivateData, [RsaKeyName] = rsaPrivateData }));
             await Task.WhenAll(new[] { consumer1, consumer2, consumer3, consumer4 }.Select(consumer => consumer.StateChangedTo(ConsumerState.Active, _cts.Token).AsTask()));
 
-            //Act
             var messages = Enumerable.Range(0, numberOfMessages * 4).Select(i => $"my-message-{i}").ToArray();
+
+            //Act
             await ProduceMessages(client, topic, EcdsaKeyName, new DefaultCryptoKeyReader(ecdsaPublicFile, null), messages[..numberOfMessages]);
             await ProduceMessages(client, topic, EcdsaKeyName, new DefaultCryptoKeyReader(ecdsaPublicData, null), messages[numberOfMessages..(numberOfMessages * 2)]);
-            await ProduceMessages(client, topic, RsaKeyName, new DefaultCryptoKeyReader(rsaPublicFile, null), messages[(numberOfMessages * 2)..(numberOfMessages * 3)]);
-            await ProduceMessages(client, topic, RsaKeyName, new DefaultCryptoKeyReader(rsaPublicData, null), messages[(numberOfMessages * 3)..]);
 
             //Assert
             foreach (var consumer in new[] { consumer1, consumer2 })
@@ -203,14 +218,31 @@ public sealed class ConsumerEncryptionTests : IDisposable
                 var actual = await Receive(consumer, numberOfMessages * 2);
                 actual.Select(message => Encoding.UTF8.GetString(message.Data.ToArray())).ShouldBe(messages[..(numberOfMessages * 2)]);
                 actual.ShouldAllBe(message => message.EncryptionContext != null && !message.EncryptionContext.IsEncrypted);
+
+                // Acknowledge the consumption of all messages at once
+                await consumer.AcknowledgeCumulative(actual[^1], _cts.Token);
             }
 
+            await consumer1.Unsubscribe(_cts.Token);
+            await consumer2.Unsubscribe(_cts.Token);
+
+            //Act
+            await ProduceMessages(client, topic, RsaKeyName, new DefaultCryptoKeyReader(rsaPublicFile, null), messages[(numberOfMessages * 2)..(numberOfMessages * 3)]);
+            await ProduceMessages(client, topic, RsaKeyName, new DefaultCryptoKeyReader(rsaPublicData, null), messages[(numberOfMessages * 3)..]);
+
+            //Assert
             foreach (var consumer in new[] { consumer3, consumer4 })
             {
                 var actual = await Receive(consumer, numberOfMessages * 4);
                 actual.Select(message => Encoding.UTF8.GetString(message.Data.ToArray())).ShouldBe(messages);
                 actual.ShouldAllBe(message => message.EncryptionContext != null && !message.EncryptionContext.IsEncrypted);
+
+                // Acknowledge the consumption of all messages at once
+                await consumer.AcknowledgeCumulative(actual[^1], _cts.Token);
             }
+
+            await consumer3.Unsubscribe(_cts.Token);
+            await consumer4.Unsubscribe(_cts.Token);
         }
         finally
         {
@@ -405,8 +437,14 @@ public sealed class ConsumerEncryptionTests : IDisposable
     public async Task Receive_GivenConsumeActionWithoutCryptoKeyReader_ShouldAllowManualDecryption()
     {
         //Arrange
+        const string message = "my-message";
+        const string keyVersion = "1.0";
         var topic = await _fixture.CreateTopic(_cts.Token);
+        var keyReader = new InMemoryCryptoKeyReader(new Dictionary<string, string> { ["version"] = keyVersion })
+            .WithPublicKey(RsaKeyName, CryptoTestKeys.Public("ClientRsa"))
+            .WithPrivateKey(RsaKeyName, CryptoTestKeys.Private("ClientRsa"));
         await using var client = CreateClient();
+        await using var producer = CreateProducer(client, topic, RsaKeyName, keyReader, builder => builder.CompressionType(DotPulsar.CompressionType.Lz4));
         await using var consumer = client.NewConsumer(DotPulsar.Schema.ByteArray)
             .InitialPosition(SubscriptionInitialPosition.Earliest)
             .StateChangedHandler(_testOutputHelper.Log)
@@ -415,17 +453,19 @@ public sealed class ConsumerEncryptionTests : IDisposable
             .CryptoFailureAction(ConsumerCryptoFailureAction.Consume)
             .Create();
         await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
-        var expected = Enumerable.Range(0, 10).Select(i => $"my-message-{i}").ToArray();
 
         //Act
-        await ProduceMessages(client, topic, RsaKeyName, CreatePublicKeyReader("ClientRsa"), expected);
-        var actual = await Receive(consumer, expected.Length);
+        _ = await producer.Send(Encoding.UTF8.GetBytes(message), _cts.Token);
+        var actual = await Receive(consumer);
 
         //Assert
-        var keyReader = new InMemoryCryptoKeyReader().WithPrivateKey(RsaKeyName, CryptoTestKeys.Private("ClientRsa"));
+        // Verify that decryption failed since no CryptoKeyReader is configured for the consumer
+        var context = actual.EncryptionContext.ShouldNotBeNull();
+        context.IsEncrypted.ShouldBeTrue();
+        context.Keys.Count.ShouldBe(1);
+        context.Keys[RsaKeyName].Metadata["version"].ShouldBe(keyVersion);
         using var messageCrypto = new MessageCrypto(false);
-        var decrypted = actual.Select(message => Decrypt(messageCrypto, keyReader, message)).ToArray();
-        decrypted.ShouldBe(expected);
+        DecryptAndDecompress(messageCrypto, keyReader, actual).ShouldBe(message);
     }
 
     // Upstream: SimpleProducerConsumerTest#testE2EEncryptionWithCompression (a consumer that cannot decrypt gets the compressed payload and the information to decompress it)
@@ -434,8 +474,9 @@ public sealed class ConsumerEncryptionTests : IDisposable
     {
         //Arrange
         var topic = await _fixture.CreateTopic(_cts.Token);
+        var mismatchedPrivateKey = Encoding.UTF8.GetBytes(CryptoTestKeys.ClientMismatchRsaPrivate);
         await using var client = CreateClient();
-        await using var consumer = CreateConsumer(client, topic, CreateSubscriptionName(), CreatePrivateKeyReader("ClientRsaPkcs8"), ConsumerCryptoFailureAction.Consume);
+        await using var consumer = CreateConsumer(client, topic, "test", new DefaultCryptoKeyReader(null, CreateDataUri(mismatchedPrivateKey)), ConsumerCryptoFailureAction.Consume);
         await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
         await using var producer = CreateProducer(client, topic, RsaKeyName, CreatePublicKeyReader("ClientRsa"), builder => builder.CompressionType(DotPulsar.CompressionType.Lz4));
         var expected = Enumerable.Range(0, 10).Select(i => $"message-{i}").ToArray();
@@ -445,6 +486,11 @@ public sealed class ConsumerEncryptionTests : IDisposable
         var actual = await Receive(consumer, expected.Length);
 
         //Assert
+        foreach (var message in actual)
+        {
+            await consumer.Acknowledge(message, _cts.Token);
+        }
+
         actual.ShouldAllBe(message => message.EncryptionContext != null && message.EncryptionContext.IsEncrypted);
         actual.ShouldAllBe(message => message.EncryptionContext!.CompressionType == DotPulsar.CompressionType.Lz4);
         actual.Select(message => message.EncryptionContext!.UncompressedMessageSize).ShouldBe(expected.Select(message => (uint) message.Length));
@@ -484,30 +530,34 @@ public sealed class ConsumerEncryptionTests : IDisposable
     }
 
     // Upstream: SimpleProducerConsumerTest#testEncryptionFailureWithBatchPublish
-    // The broker deducts a permit for every message of a batch, so the consumer must count every message of the batches that it discards, or the broker stops sending
+    // The broker deducts a permit for every message of a batch, so the consumer must count every message of the batches that it discards, or the broker stops sending.
+    // Upstream has a message listener that acknowledges the messages that it is given. It is never given any, because the consumer discards what it cannot decrypt, so here the consumer only waits for a message.
     [Fact]
     public async Task Receive_GivenEncryptedBatchesAndDiscard_ShouldDiscardEveryBatchWithoutRunningOutOfPermits()
     {
         //Arrange
+        SkipWhenExplicitCurvesAreNotSupported();
+        const int totalMsg = 2000;
+        const string subscription = "without-cryptoreader";
         var topic = await _fixture.CreateTopic(_cts.Token);
-        var subscription = CreateSubscriptionName();
         await using var client = CreateClient();
-        await using var consumer = CreateConsumer(client, topic, subscription, consumeAction: ConsumerCryptoFailureAction.Discard, configure: builder => builder.MessagePrefetchCount(100));
+        await using var consumer = CreateConsumer(client, topic, subscription, consumeAction: ConsumerCryptoFailureAction.Discard, configure: builder => builder.AckTimeout(TimeSpan.FromSeconds(1)).MessagePrefetchCount(totalMsg / 20));
         await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
-        await using var producer = CreateProducer(client, topic, RsaKeyName, CreatePublicKeyReader("ClientRsa"), builder => builder.EnableBatching(true).BatchingMaxMessages(5).BatchingMaxPublishDelay(TimeSpan.FromHours(1)));
+        await using var producer = CreateProducer(client, topic, EcdsaKeyName, CreatePublicKeyReader("ClientEcdsa"), builder => builder.EnableBatching(true).BatchingMaxMessages(5).BatchingMaxPublishDelay(TimeSpan.FromSeconds(1)));
         using var receiveCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
         var receiving = consumer.Receive(receiveCts.Token).AsTask();
-        var payload = CreateRandomBytes(100);
 
         //Act
-        for (var i = 0; i < 2000; ++i)
+        for (var i = 0; i < totalMsg; i++)
         {
-            await producer.SendChannel.Send(payload, null, _cts.Token);
+            await producer.SendChannel.Send(Encoding.UTF8.GetBytes($"my-message-{i}"), null, _cts.Token);
         }
 
         await producer.Flush(_cts.Token);
 
         //Assert
+        // The cursor has read every entry, which is the case when its read position is the entry after the last confirmed entry
+        await WaitUntil(async () => await HasCursorReadEveryEntry(topic, subscription), TimeSpan.FromSeconds(10));
         await WaitUntil(async () => await GetBacklog(topic, subscription) == 0);
         receiving.IsCompleted.ShouldBeFalse();
         receiveCts.Cancel();
@@ -611,6 +661,13 @@ public sealed class ConsumerEncryptionTests : IDisposable
     private static string CreateDataUri(byte[] key)
         => "data:application/x-pem-file;base64," + Convert.ToBase64String(key);
 
+    private static string CreateKeyFile(DirectoryInfo directory, string name, byte[] key)
+    {
+        var path = Path.Combine(directory.FullName, name);
+        File.WriteAllBytes(path, key);
+        return new Uri(path).AbsoluteUri;
+    }
+
     // The reader returns the key of the key set for every key name, or only for the key name if there is one
     private static ICryptoKeyReader CreatePrivateKeyReader(string keySet, string? keyName = null)
         => keyName is null
@@ -629,11 +686,14 @@ public sealed class ConsumerEncryptionTests : IDisposable
         return bytes;
     }
 
-    // Decrypts the payload with the keys, the IV and the key reader like a consumer does, using only what the encryption context has
-    private static string Decrypt(MessageCrypto messageCrypto, ICryptoKeyReader keyReader, IMessage<byte[]> message)
+    // Decrypts and decompresses the payload with the keys, the IV and the key reader like a consumer does, using only what the encryption context has
+    private static string DecryptAndDecompress(MessageCrypto messageCrypto, ICryptoKeyReader keyReader, IMessage<byte[]> message)
     {
         var context = message.EncryptionContext!;
-        var metadata = new MessageMetadata { EncryptionParam = Google.Protobuf.ByteString.CopyFrom(context.Param) };
+        var metadata = new MessageMetadata { EncryptionParam = Google.Protobuf.ByteString.CopyFrom(context.Param), UncompressedSize = context.UncompressedMessageSize };
+
+        if (context.Algorithm is not null)
+            metadata.EncryptionAlgo = context.Algorithm;
 
         foreach (var key in context.Keys)
         {
@@ -641,7 +701,12 @@ public sealed class ConsumerEncryptionTests : IDisposable
         }
 
         messageCrypto.TryDecrypt(metadata, message.Data, keyReader, out var decrypted).ShouldBeTrue();
-        return Encoding.UTF8.GetString(decrypted.ToArray());
+        context.CompressionType.ShouldBe(DotPulsar.CompressionType.Lz4);
+
+        var compressed = decrypted.ToArray();
+        var uncompressed = new byte[context.UncompressedMessageSize];
+        LZ4Codec.Decode(compressed, 0, compressed.Length, uncompressed, 0, uncompressed.Length).ShouldBe(uncompressed.Length);
+        return Encoding.UTF8.GetString(uncompressed);
     }
 
     private IProducer<byte[]> CreateProducer(IPulsarClient client, string topic, string keyName, ICryptoKeyReader cryptoKeyReader, Action<IProducerBuilder<byte[]>>? configure = null)
@@ -730,17 +795,46 @@ public sealed class ConsumerEncryptionTests : IDisposable
         return json.RootElement.GetProperty("subscriptions").GetProperty(subscription).GetProperty("msgBacklog").GetInt64();
     }
 
-    private async Task WaitUntil(Func<Task<bool>> condition)
+    // Upstream: admin.topics().getInternalStats(topic). The position of a cursor and the last confirmed entry are "ledgerId:entryId"
+    private async Task<bool> HasCursorReadEveryEntry(string topic, string subscription)
     {
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(60);
+        using var httpClient = _fixture.CreateAdminClient();
+        using var response = await httpClient.GetAsync($"/admin/v2/persistent/{topic.Replace("persistent://", string.Empty)}/internalStats", _cts.Token);
+        response.EnsureSuccessStatusCode();
+        await using var stream = await response.Content.ReadAsStreamAsync(_cts.Token);
+        using var json = await JsonDocument.ParseAsync(stream, cancellationToken: _cts.Token);
+        var readPosition = ParsePosition(json.RootElement.GetProperty("cursors").GetProperty(subscription).GetProperty("readPosition").GetString()!);
+        var lastConfirmedEntry = ParsePosition(json.RootElement.GetProperty("lastConfirmedEntry").GetString()!);
+        return readPosition == (lastConfirmedEntry.LedgerId, lastConfirmedEntry.EntryId + 1);
+    }
+
+    private static (long LedgerId, long EntryId) ParsePosition(string position)
+    {
+        var parts = position.Split(':');
+        return (long.Parse(parts[0]), long.Parse(parts[1]));
+    }
+
+    private async Task WaitUntil(Func<Task<bool>> condition, TimeSpan? atMost = null)
+    {
+        var timeout = atMost ?? TimeSpan.FromSeconds(60);
+        var deadline = DateTime.UtcNow + timeout;
 
         while (!await condition())
         {
             if (DateTime.UtcNow > deadline)
-                throw new TimeoutException("The condition was not met within 60 seconds");
+                throw new TimeoutException($"The condition was not met within {timeout.TotalSeconds} seconds");
 
-            await Task.Delay(TimeSpan.FromMilliseconds(200), _cts.Token);
+            await Task.Delay(TimeSpan.FromMilliseconds(100), _cts.Token);
         }
+    }
+
+    // Upstream: admin.topics().peekMessages(topic, subscription, 1)
+    private async Task PeekMessage(string topic, string subscription)
+    {
+        using var httpClient = _fixture.CreateAdminClient();
+        using var response = await httpClient.GetAsync($"/admin/v2/persistent/{topic.Replace("persistent://", string.Empty)}/subscription/{subscription}/position/1", _cts.Token);
+        response.StatusCode.ShouldBe(System.Net.HttpStatusCode.OK);
+        (await response.Content.ReadAsByteArrayAsync(_cts.Token)).ShouldNotBeEmpty();
     }
 
     // Does not find the private key for the first calls, like a key store that is not available yet

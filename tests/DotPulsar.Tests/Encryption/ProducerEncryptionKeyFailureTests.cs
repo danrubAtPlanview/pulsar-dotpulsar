@@ -18,6 +18,7 @@ using DotPulsar.Abstractions;
 using DotPulsar.Exceptions;
 using DotPulsar.Extensions;
 using DotPulsar.Tests.Internal.Crypto;
+using System.Reflection;
 using System.Text.Json;
 
 [Collection("Integration"), Trait("Category", "Integration")]
@@ -37,7 +38,7 @@ public sealed class ProducerEncryptionKeyFailureTests : IDisposable
     public void Dispose() => _cts.Dispose();
 
     // Upstream: ProducerEncryptionKeyFailureTest#testProducerWhoseKeyCannotBeLoadedIsNotLeftBehind
-    // The client does not tell how many producers it has, so that is not asserted. The producer is not created, and it is not added to the client.
+    // The client does not tell how many producers it has (upstream asks PulsarClientImpl#producersCount), so the producers that the client keeps are counted by reading its private field.
     [Fact]
     public async Task Create_GivenKeyThatCannotBeLoaded_ShouldThrowCryptoExceptionAndNotRegisterPublisher()
     {
@@ -51,6 +52,7 @@ public sealed class ProducerEncryptionKeyFailureTests : IDisposable
         //Assert
         exception.ShouldBeOfType<CryptoException>().Message.ShouldStartWith("Failed to load public key missing-key.");
         await AssertNoPublisherFor(topic, TimeSpan.FromSeconds(3));
+        CountProducers(client).ShouldBe(0, "A producer whose creation failed must not stay in the client");
     }
 
     // Upstream: SimpleProducerConsumerTest#testEncryptionFailure (step 1: an invalid key name)
@@ -102,6 +104,18 @@ public sealed class ProducerEncryptionKeyFailureTests : IDisposable
             await Task.Delay(TimeSpan.FromMilliseconds(250), _cts.Token);
         }
         while (DateTime.UtcNow < end);
+    }
+
+    private static int CountProducers(IPulsarClient client)
+    {
+        var flags = BindingFlags.Instance | BindingFlags.NonPublic;
+        var disposables = (HashSet<IAsyncDisposable>) typeof(PulsarClient).GetField("_disposables", flags)!.GetValue(client)!;
+        var padlock = typeof(PulsarClient).GetField("_lock", flags)!.GetValue(client)!;
+
+        lock (padlock)
+        {
+            return disposables.Count(disposable => disposable.GetType().GetInterfaces().Any(type => type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IProducer<>)));
+        }
     }
 
     private IPulsarClient CreateClient()
