@@ -225,6 +225,7 @@ public sealed class TransactionMetaStoreHandlerTests
         //Act
         uut.Start();
         var exception = await Record.ExceptionAsync(() => uut.Connected.WaitAsync(_timeout, Current.CancellationToken));
+        _ = await uut.State.OnStateChangeTo(TransactionMetaStoreHandlerState.Failed, Current.CancellationToken); // The state is set after the connection has failed
 
         //Assert
         exception.ShouldBeSameAs(error);
