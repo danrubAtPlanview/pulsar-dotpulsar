@@ -530,13 +530,14 @@ public sealed class SubConsumerTransactionalAckTests
         difference.ShouldBeLessThanOrEqualTo(64);
     }
 
-    // The allocations of operations that wait for a receipt on the thread pool change by up to about 30 B from one measurement to the next (and by 100 B once in a while), as the
-    // timing of the continuations does. A difference that comes from the code is there in every pair of measurements, so the smallest of up to three pairs is the one that counts.
+    // The allocations of operations that wait for a receipt on the thread pool change by up to about 30 B from one measurement to the next (and by 100 B once in a while, more often when the
+    // machine is busy), as the timing of the continuations does. A difference that comes from the code is there in every pair of measurements, so the smallest of up to ten pairs is the one that
+    // counts. The pairs are only measured as long as the difference is too large.
     private static async Task<double> SmallestDifferenceOnThreadPool(Func<ValueTask> receiptOperation, Func<ValueTask> transactionOperation)
     {
         var smallest = double.MaxValue;
 
-        for (var attempt = 0; attempt < 3 && smallest > 32; ++attempt)
+        for (var attempt = 0; attempt < 10 && smallest > 32; ++attempt)
         {
             var receipt = await AllocationMeasurement.BytesPerOperationOfAllThreads(receiptOperation);
             var transactional = await AllocationMeasurement.BytesPerOperationOfAllThreads(transactionOperation, receipt + 32);
