@@ -30,6 +30,7 @@ public sealed class ConsumerChannelFactory<TMessage> : IConsumerChannelFactory<T
     private readonly string _topic;
     private readonly bool _ackReceiptEnabled;
     private readonly bool _batchIndexAckEnabled;
+    private readonly ConsumerEpoch? _consumerEpoch;
 
     public ConsumerChannelFactory(
         Guid correlationId,
@@ -42,7 +43,8 @@ public sealed class ConsumerChannelFactory<TMessage> : IConsumerChannelFactory<T
         IEnumerable<IDecompressorFactory> decompressorFactories,
         string topic,
         bool ackReceiptEnabled,
-        bool batchIndexAckEnabled)
+        bool batchIndexAckEnabled,
+        ConsumerEpoch? consumerEpoch)
     {
         _correlationId = correlationId;
         _eventRegister = eventRegister;
@@ -55,6 +57,7 @@ public sealed class ConsumerChannelFactory<TMessage> : IConsumerChannelFactory<T
         _topic = topic;
         _ackReceiptEnabled = ackReceiptEnabled;
         _batchIndexAckEnabled = batchIndexAckEnabled;
+        _consumerEpoch = consumerEpoch;
     }
 
     public async Task<IConsumerChannel<TMessage>> Create(CancellationToken cancellationToken)
@@ -62,7 +65,23 @@ public sealed class ConsumerChannelFactory<TMessage> : IConsumerChannelFactory<T
         var connection = await _connectionPool.FindConnectionForTopic(_subscribe.Topic, cancellationToken).ConfigureAwait(false);
         var messageQueue = new AsyncQueue<MessagePackage>();
         var channel = new Channel(_correlationId, _eventRegister, messageQueue);
+
+        var subscribeEpoch = _consumerEpoch?.Value ?? 0;
+
+        if (_consumerEpoch is not null)
+            _subscribe.ConsumerEpoch = (ulong) subscribeEpoch;
+
         var response = await connection.Send(_subscribe, channel, cancellationToken).ConfigureAwait(false);
-        return new ConsumerChannel<TMessage>(response.ConsumerId, _messagePrefetchCount, messageQueue, connection, _batchHandler, _messageFactory, _decompressorFactories, _topic, _ackReceiptEnabled, _batchIndexAckEnabled);
+
+        // Upstream: ConsumerImpl#connectionOpened
+        // The epoch was increased while the consumer was subscribing, so the broker is told, before the first flow is sent
+        if (_consumerEpoch is not null && _consumerEpoch.Value != subscribeEpoch)
+        {
+            var redeliver = new CommandRedeliverUnacknowledgedMessages { ConsumerId = response.ConsumerId, ConsumerEpoch = (ulong) _consumerEpoch.Value };
+            await connection.Send(redeliver, cancellationToken).ConfigureAwait(false);
+        }
+
+        var filterEpoch = _subscribe.SubType is CommandSubscribe.Types.SubType.Exclusive or CommandSubscribe.Types.SubType.Failover ? _consumerEpoch : null;
+        return new ConsumerChannel<TMessage>(response.ConsumerId, _messagePrefetchCount, messageQueue, connection, _batchHandler, _messageFactory, _decompressorFactories, _topic, _ackReceiptEnabled, _batchIndexAckEnabled, filterEpoch);
     }
 }

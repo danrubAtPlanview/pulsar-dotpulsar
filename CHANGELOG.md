@@ -22,6 +22,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 - IPulsarClient, IPulsarClientBuilder, IConsumer, IConsumerBuilder and IMessageBuilder have new members. This is a breaking change for custom implementations of these interfaces
 - PulsarClientClosedException has a new constructor that takes a message
 - A send that the broker rejects with NotAllowedError now fails only that message with NotAllowedException instead of faulting the producer
+- IConsumer.RedeliverUnacknowledgedMessages with an empty list of message ids no longer redelivers all messages, it does nothing
+- IConsumer.RedeliverUnacknowledgedMessages with message ids on an Exclusive or Failover subscription redelivers all unacknowledged messages, because the broker only redelivers individual messages for Shared and KeyShared subscriptions
+- IConsumer.RedeliverUnacknowledgedMessages sends the message ids without the batch index, and each entry only once, so all the messages of a batch are redelivered
+- IConsumer.RedeliverUnacknowledgedMessages drops the messages that the consumer has received from the broker but not yet delivered, and gives the message permits back to the broker. On Exclusive and Failover subscriptions the messages that are on their way are dropped using a consumer epoch, which is now sent when subscribing
 
 ### Fixed
 
@@ -33,6 +37,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 - The ordering key of a message in a batch was taken from the batch instead of from the message
 - The pooled acknowledgment command kept the MessageIdData instance of the broker
 - A full send queue did not accept new messages after the producer removed messages from it
+- Messages that the consumer had already received from the broker were received twice after IConsumer.RedeliverUnacknowledgedMessages
 
 ## [5.3.4] - 2026-10-09
 

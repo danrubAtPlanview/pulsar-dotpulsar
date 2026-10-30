@@ -506,11 +506,12 @@ public sealed class Consumer<TMessage> : IConsumer<TMessage>
         var messageFactory = new MessageFactory<TMessage>(_consumerOptions.Schema);
         var batchHandler = new BatchHandler<TMessage>(true, messageFactory, topic);
         var decompressorFactories = CompressionFactories.DecompressorFactories();
-        var consumerChannelFactory = new ConsumerChannelFactory<TMessage>(correlationId, _processManager, _connectionPool, subscribe, messagePrefetchCount, batchHandler, messageFactory, decompressorFactories, topic, _consumerOptions.AckReceiptEnabled, _consumerOptions.BatchIndexAckEnabled);
+        var consumerEpoch = new ConsumerEpoch();
+        var consumerChannelFactory = new ConsumerChannelFactory<TMessage>(correlationId, _processManager, _connectionPool, subscribe, messagePrefetchCount, batchHandler, messageFactory, decompressorFactories, topic, _consumerOptions.AckReceiptEnabled, _consumerOptions.BatchIndexAckEnabled, consumerEpoch);
         var stateManager = CreateStateManager();
         var initialChannel = new NotReadyChannel<TMessage>();
         var executor = new Executor(correlationId, _processManager, _exceptionHandler);
-        var subConsumer = new SubConsumer<TMessage>(correlationId, ServiceUrl, _consumerOptions.SubscriptionName, _consumerOptions.SubscriptionType, topic, _processManager, initialChannel, executor, stateManager, consumerChannelFactory, _consumerOptions.AckReceiptEnabled, _operationTimeout);
+        var subConsumer = new SubConsumer<TMessage>(correlationId, ServiceUrl, _consumerOptions.SubscriptionName, _consumerOptions.SubscriptionType, topic, _processManager, initialChannel, executor, stateManager, consumerChannelFactory, _consumerOptions.AckReceiptEnabled, _operationTimeout, consumerEpoch);
         var process = new ConsumerProcess(correlationId, stateManager, subConsumer, _consumerOptions.SubscriptionType == SubscriptionType.Failover);
         _processManager.Add(process);
         process.Start();

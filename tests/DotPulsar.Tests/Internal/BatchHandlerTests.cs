@@ -474,6 +474,84 @@ public sealed class BatchHandlerTests
         allocated.ShouldBe(0);
     }
 
+    // Upstream: ConsumerBase#clearIncomingMessages
+    [Fact]
+    public void ClearQueuedMessages_GivenUndeliveredMessages_ShouldDropThemAndKeepTheTracker()
+    {
+        //Arrange
+        var uut = CreateHandler();
+        _ = AddBatchWithoutDelivering(uut, 1, 2, 5);
+
+        //Act
+        var removed = uut.ClearQueuedMessages();
+
+        //Assert
+        removed.ShouldBe(4);
+        uut.GetNext().ShouldBeNull();
+        uut.TryGetBatchSize(BatchTestData.CreateBatchedId(1, 2, 0), out var batchSize).ShouldBeTrue();
+        batchSize.ShouldBe(5);
+    }
+
+    [Fact]
+    public void ClearQueuedMessages_GivenNoUndeliveredMessages_ShouldReturnZero()
+    {
+        //Arrange
+        var uut = CreateHandler();
+
+        //Act
+        var removed = uut.ClearQueuedMessages();
+
+        //Assert
+        removed.ShouldBe(0);
+    }
+
+    // Upstream: ConsumerImpl#removeExpiredMessagesFromQueue
+    [Fact]
+    public void RemoveQueuedMessages_GivenEntries_ShouldDropOnlyTheUndeliveredMessagesOfThoseEntries()
+    {
+        //Arrange
+        var uut = CreateHandler();
+        _ = AddBatchWithoutDelivering(uut, 1, 2, 2);
+        _ = AddBatchWithoutDelivering(uut, 1, 3, 2);
+        _ = AddBatchWithoutDelivering(uut, 1, 4, 2);
+
+        //Act
+        var removed = uut.RemoveQueuedMessages([(1UL, 2UL), (1UL, 4UL)]);
+
+        //Assert
+        removed.ShouldBe(2);
+        var remaining = new List<DotPulsar.Abstractions.IMessage<byte[]>>();
+        while (uut.GetNext() is { } message)
+        {
+            remaining.Add(message);
+        }
+        remaining.Select(message => (message.MessageId.EntryId, message.MessageId.BatchIndex)).ShouldBeSequence((3UL, 1));
+    }
+
+    [Fact]
+    public void RemoveQueuedMessages_GivenNoMatchingEntry_ShouldKeepAllMessagesInOrder()
+    {
+        //Arrange
+        var uut = CreateHandler();
+        _ = AddBatchWithoutDelivering(uut, 1, 2, 4);
+
+        //Act
+        var removed = uut.RemoveQueuedMessages([(1UL, 3UL)]);
+
+        //Assert
+        removed.ShouldBe(0);
+        var remaining = new List<DotPulsar.Abstractions.IMessage<byte[]>>();
+        while (uut.GetNext() is { } message)
+        {
+            remaining.Add(message);
+        }
+        remaining.Select(message => message.MessageId.BatchIndex).ShouldBeSequence(1, 2, 3);
+    }
+
+    // Add returns the first message that is queued, which is the first message of the oldest batch that is not delivered
+    private static DotPulsar.Abstractions.IMessage<byte[]>? AddBatchWithoutDelivering(BatchHandler<byte[]> batchHandler, ulong ledgerId, ulong entryId, int numberOfMessages)
+        => batchHandler.Add(BatchTestData.CreateEntryId(ledgerId, entryId), null, 0, BatchTestData.CreateMetadata(numberOfMessages), new ReadOnlySequence<byte>(BatchTestData.CreateBatchPayload(numberOfMessages)), out _);
+
     private static BatchHandler<byte[]> CreateHandler()
         => new(true, new MessageFactory<byte[]>(DotPulsar.Schema.ByteArray), BatchTestData.Topic);
 }

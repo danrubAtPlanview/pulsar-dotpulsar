@@ -1041,6 +1041,290 @@ public sealed class ConsumerChannelTests
         unbatched.MessageId.Topic.ShouldBe(BatchTestData.Topic);
     }
 
+    // Upstream: ConsumerImpl#redeliverUnacknowledgedMessages
+    [Fact]
+    public async Task Send_GivenRedeliverAllWithPrefetchedMessages_ShouldPurgeQueueAndRefundPermitsAfterTheRedeliverCommand()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var connection = Substitute.For<IConnection>();
+        var queue = new AsyncQueue<MessagePackage>();
+        await using var uut = CreateChannel(connection, batchHandler, messageFactory, queue: queue);
+        queue.Enqueue(BatchTestData.CreateSinglePackage(BatchTestData.CreateEntryId(1, 1)));
+        queue.Enqueue(BatchTestData.CreateSinglePackage(BatchTestData.CreateEntryId(1, 2)));
+        queue.Enqueue(BatchTestData.CreateSinglePackage(BatchTestData.CreateEntryId(1, 3)));
+
+        //Act
+        await uut.Send(new CommandRedeliverUnacknowledgedMessages(), Current.CancellationToken);
+
+        //Assert
+        var commands = GetRedeliverAndFlowCommands(connection);
+        commands.Count.ShouldBe(2);
+        commands[0].ShouldBeOfType<CommandRedeliverUnacknowledgedMessages>().ConsumerId.ShouldBe(1UL);
+        commands[1].ShouldBeOfType<CommandFlow>().MessagePermits.ShouldBe(3U);
+        queue.RemoveAll().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Send_GivenRedeliverAllWithPrefetchedBatch_ShouldRefundOnePermitForEveryMessageOfTheBatch()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var connection = Substitute.For<IConnection>();
+        var queue = new AsyncQueue<MessagePackage>();
+        await using var uut = CreateChannel(connection, batchHandler, messageFactory, queue: queue);
+        queue.Enqueue(BatchTestData.CreateBatchPackage(BatchTestData.CreateEntryId(1, 1), 5));
+        queue.Enqueue(BatchTestData.CreateSinglePackage(BatchTestData.CreateEntryId(1, 2)));
+
+        //Act
+        await uut.Send(new CommandRedeliverUnacknowledgedMessages(), Current.CancellationToken);
+
+        //Assert
+        GetRedeliverAndFlowCommands(connection).OfType<CommandFlow>().Single().MessagePermits.ShouldBe(6U);
+    }
+
+    [Fact]
+    public async Task Send_GivenRedeliverAllWithMessagesUnpackedFromBatch_ShouldDropThemAndRefundThem()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var connection = Substitute.For<IConnection>();
+        var queue = new AsyncQueue<MessagePackage>();
+        await using var uut = CreateChannel(connection, batchHandler, messageFactory, queue: queue);
+        queue.Enqueue(BatchTestData.CreateBatchPackage(BatchTestData.CreateEntryId(1, 1), 5));
+        var delivered = await ReceiveMessages(uut, 1);
+
+        //Act
+        await uut.Send(new CommandRedeliverUnacknowledgedMessages(), Current.CancellationToken);
+
+        //Assert
+        delivered[0].MessageId.BatchIndex.ShouldBe(0);
+        GetRedeliverAndFlowCommands(connection).OfType<CommandFlow>().Last().MessagePermits.ShouldBe(4U);
+        queue.Enqueue(BatchTestData.CreateSinglePackage(BatchTestData.CreateEntryId(1, 2)));
+        var next = await uut.Receive(Current.CancellationToken);
+        next.MessageId.EntryId.ShouldBe(2UL);
+    }
+
+    [Fact]
+    public async Task Send_GivenRedeliverAllWithNothingPrefetched_ShouldNotSendFlow()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var connection = Substitute.For<IConnection>();
+        await using var uut = CreateChannel(connection, batchHandler, messageFactory);
+
+        //Act
+        await uut.Send(new CommandRedeliverUnacknowledgedMessages(), Current.CancellationToken);
+
+        //Assert
+        GetRedeliverAndFlowCommands(connection).Single().ShouldBeOfType<CommandRedeliverUnacknowledgedMessages>();
+    }
+
+    [Fact]
+    public async Task Send_GivenSelectiveRedeliver_ShouldPurgeOnlyMatchingEntries()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var connection = Substitute.For<IConnection>();
+        var queue = new AsyncQueue<MessagePackage>();
+        await using var uut = CreateChannel(connection, batchHandler, messageFactory, queue: queue);
+        queue.Enqueue(BatchTestData.CreateSinglePackage(BatchTestData.CreateEntryId(1, 1)));
+        queue.Enqueue(BatchTestData.CreateSinglePackage(BatchTestData.CreateEntryId(1, 2)));
+        queue.Enqueue(BatchTestData.CreateSinglePackage(BatchTestData.CreateEntryId(1, 3)));
+        queue.Enqueue(BatchTestData.CreateBatchPackage(BatchTestData.CreateEntryId(1, 4), 3));
+        var command = new CommandRedeliverUnacknowledgedMessages();
+        command.MessageIds.Add(BatchTestData.CreateEntryId(1, 2));
+        command.MessageIds.Add(BatchTestData.CreateEntryId(1, 4));
+
+        //Act
+        await uut.Send(command, Current.CancellationToken);
+
+        //Assert
+        var commands = GetRedeliverAndFlowCommands(connection);
+        commands.Count.ShouldBe(2);
+        commands[0].ShouldBeSameAs(command);
+        commands[1].ShouldBeOfType<CommandFlow>().MessagePermits.ShouldBe(4U);
+        var received = await ReceiveMessages(uut, 2);
+        received.Select(message => message.MessageId.EntryId).ShouldBeSequence(1UL, 3UL);
+    }
+
+    [Fact]
+    public async Task Send_GivenSelectiveRedeliverOfEntryWithBatchMessagesNotYetDelivered_ShouldDropThem()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var connection = Substitute.For<IConnection>();
+        var queue = new AsyncQueue<MessagePackage>();
+        await using var uut = CreateChannel(connection, batchHandler, messageFactory, queue: queue);
+        queue.Enqueue(BatchTestData.CreateBatchPackage(BatchTestData.CreateEntryId(1, 1), 4));
+        _ = await ReceiveMessages(uut, 1);
+        queue.Enqueue(BatchTestData.CreateSinglePackage(BatchTestData.CreateEntryId(1, 2)));
+        var command = new CommandRedeliverUnacknowledgedMessages();
+        command.MessageIds.Add(BatchTestData.CreateEntryId(1, 1));
+
+        //Act
+        await uut.Send(command, Current.CancellationToken);
+
+        //Assert
+        GetRedeliverAndFlowCommands(connection).OfType<CommandFlow>().Last().MessagePermits.ShouldBe(3U);
+        var next = await uut.Receive(Current.CancellationToken);
+        next.MessageId.EntryId.ShouldBe(2UL);
+    }
+
+    [Fact]
+    public async Task Send_GivenSelectiveRedeliverOfEntriesThatAreNotPrefetched_ShouldNotSendFlow()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var connection = Substitute.For<IConnection>();
+        var queue = new AsyncQueue<MessagePackage>();
+        await using var uut = CreateChannel(connection, batchHandler, messageFactory, queue: queue);
+        queue.Enqueue(BatchTestData.CreateSinglePackage(BatchTestData.CreateEntryId(1, 1)));
+        var command = new CommandRedeliverUnacknowledgedMessages();
+        command.MessageIds.Add(BatchTestData.CreateEntryId(1, 2));
+
+        //Act
+        await uut.Send(command, Current.CancellationToken);
+
+        //Assert
+        GetRedeliverAndFlowCommands(connection).Single().ShouldBeSameAs(command);
+        (await uut.Receive(Current.CancellationToken)).MessageId.EntryId.ShouldBe(1UL);
+    }
+
+    // A transactional cumulative acknowledgment clears the bits of the tracker, and the messages that were not delivered yet are dropped by the redelivery.
+    // The broker delivers the entry again, which replaces the tracker, so the entry is only acknowledged when all of its messages are acknowledged again.
+    [Fact]
+    public async Task Send_GivenRedeliverAllAfterTransactionalCumulativeAck_ShouldAcknowledgeEntryOnlyWhenAllIndexesAreAcknowledgedAgain()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var queue = new AsyncQueue<MessagePackage>();
+        var connection = CreateTransactionalConnection(out _);
+        var plainSent = new List<CommandAck>();
+        connection.Send(Arg.Do<CommandAck>(ack => plainSent.Add(ack.Clone())), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
+        await using var uut = CreateChannel(connection, batchHandler, messageFactory, queue: queue);
+        queue.Enqueue(BatchTestData.CreateBatchPackage(BatchTestData.CreateEntryId(1, 2), 5));
+        var delivered = await ReceiveMessages(uut, 3);
+        await uut.SendTransactional(CreateTransactionalAck(CommandAck.Types.AckType.Cumulative, delivered[2]), Current.CancellationToken);
+        await uut.Send(new CommandRedeliverUnacknowledgedMessages(), Current.CancellationToken);
+        queue.Enqueue(BatchTestData.CreateBatchPackage(BatchTestData.CreateEntryId(1, 2), 5));
+        var redelivered = await ReceiveMessages(uut, 5);
+
+        //Act
+        var entryAcksAfterEachAck = new List<int>();
+        foreach (var batchIndex in new[] { 3, 4, 0, 1, 2 })
+        {
+            await uut.Send(CreateAck(CommandAck.Types.AckType.Individual, redelivered[batchIndex]), Current.CancellationToken);
+            entryAcksAfterEachAck.Add(plainSent.Count);
+        }
+
+        //Assert
+        redelivered.Select(message => message.MessageId.BatchIndex).ShouldBeSequence(0, 1, 2, 3, 4);
+        entryAcksAfterEachAck.ShouldBeSequence(0, 0, 0, 0, 1);
+    }
+
+    // Upstream: ConsumerBase#isValidConsumerEpoch
+    [Fact]
+    public async Task Receive_GivenStaleConsumerEpoch_ShouldSkipMessage()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var connection = Substitute.For<IConnection>();
+        var queue = new AsyncQueue<MessagePackage>();
+        var consumerEpoch = new ConsumerEpoch();
+        await using var uut = CreateChannel(connection, batchHandler, messageFactory, queue: queue, consumerEpoch: consumerEpoch);
+        consumerEpoch.Increment();
+        queue.Enqueue(BatchTestData.CreateSinglePackage(BatchTestData.CreateEntryId(1, 1), consumerEpoch: 0));
+        queue.Enqueue(BatchTestData.CreateSinglePackage(BatchTestData.CreateEntryId(1, 2), consumerEpoch: 1));
+
+        //Act
+        var actual = await uut.Receive(Current.CancellationToken);
+
+        //Assert
+        actual.MessageId.EntryId.ShouldBe(2UL);
+    }
+
+    [Fact]
+    public async Task Receive_GivenMessageWithoutConsumerEpoch_ShouldNotSkipMessage()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var connection = Substitute.For<IConnection>();
+        var queue = new AsyncQueue<MessagePackage>();
+        var consumerEpoch = new ConsumerEpoch();
+        await using var uut = CreateChannel(connection, batchHandler, messageFactory, queue: queue, consumerEpoch: consumerEpoch);
+        consumerEpoch.Increment();
+        queue.Enqueue(BatchTestData.CreateSinglePackage(BatchTestData.CreateEntryId(1, 1), consumerEpoch: -1));
+
+        //Act
+        var actual = await uut.Receive(Current.CancellationToken);
+
+        //Assert
+        actual.MessageId.EntryId.ShouldBe(1UL);
+    }
+
+    [Fact]
+    public async Task Receive_GivenConsumerEpochNewerThanTheChannel_ShouldNotSkipMessage()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var connection = Substitute.For<IConnection>();
+        var queue = new AsyncQueue<MessagePackage>();
+        await using var uut = CreateChannel(connection, batchHandler, messageFactory, queue: queue, consumerEpoch: new ConsumerEpoch());
+        queue.Enqueue(BatchTestData.CreateSinglePackage(BatchTestData.CreateEntryId(1, 1), consumerEpoch: 3));
+
+        //Act
+        var actual = await uut.Receive(Current.CancellationToken);
+
+        //Assert
+        actual.MessageId.EntryId.ShouldBe(1UL);
+    }
+
+    [Fact]
+    public async Task Receive_GivenNoConsumerEpoch_ShouldNotSkipMessage()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var connection = Substitute.For<IConnection>();
+        var queue = new AsyncQueue<MessagePackage>();
+        await using var uut = CreateChannel(connection, batchHandler, messageFactory, queue: queue);
+        queue.Enqueue(BatchTestData.CreateSinglePackage(BatchTestData.CreateEntryId(1, 1), consumerEpoch: 0));
+
+        //Act
+        var actual = await uut.Receive(Current.CancellationToken);
+
+        //Assert
+        actual.MessageId.EntryId.ShouldBe(1UL);
+    }
+
+    [Fact]
+    public async Task Receive_GivenStaleBatchEntry_ShouldCountEveryMessageOfTheEntryAsReceivedForFlow()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var connection = Substitute.For<IConnection>();
+        var queue = new AsyncQueue<MessagePackage>();
+        var consumerEpoch = new ConsumerEpoch();
+        await using var uut = CreateChannel(connection, batchHandler, messageFactory, queue: queue, prefetchCount: 6, consumerEpoch: consumerEpoch);
+        consumerEpoch.Increment();
+        queue.Enqueue(BatchTestData.CreatePackage(BatchTestData.CreateEntryId(1, 1), BatchTestData.CreateMetadata(3), BatchTestData.CreateBatchPayload(3), null, 0));
+        queue.Enqueue(BatchTestData.CreateSinglePackage(BatchTestData.CreateEntryId(1, 2), consumerEpoch: 1));
+
+        //Act
+        var actual = await uut.Receive(Current.CancellationToken);
+
+        //Assert
+        actual.MessageId.EntryId.ShouldBe(2UL);
+        connection.ReceivedCalls().Count(call => call.GetArguments().FirstOrDefault() is CommandFlow).ShouldBe(2);
+    }
+
+    private static List<object> GetRedeliverAndFlowCommands(IConnection connection)
+        => connection.ReceivedCalls()
+            .Select(call => call.GetArguments().FirstOrDefault())
+            .Where(argument => argument is CommandRedeliverUnacknowledgedMessages or CommandFlow)
+            .Select(argument => argument!)
+            .ToList();
+
     private static async Task<List<DotPulsar.Abstractions.IMessage<byte[]>>> ReceiveMessages(ConsumerChannel<byte[]> channel, int count)
     {
         var messages = new List<DotPulsar.Abstractions.IMessage<byte[]>>();
@@ -1106,8 +1390,9 @@ public sealed class ConsumerChannelTests
         bool ackReceiptEnabled = false,
         bool batchIndexAckEnabled = false,
         AsyncQueue<MessagePackage>? queue = null,
-        uint prefetchCount = 100)
-        => new(1, prefetchCount, queue ?? new AsyncQueue<MessagePackage>(), connection, batchHandler, messageFactory, [], BatchTestData.Topic, ackReceiptEnabled, batchIndexAckEnabled);
+        uint prefetchCount = 100,
+        ConsumerEpoch? consumerEpoch = null)
+        => new(1, prefetchCount, queue ?? new AsyncQueue<MessagePackage>(), connection, batchHandler, messageFactory, [], BatchTestData.Topic, ackReceiptEnabled, batchIndexAckEnabled, consumerEpoch);
 
     private static MessageIdData ToProtocolId(MessageId messageId)
         => new()

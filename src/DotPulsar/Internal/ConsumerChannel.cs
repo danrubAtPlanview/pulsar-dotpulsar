@@ -34,6 +34,7 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
     private readonly string _topic;
     private readonly bool _ackReceiptEnabled;
     private readonly bool _batchIndexAckEnabled;
+    private readonly ConsumerEpoch? _consumerEpoch;
     private uint _sendWhenZero;
     private bool _firstFlow;
 
@@ -47,7 +48,8 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
         IEnumerable<IDecompressorFactory> decompressorFactories,
         string topic,
         bool ackReceiptEnabled,
-        bool batchIndexAckEnabled)
+        bool batchIndexAckEnabled,
+        ConsumerEpoch? consumerEpoch)
     {
         _id = id;
         _queue = queue;
@@ -57,6 +59,7 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
         _topic = topic;
         _ackReceiptEnabled = ackReceiptEnabled;
         _batchIndexAckEnabled = batchIndexAckEnabled;
+        _consumerEpoch = consumerEpoch;
 
         _decompressors = new IDecompress[5];
 
@@ -95,6 +98,15 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
                         return message;
 
                     var messagePackage = await _queue.Dequeue(cancellationToken).ConfigureAwait(false);
+
+                    if (IsStale(messagePackage))
+                    {
+                        // Upstream: ConsumerImpl#messageReceived (increaseAvailablePermits)
+                        // The broker has deducted permits for every message of the entry, and one of them was counted when the entry was dequeued
+                        var skipped = (uint) GetPermitCount(messagePackage) - 1;
+                        _sendWhenZero = skipped >= _sendWhenZero ? 0 : _sendWhenZero - skipped;
+                        continue;
+                    }
 
                     if (!messagePackage.ValidateMagicNumberAndChecksum())
                     {
@@ -366,10 +378,19 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
         return messageId.HasBatchSize ? messageId.BatchSize : 0;
     }
 
+    // Upstream: ConsumerImpl#redeliverUnacknowledgedMessages
+    // The messages that were received from the broker, but not yet delivered, are dropped. The broker delivers them again, so they do not count as received,
+    // and the permits that the broker has deducted for them are given back.
     public async Task Send(CommandRedeliverUnacknowledgedMessages command, CancellationToken cancellationToken)
     {
         command.ConsumerId = _id;
+
+        var permits = command.MessageIds.Count == 0 ? PurgeAll() : PurgeEntries(command.MessageIds);
+
         await _connection.Send(command, cancellationToken).ConfigureAwait(false);
+
+        if (permits > 0)
+            await _connection.Send(new CommandFlow { ConsumerId = _id, MessagePermits = (uint) permits }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task Send(CommandUnsubscribe command, CancellationToken cancellationToken)
@@ -411,6 +432,59 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
         }
 
         await _lock.DisposeAsync().ConfigureAwait(false);
+    }
+
+    // Upstream: ConsumerBase#isValidConsumerEpoch
+    // Only a consumer that has a single active consumer on the broker has a consumer epoch, and a message without an epoch is always valid
+    private bool IsStale(MessagePackage messagePackage)
+        => _consumerEpoch is not null && messagePackage.ConsumerEpoch != -1 && messagePackage.ConsumerEpoch < _consumerEpoch.Value;
+
+    // The queue and the batch handler have their own locks, and the receive lock must not be taken, because Receive may wait for a message while holding it.
+    // A message that Receive has dequeued before the purge may still be delivered.
+    private int PurgeAll()
+    {
+        var permits = _batchHandler.ClearQueuedMessages();
+
+        foreach (var messagePackage in _queue.RemoveAll())
+        {
+            permits += GetPermitCount(messagePackage);
+        }
+
+        return permits;
+    }
+
+    // Only the ledger and the entry are compared, so the messages of a batch are dropped together
+    private int PurgeEntries(RepeatedField<MessageIdData> messageIds)
+    {
+        var entries = new HashSet<(ulong LedgerId, ulong EntryId)>();
+
+        foreach (var messageId in messageIds)
+        {
+            entries.Add((messageId.LedgerId, messageId.EntryId));
+        }
+
+        var permits = _batchHandler.RemoveQueuedMessages(entries);
+
+        foreach (var messagePackage in _queue.RemoveWhere(messagePackage => entries.Contains((messagePackage.MessageId.LedgerId, messagePackage.MessageId.EntryId))))
+        {
+            permits += GetPermitCount(messagePackage);
+        }
+
+        return permits;
+    }
+
+    // The broker deducts one permit for every message of a batch
+    private static int GetPermitCount(MessagePackage messagePackage)
+    {
+        try
+        {
+            var metadata = messagePackage.ExtractMetadata(messagePackage.GetMetadataSize());
+            return metadata.HasNumMessagesInBatch ? Math.Max(metadata.NumMessagesInBatch, 1) : 1;
+        }
+        catch
+        {
+            return 1;
+        }
     }
 
     private async ValueTask SendFlow(CancellationToken cancellationToken)

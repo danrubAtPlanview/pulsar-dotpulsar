@@ -422,22 +422,17 @@ public abstract class TransactionConsumerEndToEndTestsBase<TFixture> : IDisposab
         await TxnAckTest(true, 200, SubscriptionType.Failover);
     }
 
-    // TODO(WP7a): Remove the skip. The test needs the redelivery primitive (purging the prefetch queue when the unacknowledged messages are redelivered), and
-    // the batch variant needs producer batching (WP6) and the ack timeout (WP7), which the consumer of the test is configured with (AckTimeout of 1 minute).
-    // Steps of TransactionEndToEndTest#txnCumulativeAckTest(batchEnable = true, maxBatchSize = 200, SubscriptionType.Failover), twice:
-    // 1000 sends without a transaction (batching, BatchingMaxPublishDelay of 1 second), wait 1 second, receive 1000 messages and cumulatively ack every third in abortTxn,
-    // expect TransactionConflictException for the last id again and for the id of the previous entry, expect no message to be received, abort, RedeliverUnacknowledgedMessages,
-    // receive 1000 messages and cumulatively ack every third in commitTxn, commit, expect TransactionNotFoundException for a second commit, expect no message to be received.
+    // TODO(WP6): Remove the skip. The test needs the producer to batch messages (see txnIndividualAckTestBatchAndSharedSub), and the consumer of the test is configured with
+    // an AckTimeout of 1 minute (WP7). When the producer can batch, call TxnCumulativeAckTest(true, 200, SubscriptionType.Failover).
     // Upstream: TransactionEndToEndTest#txnAckTestBatchAndCumulativeSub
-    [Fact(Skip = "Requires redelivery primitive (WP7a)")]
+    [Fact(Skip = "Requires producer batching (WP6)")]
     public Task AcknowledgeCumulative_GivenBatchAndFailoverSubscription_ShouldConflictRedeliverAfterAbortAndRemoveAfterCommit()
         => Task.CompletedTask;
 
-    // TODO(WP7a): Remove the skip. See the test above. This is the variant without batching, so only the redelivery primitive and the ack timeout (WP7) are needed.
     // Upstream: TransactionEndToEndTest#txnAckTestNoBatchAndCumulativeSub
-    [Fact(Skip = "Requires redelivery primitive (WP7a)")]
-    public Task AcknowledgeCumulative_GivenNoBatchAndFailoverSubscription_ShouldConflictRedeliverAfterAbortAndRemoveAfterCommit()
-        => Task.CompletedTask;
+    [Fact]
+    public async Task AcknowledgeCumulative_GivenNoBatchAndFailoverSubscription_ShouldConflictRedeliverAfterAbortAndRemoveAfterCommit()
+        => await TxnCumulativeAckTest(SubscriptionType.Failover);
 
     // Upstream: TransactionEndToEndTest#transactionTimeoutTest
     [Fact]
@@ -517,14 +512,62 @@ public abstract class TransactionConsumerEndToEndTestsBase<TFixture> : IDisposab
         await txn.Abort(_cts.Token);
     }
 
-    // TODO(WP7a): Remove the skip. The test needs the redelivery primitive: the messages that were received before the redelivery must not be received again.
-    // Steps of TransactionEndToEndTest#testCumulativeAckRedeliverMessages: 5 sends (the Java producer batches), receive 3 messages, cumulatively ack the third in a transaction,
-    // expect TransactionConflictException for the same cumulative ack in another transaction, abort, RedeliverUnacknowledgedMessages, receive 5 messages (the last is "4"),
-    // cumulatively ack it in a new transaction, commit, expect no message to be received. The conflict is also tested without redelivery, in TransactionConsumerTests.
     // Upstream: TransactionEndToEndTest#testCumulativeAckRedeliverMessages
-    [Fact(Skip = "Requires redelivery primitive (WP7a)")]
-    public Task AcknowledgeCumulative_GivenConflictingTransactionThenAbort_ShouldRedeliverMessages()
-        => Task.CompletedTask;
+    // The Java producer batches the 5 messages (TODO(WP6)). The conflict is also tested without redelivery, in TransactionConsumerTests.
+    [Fact]
+    public async Task AcknowledgeCumulative_GivenConflictingTransactionThenAbort_ShouldRedeliverMessages()
+    {
+        //Arrange
+        const int count = 5;
+        const int transactionCumulativeAck = 3;
+        var topicName = TransactionFixture.CreateTopicName("testCumulativeAckRedeliverMessages");
+        await Fixture.CreateTopic(topicName, _cts.Token);
+        await using var client = CreateClient();
+        await using var consumer = client.NewConsumer(Schema.ByteArray)
+            .Topic(topicName)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .SubscriptionName("test")
+            .Create();
+        await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+        await using var producer = client.NewProducer(Schema.ByteArray)
+            .Topic(topicName)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .Create();
+
+        for (var i = 0; i < count; i++)
+        {
+            await producer.Send(Encoding.UTF8.GetBytes(i.ToString()), _cts.Token);
+        }
+
+        var transaction = await GetTxn(client);
+        var invalidTransaction = await GetTxn(client);
+        IMessage<byte[]>? message = null;
+        for (var i = 0; i < transactionCumulativeAck; i++)
+        {
+            message = await ReceiveMessage(consumer);
+        }
+
+        Encoding.UTF8.GetString(message!.Value()).ShouldBe("2");
+        await consumer.AcknowledgeCumulative(message.MessageId, transaction, _cts.Token);
+        await Should.ThrowAsync<TransactionConflictException>(async () => await consumer.AcknowledgeCumulative(message.MessageId, invalidTransaction, _cts.Token));
+
+        //Act
+        await transaction.Abort(_cts.Token);
+        await consumer.RedeliverUnacknowledgedMessages(_cts.Token);
+
+        //Assert
+        // All the messages are received again, and the ones that were already received before the redelivery are not received twice
+        for (var i = 0; i < count; i++)
+        {
+            message = await ReceiveMessage(consumer);
+        }
+
+        Encoding.UTF8.GetString(message!.Value()).ShouldBe("4");
+        var commitTransaction = await GetTxn(client);
+        await consumer.AcknowledgeCumulative(message.MessageId, commitTransaction, _cts.Token);
+        await commitTransaction.Commit(_cts.Token);
+        (await TransactionFixture.ReceiveOrNull(consumer, _waitTimeForCannotReceiveMsg, _cts.Token)).ShouldBeNull();
+    }
 
     // TODO(WP7): Remove the skip. The test needs the dead letter policy (DeadLetterPolicy with a MaxRedeliverCount of 1) and the send timeout.
     // Steps of TransactionEndToEndTest#testSendTxnAckMessageToDLQ: a Shared consumer on the topic and a Shared consumer on the dead letter topic "{topic}-test-DLQ", send "test", receive the
@@ -658,6 +701,89 @@ public abstract class TransactionConsumerEndToEndTestsBase<TFixture> : IDisposab
             await Should.ThrowAsync<TransactionNotFoundException>(async () => await tcClient.Commit(commitTxn.Id, _cts.Token));
 
             await Task.WhenAll(receipts);
+        }
+    }
+
+    // Upstream: TransactionEndToEndTest#txnCumulativeAckTest
+    // TODO(WP6): The messages are not batched, and the producer has no BatchingMaxMessages and BatchingMaxPublishDelay yet.
+    private async Task TxnCumulativeAckTest(SubscriptionType subscriptionType)
+    {
+        //Arrange
+        const int messageCnt = 1000;
+        var normalTopic = TransactionFixture.CreateTopicName("normal-topic");
+        await Fixture.CreateTopic(normalTopic, _cts.Token);
+        await using var client = CreateClient();
+        await using var consumer = client.NewConsumer(Schema.ByteArray)
+            .Topic(normalTopic)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .SubscriptionName("test")
+            .SubscriptionType(subscriptionType)
+            .Create();
+        await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+        await using var producer = client.NewProducer(Schema.ByteArray)
+            .Topic(normalTopic)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .Create();
+
+        for (var retryCnt = 0; retryCnt < 2; retryCnt++)
+        {
+            var abortTxn = await GetTxn(client);
+
+            // produce normal messages
+            var receipts = new List<Task<MessageId>>();
+            for (var i = 0; i < messageCnt; i++)
+            {
+                receipts.Add(await SendAsync(producer, Encoding.UTF8.GetBytes("hello")));
+            }
+
+            await Task.WhenAll(receipts);
+            await Task.Delay(TimeSpan.FromSeconds(1), _cts.Token);
+
+            // consume and ack messages with txn
+            IMessage<byte[]>? message = null;
+            for (var i = 0; i < messageCnt; i++)
+            {
+                message = await ReceiveMessage(consumer);
+
+                if (i % 3 == 0)
+                    await consumer.AcknowledgeCumulative(message.MessageId, abortTxn, _cts.Token);
+            }
+
+            // the last message was acknowledged by the transaction, so the same acknowledgment conflicts
+            var lastMessageId = message!.MessageId;
+            await Should.ThrowAsync<TransactionConflictException>(async () => await consumer.AcknowledgeCumulative(lastMessageId, abortTxn, _cts.Token));
+
+            // the entry before the last entry is before the position of the transaction
+            var previousEntryId = new MessageId(lastMessageId.LedgerId, lastMessageId.EntryId - 1, -1, -1, lastMessageId.Topic);
+            await Should.ThrowAsync<TransactionConflictException>(async () => await consumer.AcknowledgeCumulative(previousEntryId, abortTxn, _cts.Token));
+
+            // the messages are pending ack state and can't be received
+            (await TransactionFixture.ReceiveOrNull(consumer, _waitTimeForCannotReceiveMsg, _cts.Token)).ShouldBeNull();
+
+            //Act
+            await abortTxn.Abort(_cts.Token);
+            await consumer.RedeliverUnacknowledgedMessages(_cts.Token);
+
+            //Assert
+            // after transaction abort and redelivery, exactly the messages that were not acknowledged are received
+            var commitTxn = await GetTxn(client);
+            for (var i = 0; i < messageCnt; i++)
+            {
+                message = await ReceiveMessage(consumer);
+
+                if (i % 3 == 0)
+                    await consumer.AcknowledgeCumulative(message.MessageId, commitTxn, _cts.Token);
+            }
+
+            await commitTxn.Commit(_cts.Token);
+
+            // Upstream sets the state of the transaction to open using reflection and commits it again. The transaction coordinator is asked to
+            // commit the transaction that has ended, as it is done there, and the expected exception is the same.
+            var tcClient = ((PulsarClient) client).TransactionCoordinatorClient!;
+            await Should.ThrowAsync<TransactionNotFoundException>(async () => await tcClient.Commit(commitTxn.Id, _cts.Token));
+
+            // after transaction commit, the messages can't be received
+            (await TransactionFixture.ReceiveOrNull(consumer, _waitTimeForCannotReceiveMsg, _cts.Token)).ShouldBeNull();
         }
     }
 

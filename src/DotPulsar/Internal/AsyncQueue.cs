@@ -70,6 +70,47 @@ public sealed class AsyncQueue<T> : IEnqueue<T>, IDequeue<T>, IDisposable
         return new ValueTask<T>(node.Value.Task);
     }
 
+    public List<T> RemoveAll()
+    {
+        lock (_lock)
+        {
+            ThrowIfDisposed();
+
+            var removed = new List<T>(_queue.Count);
+
+            while (_queue.Count > 0)
+            {
+                removed.Add(_queue.Dequeue());
+            }
+
+            return removed;
+        }
+    }
+
+    // The items that stay in the queue keep their order
+    public List<T> RemoveWhere(Func<T, bool> predicate)
+    {
+        lock (_lock)
+        {
+            ThrowIfDisposed();
+
+            var removed = new List<T>();
+            var count = _queue.Count;
+
+            for (var i = 0; i < count; ++i)
+            {
+                var item = _queue.Dequeue();
+
+                if (predicate(item))
+                    removed.Add(item);
+                else
+                    _queue.Enqueue(item);
+            }
+
+            return removed;
+        }
+    }
+
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _isDisposed, 1) != 0)

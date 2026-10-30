@@ -456,6 +456,7 @@ public sealed class SubConsumerTests
         var completedBeforeReceipt = await Task.WhenAny(commitTask, Task.Delay(TimeSpan.FromMilliseconds(250), Current.CancellationToken)) == commitTask;
         receipt.SetResult(CreateAckResponse(null));
         await commitTask;
+        await ackTask;
 
         //Assert
         completedBeforeReceipt.ShouldBeFalse();
@@ -781,7 +782,7 @@ public sealed class SubConsumerTests
         var connection = CreateTransactionalConnection(out _);
         var plainSent = new List<CommandAck>();
         connection.Send(Arg.Do<CommandAck>(ack => plainSent.Add(ack.Clone())), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
-        var channel = new ConsumerChannel<byte[]>(1, 100, queue, connection, batchHandler, messageFactory, [], BatchTestData.Topic, false, false);
+        var channel = new ConsumerChannel<byte[]>(1, 100, queue, connection, batchHandler, messageFactory, [], BatchTestData.Topic, false, false, null);
         await using var uut = CreateSubConsumer(false, channel: channel);
         queue.Enqueue(BatchTestData.CreateBatchPackage(BatchTestData.CreateEntryId(1, 2), 5));
         var delivered = new List<DotPulsar.Abstractions.IMessage<byte[]>>();
@@ -812,6 +813,130 @@ public sealed class SubConsumerTests
         entryAcksAfterEachAck.ShouldBeSequence(0, 0, 0, 0, 1);
     }
 
+    // Upstream: ConsumerImpl#redeliverUnacknowledgedMessages(Set)
+    [Theory]
+    [InlineData(SubscriptionType.Exclusive)]
+    [InlineData(SubscriptionType.Failover)]
+    [InlineData(SubscriptionType.Shared)]
+    [InlineData(SubscriptionType.KeyShared)]
+    public async Task RedeliverUnacknowledgedMessages_GivenNoMessageIds_ShouldNotSendAnyCommand(SubscriptionType subscriptionType)
+    {
+        //Arrange
+        await using var uut = CreateSubConsumer(false, subscriptionType: subscriptionType);
+
+        //Act
+        await uut.RedeliverUnacknowledgedMessages(Array.Empty<MessageId>(), Current.CancellationToken);
+
+        //Assert
+        await _channel.DidNotReceive().Send(Arg.Any<CommandRedeliverUnacknowledgedMessages>(), Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData(SubscriptionType.Shared)]
+    [InlineData(SubscriptionType.KeyShared)]
+    public async Task RedeliverUnacknowledgedMessages_GivenMessageIdsOfTheSameEntry_ShouldSendTheEntryOnceWithoutBatchIndex(SubscriptionType subscriptionType)
+    {
+        //Arrange
+        var sent = CaptureRedeliverCommands();
+        await using var uut = CreateSubConsumer(false, subscriptionType: subscriptionType);
+        MessageId[] messageIds =
+        [
+            new(1, 2, 3, 0, "persistent://public/default/test"),
+            new(1, 3, 3, -1, "persistent://public/default/test"),
+            new(1, 2, 3, 4, "persistent://public/default/test"),
+            new(1, 2, 3, -1, "persistent://public/default/test")
+        ];
+
+        //Act
+        await uut.RedeliverUnacknowledgedMessages(messageIds, Current.CancellationToken);
+
+        //Assert
+        sent.Count.ShouldBe(1);
+        sent[0].MessageIds.Select(messageId => (messageId.LedgerId, messageId.EntryId, messageId.Partition)).ShouldBeSequence((1UL, 2UL, 3), (1UL, 3UL, 3));
+        sent[0].MessageIds.ShouldAllBe(messageId => !messageId.HasBatchIndex);
+        sent[0].HasConsumerEpoch.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task RedeliverUnacknowledgedMessages_GivenMoreThanOneThousandEntries_ShouldSendThemInCommandsOfOneThousand()
+    {
+        //Arrange
+        var sent = CaptureRedeliverCommands();
+        await using var uut = CreateSubConsumer(false, subscriptionType: SubscriptionType.Shared);
+        var messageIds = Enumerable.Range(0, 2500).Select(entryId => new MessageId(1, (ulong) entryId, 0, -1)).ToArray();
+
+        //Act
+        await uut.RedeliverUnacknowledgedMessages(messageIds, Current.CancellationToken);
+
+        //Assert
+        sent.Select(command => command.MessageIds.Count).ShouldBeSequence(1000, 1000, 500);
+        sent.SelectMany(command => command.MessageIds).Select(messageId => messageId.EntryId).ShouldBeSequence(messageIds.Select(messageId => messageId.EntryId).ToArray());
+    }
+
+    [Theory]
+    [InlineData(SubscriptionType.Exclusive)]
+    [InlineData(SubscriptionType.Failover)]
+    public async Task RedeliverUnacknowledgedMessages_GivenMessageIdsOnSubscriptionWithSingleActiveConsumer_ShouldRedeliverAllAndIncreaseEpoch(SubscriptionType subscriptionType)
+    {
+        //Arrange
+        var sent = CaptureRedeliverCommands();
+        var consumerEpoch = new ConsumerEpoch();
+        await using var uut = CreateSubConsumer(false, subscriptionType: subscriptionType, consumerEpoch: consumerEpoch);
+
+        //Act
+        await uut.RedeliverUnacknowledgedMessages([_messageId], Current.CancellationToken);
+
+        //Assert
+        sent.Count.ShouldBe(1);
+        sent[0].MessageIds.Count.ShouldBe(0);
+        sent[0].ConsumerEpoch.ShouldBe(1UL);
+        consumerEpoch.Value.ShouldBe(1);
+    }
+
+    [Theory]
+    [InlineData(SubscriptionType.Exclusive, 2)]
+    [InlineData(SubscriptionType.Failover, 2)]
+    [InlineData(SubscriptionType.Shared, 0)]
+    [InlineData(SubscriptionType.KeyShared, 0)]
+    public async Task RedeliverUnacknowledgedMessages_GivenCalledTwiceWithoutMessageIds_ShouldIncreaseEpochOnlyForSubscriptionsWithSingleActiveConsumer(SubscriptionType subscriptionType, long expectedEpoch)
+    {
+        //Arrange
+        var sent = CaptureRedeliverCommands();
+        var consumerEpoch = new ConsumerEpoch();
+        await using var uut = CreateSubConsumer(false, subscriptionType: subscriptionType, consumerEpoch: consumerEpoch);
+
+        //Act
+        await uut.RedeliverUnacknowledgedMessages(Current.CancellationToken);
+        await uut.RedeliverUnacknowledgedMessages(Current.CancellationToken);
+
+        //Assert
+        consumerEpoch.Value.ShouldBe(expectedEpoch);
+        sent.Count.ShouldBe(2);
+        sent.ShouldAllBe(command => command.MessageIds.Count == 0 && command.HasConsumerEpoch);
+        sent[1].ConsumerEpoch.ShouldBe((ulong) expectedEpoch);
+    }
+
+    [Fact]
+    public async Task RedeliverUnacknowledgedMessages_GivenDisposedConsumer_ShouldThrowConsumerDisposedException()
+    {
+        //Arrange
+        var uut = CreateSubConsumer(false);
+        await uut.DisposeAsync();
+
+        //Act
+        var exception = await Record.ExceptionAsync(async () => await uut.RedeliverUnacknowledgedMessages(Current.CancellationToken));
+
+        //Assert
+        exception.ShouldBeOfType<ConsumerDisposedException>();
+    }
+
+    private List<CommandRedeliverUnacknowledgedMessages> CaptureRedeliverCommands()
+    {
+        var commands = new List<CommandRedeliverUnacknowledgedMessages>();
+        _channel.Send(Arg.Do<CommandRedeliverUnacknowledgedMessages>(command => commands.Add(command.Clone())), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
+        return commands;
+    }
+
     private static (BatchHandler<byte[]> Handler, MessageFactory<byte[]> Factory) CreateBatchHandler()
     {
         var messageFactory = new MessageFactory<byte[]>(DotPulsar.Schema.ByteArray);
@@ -829,7 +954,7 @@ public sealed class SubConsumerTests
     }
 
     private static ConsumerChannel<byte[]> CreateChannel(IConnection connection, BatchHandler<byte[]> batchHandler, MessageFactory<byte[]> messageFactory, bool batchIndexAckEnabled, bool ackReceiptEnabled = false)
-        => new(1, 100, new AsyncQueue<MessagePackage>(), connection, batchHandler, messageFactory, [], BatchTestData.Topic, ackReceiptEnabled, batchIndexAckEnabled);
+        => new(1, 100, new AsyncQueue<MessagePackage>(), connection, batchHandler, messageFactory, [], BatchTestData.Topic, ackReceiptEnabled, batchIndexAckEnabled, null);
 
     private static Transaction CreateTransaction(out ITransactionCoordinatorClient tcClient)
     {
@@ -847,7 +972,7 @@ public sealed class SubConsumerTests
         return connection;
     }
 
-    private SubConsumer<byte[]> CreateSubConsumer(bool ackReceiptEnabled, TimeSpan? operationTimeout = null, IConsumerChannel<byte[]>? channel = null, SubscriptionType subscriptionType = SubscriptionType.Exclusive)
+    private SubConsumer<byte[]> CreateSubConsumer(bool ackReceiptEnabled, TimeSpan? operationTimeout = null, IConsumerChannel<byte[]>? channel = null, SubscriptionType subscriptionType = SubscriptionType.Exclusive, ConsumerEpoch? consumerEpoch = null)
     {
         var correlationId = Guid.NewGuid();
         var executor = new Executor(correlationId, _eventRegister, new DefaultExceptionHandler());
@@ -866,7 +991,8 @@ public sealed class SubConsumerTests
             state,
             factory,
             ackReceiptEnabled,
-            operationTimeout ?? TimeSpan.FromSeconds(30));
+            operationTimeout ?? TimeSpan.FromSeconds(30),
+            consumerEpoch ?? new ConsumerEpoch());
     }
 
     private static BaseCommand CreateAckResponse(ServerError? error)

@@ -80,6 +80,9 @@ public interface IConsumer : IGetLastMessageIds, ISeek, IStateHolder<ConsumerSta
     /// <summary>
     /// Redeliver the pending messages that were pushed to this consumer that are not yet acknowledged.
     /// </summary>
+    /// <remarks>
+    /// Nothing is redelivered if there are no message ids. On subscriptions that are not 'Shared' or 'KeyShared' all unacknowledged messages are redelivered.
+    /// </remarks>
     ValueTask RedeliverUnacknowledgedMessages(IEnumerable<MessageId> messageIds, CancellationToken cancellationToken = default);
 
     /// <summary>

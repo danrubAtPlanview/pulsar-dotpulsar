@@ -20,16 +20,20 @@ using System.Buffers;
 
 public readonly struct MessagePackage
 {
-    public MessagePackage(MessageIdData messageId, uint redeliveryCount, RepeatedField<long> ackSet, ReadOnlySequence<byte> data)
+    public MessagePackage(MessageIdData messageId, uint redeliveryCount, RepeatedField<long> ackSet, ReadOnlySequence<byte> data, long consumerEpoch)
     {
         MessageId = messageId;
         RedeliveryCount = redeliveryCount;
         AckSet = ackSet;
         Data = data;
+        ConsumerEpoch = consumerEpoch;
     }
 
     public MessageIdData MessageId { get; }
     public uint RedeliveryCount { get; }
     public RepeatedField<long> AckSet { get; }
     public ReadOnlySequence<byte> Data { get; }
+
+    // -1 if the broker did not send an epoch
+    public long ConsumerEpoch { get; }
 }

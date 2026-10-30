@@ -79,7 +79,7 @@ public static class BatchTestData
     }
 
     // The frame of a message as it is received from the broker
-    public static MessagePackage CreatePackage(MessageIdData messageId, MessageMetadata metadata, byte[] payload, RepeatedField<long>? ackSet = null)
+    public static MessagePackage CreatePackage(MessageIdData messageId, MessageMetadata metadata, byte[] payload, RepeatedField<long>? ackSet = null, long consumerEpoch = -1, uint redeliveryCount = 0)
     {
         var metadataBytes = metadata.ToByteArray();
         var frame = new byte[10 + metadataBytes.Length + payload.Length];
@@ -91,14 +91,14 @@ public static class BatchTestData
         var checksum = Crc32C.Calculate(new ReadOnlySequence<byte>(frame, 6, frame.Length - 6));
         BinaryPrimitives.WriteUInt32BigEndian(frame.AsSpan(2, 4), checksum);
 
-        return new MessagePackage(messageId, 0, ackSet ?? new RepeatedField<long>(), new ReadOnlySequence<byte>(frame));
+        return new MessagePackage(messageId, redeliveryCount, ackSet ?? new RepeatedField<long>(), new ReadOnlySequence<byte>(frame), consumerEpoch);
     }
 
     public static MessagePackage CreateBatchPackage(MessageIdData messageId, int numberOfMessages, RepeatedField<long>? ackSet = null, params int[] compactedOut)
         => CreatePackage(messageId, CreateMetadata(numberOfMessages), CreateBatchPayload(numberOfMessages, compactedOut), ackSet);
 
-    public static MessagePackage CreateSinglePackage(MessageIdData messageId, byte payload = 42)
-        => CreatePackage(messageId, new MessageMetadata { ProducerName = "test", PublishTime = 1, SequenceId = 1 }, [payload]);
+    public static MessagePackage CreateSinglePackage(MessageIdData messageId, byte payload = 42, long consumerEpoch = -1, uint redeliveryCount = 0)
+        => CreatePackage(messageId, new MessageMetadata { ProducerName = "test", PublishTime = 1, SequenceId = 1 }, [payload], null, consumerEpoch, redeliveryCount);
 
     // Adds an entry to the handler and returns all messages that it delivers
     public static List<DotPulsar.Abstractions.IMessage<byte[]>> AddBatch(

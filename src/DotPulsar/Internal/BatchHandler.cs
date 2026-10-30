@@ -120,6 +120,42 @@ public sealed class BatchHandler<TMessage>
         }
     }
 
+    // Drops the messages that were unpacked from a batch but not yet delivered, and returns how many there were. The trackers are kept, so an acknowledgment of a
+    // message that was delivered earlier still resolves. When the broker delivers an entry again, the tracker of the entry is replaced (see Track).
+    // Upstream: ConsumerBase#clearIncomingMessages
+    public int ClearQueuedMessages()
+    {
+        lock (_lock)
+        {
+            var count = _messages.Count;
+            _messages.Clear();
+            return count;
+        }
+    }
+
+    // Drops the messages that were unpacked from a batch but not yet delivered, if they belong to one of the entries, and returns how many there were
+    // Upstream: ConsumerImpl#removeExpiredMessagesFromQueue
+    public int RemoveQueuedMessages(HashSet<(ulong LedgerId, ulong EntryId)> entries)
+    {
+        lock (_lock)
+        {
+            var count = _messages.Count;
+            var removed = 0;
+
+            for (var i = 0; i < count; ++i)
+            {
+                var message = _messages.Dequeue();
+
+                if (entries.Contains((message.MessageId.LedgerId, message.MessageId.EntryId)))
+                    ++removed;
+                else
+                    _messages.Enqueue(message);
+            }
+
+            return removed;
+        }
+    }
+
     public bool TryGetBatchSize(MessageIdData messageId, out int batchSize)
     {
         lock (_lock)

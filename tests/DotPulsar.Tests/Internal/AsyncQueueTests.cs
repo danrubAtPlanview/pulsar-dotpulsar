@@ -15,6 +15,7 @@
 namespace DotPulsar.Tests.Internal;
 
 using DotPulsar.Internal;
+using DotPulsar.Internal.Exceptions;
 
 [Trait("Category", "Unit")]
 public class AsyncQueueTests
@@ -124,5 +125,137 @@ public class AsyncQueueTests
         source1.Dispose();
         source2.Dispose();
         queue.Dispose();
+    }
+
+    [Fact]
+    public void RemoveAll_GivenQueuedItems_ShouldReturnThemInOrderAndEmptyTheQueue()
+    {
+        //Arrange
+        var queue = new AsyncQueue<int>();
+        queue.Enqueue(1);
+        queue.Enqueue(2);
+        queue.Enqueue(3);
+
+        //Act
+        var removed = queue.RemoveAll();
+
+        //Assert
+        removed.ShouldBeSequence(1, 2, 3);
+        queue.RemoveAll().ShouldBeEmpty();
+
+        //Annihilate
+        queue.Dispose();
+    }
+
+    [Fact]
+    public async Task RemoveAll_GivenQueuedItemsAndLaterEnqueue_ShouldOnlyDeliverTheNewItem()
+    {
+        //Arrange
+        var queue = new AsyncQueue<int>();
+        queue.Enqueue(1);
+        queue.Enqueue(2);
+        _ = queue.RemoveAll();
+
+        //Act
+        queue.Enqueue(3);
+        var actual = await queue.Dequeue(Current.CancellationToken);
+
+        //Assert
+        actual.ShouldBe(3);
+
+        //Annihilate
+        queue.Dispose();
+    }
+
+    [Fact]
+    public async Task RemoveAll_GivenPendingDequeue_ShouldNotCompleteIt()
+    {
+        //Arrange
+        var queue = new AsyncQueue<int>();
+        var dequeueTask = queue.Dequeue(Current.CancellationToken).AsTask();
+
+        //Act
+        var removed = queue.RemoveAll();
+        queue.Enqueue(1);
+
+        //Assert
+        removed.ShouldBeEmpty();
+        (await dequeueTask).ShouldBe(1);
+
+        //Annihilate
+        queue.Dispose();
+    }
+
+    [Fact]
+    public async Task RemoveWhere_GivenPredicate_ShouldReturnMatchingItemsAndKeepTheOthersInOrder()
+    {
+        //Arrange
+        var queue = new AsyncQueue<int>();
+        for (var i = 1; i <= 6; ++i)
+        {
+            queue.Enqueue(i);
+        }
+
+        //Act
+        var removed = queue.RemoveWhere(item => item % 2 == 0);
+
+        //Assert
+        removed.ShouldBeSequence(2, 4, 6);
+        var remaining = new List<int>();
+        for (var i = 0; i < 3; ++i)
+        {
+            remaining.Add(await queue.Dequeue(Current.CancellationToken));
+        }
+        remaining.ShouldBeSequence(1, 3, 5);
+
+        //Annihilate
+        queue.Dispose();
+    }
+
+    [Fact]
+    public void RemoveWhere_GivenNoMatch_ShouldKeepAllItems()
+    {
+        //Arrange
+        var queue = new AsyncQueue<int>();
+        queue.Enqueue(1);
+        queue.Enqueue(2);
+
+        //Act
+        var removed = queue.RemoveWhere(_ => false);
+
+        //Assert
+        removed.ShouldBeEmpty();
+        queue.RemoveAll().ShouldBeSequence(1, 2);
+
+        //Annihilate
+        queue.Dispose();
+    }
+
+    [Fact]
+    public void RemoveAll_GivenDisposedQueue_ShouldThrowAsyncQueueDisposedException()
+    {
+        //Arrange
+        var queue = new AsyncQueue<int>();
+        queue.Dispose();
+
+        //Act
+        var exception = Record.Exception(() => queue.RemoveAll());
+
+        //Assert
+        exception.ShouldBeOfType<AsyncQueueDisposedException>();
+    }
+
+    [Fact]
+    public void RemoveWhere_GivenDisposedQueue_ShouldThrowAsyncQueueDisposedException()
+    {
+        //Arrange
+        var queue = new AsyncQueue<int>();
+        queue.Dispose();
+
+        //Act
+        var exception = Record.Exception(() => queue.RemoveWhere(_ => true));
+
+        //Assert
+        exception.ShouldBeOfType<AsyncQueueDisposedException>();
     }
 }

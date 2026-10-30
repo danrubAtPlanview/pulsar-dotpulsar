@@ -26,6 +26,9 @@ using System.Runtime.ExceptionServices;
 
 public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChannel
 {
+    // Upstream: ConsumerImpl#MAX_REDELIVER_UNACKNOWLEDGED
+    private const int MaxRedeliverUnacknowledged = 1000;
+
     private readonly Guid _correlationId;
     private readonly IRegisterEvent _eventRegister;
     private IConsumerChannel<TMessage> _channel;
@@ -35,6 +38,7 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
     private readonly IConsumerChannelFactory<TMessage> _factory;
     private readonly bool _ackReceiptEnabled;
     private readonly TimeSpan _operationTimeout;
+    private readonly ConsumerEpoch _consumerEpoch;
     private int _isDisposed;
     private Exception? _faultException;
 
@@ -56,7 +60,8 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
         IState<ConsumerState> state,
         IConsumerChannelFactory<TMessage> factory,
         bool ackReceiptEnabled,
-        TimeSpan operationTimeout)
+        TimeSpan operationTimeout,
+        ConsumerEpoch consumerEpoch)
     {
         _correlationId = correlationId;
         ServiceUrl = serviceUrl;
@@ -70,6 +75,7 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
         _factory = factory;
         _ackReceiptEnabled = ackReceiptEnabled;
         _operationTimeout = operationTimeout;
+        _consumerEpoch = consumerEpoch;
         _commandAckPool = new DefaultObjectPool<CommandAck>(new DefaultPooledObjectPolicy<CommandAck>());
         _isDisposed = 0;
 
@@ -146,15 +152,48 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
         await InternalTransactionalAcknowledge(command, transactionImpl, cancellationToken).ConfigureAwait(false);
     }
 
+    // Upstream: ConsumerImpl#redeliverUnacknowledgedMessages(Set)
+    // The broker only redelivers the messages of a Shared or KeyShared subscription one by one, so every other subscription type redelivers all messages.
     public async ValueTask RedeliverUnacknowledgedMessages(IEnumerable<MessageId> messageIds, CancellationToken cancellationToken)
     {
-        var command = new CommandRedeliverUnacknowledgedMessages();
-        command.MessageIds.AddRange(messageIds.Select(messageId => messageId.ToMessageIdData()));
-        await _executor.Execute(() => InternalRedeliverUnacknowledgedMessages(command, cancellationToken), cancellationToken).ConfigureAwait(false);
+        Guard();
+
+        var entries = ToEntryLevel(messageIds);
+
+        if (entries.Count == 0)
+            return;
+
+        if (SubscriptionType is not (SubscriptionType.Shared or SubscriptionType.KeyShared))
+        {
+            await RedeliverUnacknowledgedMessages(cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        for (var offset = 0; offset < entries.Count; offset += MaxRedeliverUnacknowledged)
+        {
+            var command = new CommandRedeliverUnacknowledgedMessages();
+
+            for (var i = offset; i < Math.Min(offset + MaxRedeliverUnacknowledged, entries.Count); ++i)
+            {
+                command.MessageIds.Add(entries[i]);
+            }
+
+            await _executor.Execute(() => InternalRedeliverUnacknowledgedMessages(command, cancellationToken), cancellationToken).ConfigureAwait(false);
+        }
     }
 
+    // Upstream: ConsumerImpl#redeliverUnacknowledgedMessages()
+    // The messages that the channel has already received are dropped, and so are the messages that are on their way from the broker when the subscription has an epoch.
     public async ValueTask RedeliverUnacknowledgedMessages(CancellationToken cancellationToken)
-        => await RedeliverUnacknowledgedMessages(Enumerable.Empty<MessageId>(), cancellationToken).ConfigureAwait(false);
+    {
+        Guard();
+
+        if (SubscriptionType is SubscriptionType.Exclusive or SubscriptionType.Failover)
+            _consumerEpoch.Increment();
+
+        var command = new CommandRedeliverUnacknowledgedMessages { ConsumerEpoch = (ulong) _consumerEpoch.Value };
+        await _executor.Execute(() => InternalRedeliverUnacknowledgedMessages(command, cancellationToken), cancellationToken).ConfigureAwait(false);
+    }
 
     public async ValueTask Unsubscribe(CancellationToken cancellationToken)
     {
@@ -389,6 +428,22 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
             messageIdData.BatchSize = messageId.BatchSize;
 
         return messageIdData;
+    }
+
+    // The broker redelivers entries, so the batch index of a message id is of no use. Every entry is only sent once.
+    // Upstream: ConsumerImpl#getRedeliveryMessageIdData
+    private static List<MessageIdData> ToEntryLevel(IEnumerable<MessageId> messageIds)
+    {
+        var entries = new List<MessageIdData>();
+        var added = new HashSet<(ulong LedgerId, ulong EntryId)>();
+
+        foreach (var messageId in messageIds)
+        {
+            if (added.Add((messageId.LedgerId, messageId.EntryId)))
+                entries.Add(new MessageIdData { LedgerId = messageId.LedgerId, EntryId = messageId.EntryId, Partition = messageId.Partition });
+        }
+
+        return entries;
     }
 
     private static void ResetPooledAck(CommandAck command)

@@ -1,0 +1,153 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+namespace DotPulsar.Tests.Internal;
+
+using DotPulsar.Internal;
+using DotPulsar.Internal.Abstractions;
+using DotPulsar.Internal.PulsarApi;
+
+[Trait("Category", "Unit")]
+public sealed class ConsumerChannelFactoryTests
+{
+    // Upstream: ConsumerImpl#connectionOpened
+    [Fact]
+    public async Task Create_GivenConsumerEpoch_ShouldSubscribeWithTheEpoch()
+    {
+        //Arrange
+        var consumerEpoch = new ConsumerEpoch();
+        consumerEpoch.Increment();
+        consumerEpoch.Increment();
+        var subscriptions = new List<CommandSubscribe>();
+        var uut = CreateFactory(CreateConnection(subscriptions), CommandSubscribe.Types.SubType.Failover, consumerEpoch);
+
+        //Act
+        await using var channel = await uut.Create(Current.CancellationToken);
+
+        //Assert
+        subscriptions.Single().HasConsumerEpoch.ShouldBeTrue();
+        subscriptions.Single().ConsumerEpoch.ShouldBe(2UL);
+    }
+
+    [Fact]
+    public async Task Create_GivenNoConsumerEpoch_ShouldNotSubscribeWithAnEpoch()
+    {
+        //Arrange
+        var subscriptions = new List<CommandSubscribe>();
+        var redeliveries = new List<CommandRedeliverUnacknowledgedMessages>();
+        var uut = CreateFactory(CreateConnection(subscriptions, redeliveries), CommandSubscribe.Types.SubType.Exclusive, null);
+
+        //Act
+        await using var channel = await uut.Create(Current.CancellationToken);
+
+        //Assert
+        subscriptions.Single().HasConsumerEpoch.ShouldBeFalse();
+        redeliveries.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Create_GivenEpochUnchangedWhileSubscribing_ShouldNotSendRedeliver()
+    {
+        //Arrange
+        var redeliveries = new List<CommandRedeliverUnacknowledgedMessages>();
+        var uut = CreateFactory(CreateConnection(redeliveries: redeliveries), CommandSubscribe.Types.SubType.Failover, new ConsumerEpoch());
+
+        //Act
+        await using var channel = await uut.Create(Current.CancellationToken);
+
+        //Assert
+        redeliveries.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Create_GivenEpochIncreasedWhileSubscribing_ShouldSendRedeliverWithTheNewEpochBeforeAnyFlow()
+    {
+        //Arrange
+        var consumerEpoch = new ConsumerEpoch();
+        var subscriptions = new List<CommandSubscribe>();
+        var redeliveries = new List<CommandRedeliverUnacknowledgedMessages>();
+        var connection = CreateConnection(subscriptions, redeliveries, _ => consumerEpoch.Increment());
+        var uut = CreateFactory(connection, CommandSubscribe.Types.SubType.Failover, consumerEpoch);
+
+        //Act
+        await using var channel = await uut.Create(Current.CancellationToken);
+
+        //Assert
+        subscriptions.Single().ConsumerEpoch.ShouldBe(0UL);
+        redeliveries.Count.ShouldBe(1);
+        redeliveries[0].ConsumerId.ShouldBe(7UL);
+        redeliveries[0].ConsumerEpoch.ShouldBe(1UL);
+        redeliveries[0].MessageIds.Count.ShouldBe(0);
+        await connection.DidNotReceive().Send(Arg.Any<CommandFlow>(), Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData(CommandSubscribe.Types.SubType.Exclusive, 2UL)]
+    [InlineData(CommandSubscribe.Types.SubType.Failover, 2UL)]
+    [InlineData(CommandSubscribe.Types.SubType.Shared, 1UL)]
+    [InlineData(CommandSubscribe.Types.SubType.KeyShared, 1UL)]
+    public async Task Create_GivenSubscriptionType_ShouldOnlySkipStaleMessagesIfSubscriptionHasSingleActiveConsumer(CommandSubscribe.Types.SubType subscriptionType, ulong expectedEntryId)
+    {
+        //Arrange
+        var consumerEpoch = new ConsumerEpoch();
+        consumerEpoch.Increment();
+        IChannel? brokerChannel = null;
+        var connection = CreateConnection(onSubscribe: channel => brokerChannel = channel);
+        var uut = CreateFactory(connection, subscriptionType, consumerEpoch);
+        await using var channel = await uut.Create(Current.CancellationToken);
+        brokerChannel!.Received(BatchTestData.CreateSinglePackage(BatchTestData.CreateEntryId(1, 1), consumerEpoch: 0));
+        brokerChannel.Received(BatchTestData.CreateSinglePackage(BatchTestData.CreateEntryId(1, 2), consumerEpoch: 1));
+
+        //Act
+        var actual = await channel.Receive(Current.CancellationToken);
+
+        //Assert
+        actual.MessageId.EntryId.ShouldBe(expectedEntryId);
+    }
+
+    private static ConsumerChannelFactory<byte[]> CreateFactory(IConnection connection, CommandSubscribe.Types.SubType subscriptionType, ConsumerEpoch? consumerEpoch)
+    {
+        var connectionPool = Substitute.For<IConnectionPool>();
+        connectionPool.FindConnectionForTopic(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new ValueTask<IConnection>(connection));
+        var messageFactory = new MessageFactory<byte[]>(DotPulsar.Schema.ByteArray);
+        var subscribe = new CommandSubscribe { Topic = BatchTestData.Topic, Subscription = "subscription", SubType = subscriptionType };
+
+        return new ConsumerChannelFactory<byte[]>(
+            Guid.NewGuid(),
+            Substitute.For<IRegisterEvent>(),
+            connectionPool,
+            subscribe,
+            100,
+            new BatchHandler<byte[]>(true, messageFactory, BatchTestData.Topic),
+            messageFactory,
+            [],
+            BatchTestData.Topic,
+            false,
+            false,
+            consumerEpoch);
+    }
+
+    private static IConnection CreateConnection(List<CommandSubscribe>? subscriptions = null, List<CommandRedeliverUnacknowledgedMessages>? redeliveries = null, Action<IChannel>? onSubscribe = null)
+    {
+        var connection = Substitute.For<IConnection>();
+        connection.Send(Arg.Any<CommandSubscribe>(), Arg.Any<IChannel>(), Arg.Any<CancellationToken>()).Returns(callInfo =>
+        {
+            subscriptions?.Add(callInfo.Arg<CommandSubscribe>().Clone());
+            onSubscribe?.Invoke(callInfo.Arg<IChannel>());
+            return Task.FromResult(new SubscribeResponse(7));
+        });
+        connection.Send(Arg.Do<CommandRedeliverUnacknowledgedMessages>(command => redeliveries?.Add(command.Clone())), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
+        return connection;
+    }
+}
