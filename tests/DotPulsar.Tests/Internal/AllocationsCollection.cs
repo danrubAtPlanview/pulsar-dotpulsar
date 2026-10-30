@@ -14,6 +14,7 @@
 
 namespace DotPulsar.Tests.Internal;
 
-// The tests that count the allocations of all threads. They do not run in parallel with other tests, which would add their allocations to the count.
+// The tests that count the allocations of all threads, or of a thread that rents arrays from ArrayPool<byte>.Shared. They do not run in parallel with other tests, which would add their allocations to the count,
+// and whose garbage collections (under memory pressure) trim the arrays of the pool, so that the next rent allocates.
 [CollectionDefinition("Allocations", DisableParallelization = true)]
 public sealed class AllocationsCollection;

@@ -18,6 +18,7 @@ using DotPulsar.Internal.Batching;
 using DotPulsar.Internal.PulsarApi;
 
 // The batching of messages does not allocate in the steady state: the batch, the buffer of the batch and the lists are reused
+[Collection("Allocations")]
 [Trait("Category", "Unit")]
 public sealed class BatchingAllocationTests
 {
