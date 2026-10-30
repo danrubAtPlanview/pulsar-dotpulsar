@@ -29,10 +29,34 @@ public static class ConsumerExtensions
         => await consumer.Acknowledge(message.MessageId, cancellationToken).ConfigureAwait(false);
 
     /// <summary>
+    /// Acknowledge the consumption of a single message as part of a transaction.
+    /// </summary>
+    public static async ValueTask Acknowledge(this IConsumer consumer, IMessage message, ITransaction transaction, CancellationToken cancellationToken = default)
+        => await consumer.Acknowledge(message.MessageId, transaction, cancellationToken).ConfigureAwait(false);
+
+    /// <summary>
+    /// Acknowledge the consumption of multiple messages.
+    /// </summary>
+    public static async ValueTask Acknowledge(this IConsumer consumer, IEnumerable<IMessage> messages, CancellationToken cancellationToken = default)
+        => await consumer.Acknowledge(messages.Select(message => message.MessageId), cancellationToken).ConfigureAwait(false);
+
+    /// <summary>
+    /// Acknowledge the consumption of multiple messages as part of a transaction.
+    /// </summary>
+    public static async ValueTask Acknowledge(this IConsumer consumer, IEnumerable<IMessage> messages, ITransaction transaction, CancellationToken cancellationToken = default)
+        => await consumer.Acknowledge(messages.Select(message => message.MessageId), transaction, cancellationToken).ConfigureAwait(false);
+
+    /// <summary>
     /// Acknowledge the consumption of all the messages in the topic up to and including the provided message.
     /// </summary>
     public static async ValueTask AcknowledgeCumulative(this IConsumer consumer, IMessage message, CancellationToken cancellationToken = default)
         => await consumer.AcknowledgeCumulative(message.MessageId, cancellationToken).ConfigureAwait(false);
+
+    /// <summary>
+    /// Acknowledge the consumption of all the messages in the topic up to and including the provided message as part of a transaction.
+    /// </summary>
+    public static async ValueTask AcknowledgeCumulative(this IConsumer consumer, IMessage message, ITransaction transaction, CancellationToken cancellationToken = default)
+        => await consumer.AcknowledgeCumulative(message.MessageId, transaction, cancellationToken).ConfigureAwait(false);
 
     /// <summary>
     /// Process and auto-acknowledge a message.

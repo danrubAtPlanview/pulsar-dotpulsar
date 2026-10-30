@@ -272,6 +272,16 @@ public sealed class Consumer<TMessage> : IConsumer<TMessage>
             await _subConsumers[messageId.Topic].Acknowledge(messageId, cancellationToken).ConfigureAwait(false);
     }
 
+    public async ValueTask Acknowledge(MessageId messageId, ITransaction transaction, CancellationToken cancellationToken)
+    {
+        await Guard(cancellationToken).ConfigureAwait(false);
+
+        if (_singleSubConsumer is not null)
+            await _singleSubConsumer.Acknowledge(messageId, transaction, cancellationToken).ConfigureAwait(false);
+        else
+            await _subConsumers[messageId.Topic].Acknowledge(messageId, transaction, cancellationToken).ConfigureAwait(false);
+    }
+
     public async ValueTask Acknowledge(IEnumerable<MessageId> messageIds, CancellationToken cancellationToken = default)
     {
         await Guard(cancellationToken).ConfigureAwait(false);
@@ -292,6 +302,27 @@ public sealed class Consumer<TMessage> : IConsumer<TMessage>
         await Task.WhenAll(acknowledgeTasks).ConfigureAwait(false);
     }
 
+    public async ValueTask Acknowledge(IEnumerable<MessageId> messageIds, ITransaction transaction, CancellationToken cancellationToken = default)
+    {
+        await Guard(cancellationToken).ConfigureAwait(false);
+
+        if (_singleSubConsumer is not null)
+        {
+            await _singleSubConsumer.Acknowledge(messageIds, transaction, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        // Upstream: MultiTopicsConsumerImpl#doAcknowledge (every topic registers its own acknowledgment as an operation of the transaction)
+        var groupedMessageIds = messageIds.GroupBy(messageIds => messageIds.Topic);
+        var acknowledgeTasks = new List<Task>();
+        foreach (var group in groupedMessageIds)
+        {
+            acknowledgeTasks.Add(_subConsumers[group.Key].Acknowledge(group, transaction, cancellationToken).AsTask());
+        }
+
+        await Task.WhenAll(acknowledgeTasks).ConfigureAwait(false);
+    }
+
     public async ValueTask AcknowledgeCumulative(MessageId messageId, CancellationToken cancellationToken)
     {
         await Guard(cancellationToken).ConfigureAwait(false);
@@ -300,6 +331,16 @@ public sealed class Consumer<TMessage> : IConsumer<TMessage>
             await _singleSubConsumer.AcknowledgeCumulative(messageId, cancellationToken).ConfigureAwait(false);
         else
             await _subConsumers[messageId.Topic].AcknowledgeCumulative(messageId, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async ValueTask AcknowledgeCumulative(MessageId messageId, ITransaction transaction, CancellationToken cancellationToken)
+    {
+        await Guard(cancellationToken).ConfigureAwait(false);
+
+        if (_singleSubConsumer is not null)
+            await _singleSubConsumer.AcknowledgeCumulative(messageId, transaction, cancellationToken).ConfigureAwait(false);
+        else
+            await _subConsumers[messageId.Topic].AcknowledgeCumulative(messageId, transaction, cancellationToken).ConfigureAwait(false);
     }
 
     public async ValueTask RedeliverUnacknowledgedMessages(IEnumerable<MessageId> messageIds, CancellationToken cancellationToken)

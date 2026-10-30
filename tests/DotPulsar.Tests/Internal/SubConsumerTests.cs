@@ -20,12 +20,14 @@ using DotPulsar.Internal;
 using DotPulsar.Internal.Abstractions;
 using DotPulsar.Internal.Events;
 using DotPulsar.Internal.PulsarApi;
+using DotPulsar.Internal.Transactions;
 using System.Buffers;
 
 [Trait("Category", "Unit")]
 public sealed class SubConsumerTests
 {
     private static readonly MessageId _messageId = new(1, 2, 0, -1, "persistent://public/default/test");
+    private static readonly TransactionId _transactionId = new(0, 5);
 
     private readonly IRegisterEvent _eventRegister;
     private readonly IConsumerChannel<byte[]> _channel;
@@ -309,6 +311,507 @@ public sealed class SubConsumerTests
         await connection.DidNotReceive().SendWithResponse(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task Acknowledge_GivenTransaction_ShouldSendTransactionalAckWithTransactionIdAndIndividualAckType()
+    {
+        //Arrange
+        var sent = new List<CommandAck>();
+        _channel.SendTransactional(Arg.Do<CommandAck>(command => sent.Add(command.Clone())), Arg.Any<CancellationToken>()).Returns(CreateAckResponse(null));
+        var transaction = CreateTransaction(out _);
+        await using var uut = CreateSubConsumer(false);
+
+        //Act
+        await uut.Acknowledge(_messageId, transaction, Current.CancellationToken);
+
+        //Assert
+        sent.Count.ShouldBe(1);
+        sent[0].AckType.ShouldBe(CommandAck.Types.AckType.Individual);
+        sent[0].TxnidMostBits.ShouldBe(_transactionId.MostSigBits);
+        sent[0].TxnidLeastBits.ShouldBe(_transactionId.LeastSigBits);
+        sent[0].HasRequestId.ShouldBeFalse();
+        sent[0].MessageId.Count.ShouldBe(1);
+        sent[0].MessageId[0].LedgerId.ShouldBe(_messageId.LedgerId);
+        sent[0].MessageId[0].EntryId.ShouldBe(_messageId.EntryId);
+        await _channel.DidNotReceive().Send(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Acknowledge_GivenTransactionAndSeveralMessageIds_ShouldSendOneCommandWithAllMessageIds()
+    {
+        //Arrange
+        var sent = new List<CommandAck>();
+        _channel.SendTransactional(Arg.Do<CommandAck>(command => sent.Add(command.Clone())), Arg.Any<CancellationToken>()).Returns(CreateAckResponse(null));
+        var transaction = CreateTransaction(out _);
+        await using var uut = CreateSubConsumer(false);
+
+        //Act
+        await uut.Acknowledge([new MessageId(1, 2, 0, -1), new MessageId(1, 3, 0, -1), new MessageId(1, 4, 0, -1)], transaction, Current.CancellationToken);
+
+        //Assert
+        sent.Count.ShouldBe(1);
+        sent[0].AckType.ShouldBe(CommandAck.Types.AckType.Individual);
+        sent[0].MessageId.Select(messageId => messageId.EntryId).ShouldBeSequence(2UL, 3UL, 4UL);
+    }
+
+    [Fact]
+    public async Task Acknowledge_GivenTransactionAndNoMessageIds_ShouldNeitherSendNorRegisterAnything()
+    {
+        //Arrange
+        var transaction = CreateTransaction(out var tcClient);
+        await using var uut = CreateSubConsumer(false);
+
+        //Act
+        await uut.Acknowledge([], transaction, Current.CancellationToken);
+
+        //Assert
+        await _channel.DidNotReceive().SendTransactional(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>());
+        await tcClient.DidNotReceive().AddSubscriptionToTxn(Arg.Any<TransactionId>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AcknowledgeCumulative_GivenTransaction_ShouldSendTransactionalAckWithCumulativeAckType()
+    {
+        //Arrange
+        var sent = new List<CommandAck>();
+        _channel.SendTransactional(Arg.Do<CommandAck>(command => sent.Add(command.Clone())), Arg.Any<CancellationToken>()).Returns(CreateAckResponse(null));
+        var transaction = CreateTransaction(out _);
+        await using var uut = CreateSubConsumer(false);
+
+        //Act
+        await uut.AcknowledgeCumulative(_messageId, transaction, Current.CancellationToken);
+
+        //Assert
+        sent.Count.ShouldBe(1);
+        sent[0].AckType.ShouldBe(CommandAck.Types.AckType.Cumulative);
+        sent[0].TxnidMostBits.ShouldBe(_transactionId.MostSigBits);
+        sent[0].TxnidLeastBits.ShouldBe(_transactionId.LeastSigBits);
+    }
+
+    [Theory]
+    [InlineData(SubscriptionType.Shared)]
+    [InlineData(SubscriptionType.KeyShared)]
+    public async Task AcknowledgeCumulative_GivenTransactionAndNonExclusiveNonFailoverSubscription_ShouldThrowConfigurationExceptionAndNotSend(SubscriptionType subscriptionType)
+    {
+        //Arrange
+        var transaction = CreateTransaction(out var tcClient);
+        await using var uut = CreateSubConsumer(false, subscriptionType: subscriptionType);
+
+        //Act
+        var exception = await Record.ExceptionAsync(async () => await uut.AcknowledgeCumulative(_messageId, transaction, Current.CancellationToken));
+
+        //Assert
+        exception.ShouldBeOfType<ConfigurationException>();
+        exception.Message.ShouldBe("Cannot use cumulative acks on a non-exclusive/non-failover subscription");
+        await _channel.DidNotReceive().SendTransactional(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>());
+        await tcClient.DidNotReceive().AddSubscriptionToTxn(Arg.Any<TransactionId>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData(SubscriptionType.Exclusive)]
+    [InlineData(SubscriptionType.Failover)]
+    public async Task AcknowledgeCumulative_GivenTransactionAndExclusiveOrFailoverSubscription_ShouldSend(SubscriptionType subscriptionType)
+    {
+        //Arrange
+        _channel.SendTransactional(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>()).Returns(CreateAckResponse(null));
+        var transaction = CreateTransaction(out _);
+        await using var uut = CreateSubConsumer(false, subscriptionType: subscriptionType);
+
+        //Act
+        await uut.AcknowledgeCumulative(_messageId, transaction, Current.CancellationToken);
+
+        //Assert
+        await _channel.Received(1).SendTransactional(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Acknowledge_GivenTransaction_ShouldRegisterTheTopicAndSubscriptionWithTheTransactionOnce()
+    {
+        //Arrange
+        _channel.SendTransactional(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>()).Returns(CreateAckResponse(null));
+        var transaction = CreateTransaction(out var tcClient);
+        await using var uut = CreateSubConsumer(false);
+
+        //Act
+        await uut.Acknowledge(_messageId, transaction, Current.CancellationToken);
+        await uut.Acknowledge(new MessageId(1, 3, 0, -1), transaction, Current.CancellationToken);
+        await uut.AcknowledgeCumulative(new MessageId(1, 4, 0, -1), transaction, Current.CancellationToken);
+
+        //Assert
+        await tcClient.Received(1).AddSubscriptionToTxn(_transactionId, "persistent://public/default/test", "subscription", CancellationToken.None);
+        await _channel.Received(3).SendTransactional(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Acknowledge_GivenTransaction_ShouldRegisterAckOpSoThatCommitWaitsForTheReceipt()
+    {
+        //Arrange
+        var receipt = new TaskCompletionSource<BaseCommand>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _channel.SendTransactional(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>()).Returns(receipt.Task);
+        var transaction = CreateTransaction(out var tcClient);
+        await using var uut = CreateSubConsumer(false);
+        var ackTask = uut.Acknowledge(_messageId, transaction, Current.CancellationToken).AsTask();
+        var commitTask = transaction.Commit(Current.CancellationToken).AsTask();
+
+        //Act
+        var completedBeforeReceipt = await Task.WhenAny(commitTask, Task.Delay(TimeSpan.FromMilliseconds(250), Current.CancellationToken)) == commitTask;
+        receipt.SetResult(CreateAckResponse(null));
+        await commitTask;
+
+        //Assert
+        completedBeforeReceipt.ShouldBeFalse();
+        ackTask.IsCompletedSuccessfully.ShouldBeTrue();
+        await tcClient.Received(1).Commit(_transactionId, CancellationToken.None);
+        transaction.CurrentState.ShouldBe(TransactionState.Committed);
+    }
+
+    [Fact]
+    public async Task Acknowledge_GivenTransactionAndAckResponseWithTransactionConflictError_ShouldThrowTransactionConflictExceptionAndNotFaultConsumer()
+    {
+        //Arrange
+        _channel.SendTransactional(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>()).Returns(CreateAckResponse(ServerError.TransactionConflict));
+        var transaction = CreateTransaction(out _);
+        await using var uut = CreateSubConsumer(false);
+
+        //Act
+        var exception = await Record.ExceptionAsync(async () => await uut.Acknowledge(_messageId, transaction, Current.CancellationToken));
+
+        //Assert
+        exception.ShouldBeOfType<TransactionConflictException>();
+        await _channel.Received(1).SendTransactional(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>());
+        _eventRegister.DidNotReceive().Register(Arg.Is<IEvent>(e => e is ExecutorFaulted));
+    }
+
+    [Fact]
+    public async Task Acknowledge_GivenTransactionAndAckResponseWithConsumerNotFound_ShouldThrowConsumerNotFoundExceptionWithoutRetry()
+    {
+        //Arrange
+        _channel.SendTransactional(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>()).Returns(CreateAckResponse(ServerError.ConsumerNotFound));
+        var transaction = CreateTransaction(out _);
+        await using var uut = CreateSubConsumer(false);
+
+        //Act
+        var exception = await Record.ExceptionAsync(async () => await uut.Acknowledge(_messageId, transaction, Current.CancellationToken));
+
+        //Assert
+        exception.ShouldBeOfType<ConsumerNotFoundException>();
+        await _channel.Received(1).SendTransactional(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Commit_GivenTransactionalAckThatFailed_ShouldAbortAndThrowTransactionHasOperationFailedException()
+    {
+        //Arrange
+        _channel.SendTransactional(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>()).Returns(CreateAckResponse(ServerError.TransactionConflict));
+        var transaction = CreateTransaction(out var tcClient);
+        await using var uut = CreateSubConsumer(false);
+        await Record.ExceptionAsync(async () => await uut.Acknowledge(_messageId, transaction, Current.CancellationToken));
+
+        //Act
+        var exception = await Record.ExceptionAsync(async () => await transaction.Commit(Current.CancellationToken));
+
+        //Assert
+        exception.ShouldBeOfType<TransactionHasOperationFailedException>();
+        await tcClient.Received(1).Abort(_transactionId, CancellationToken.None);
+        await tcClient.DidNotReceive().Commit(Arg.Any<TransactionId>(), Arg.Any<CancellationToken>());
+        transaction.CurrentState.ShouldBe(TransactionState.Aborted);
+    }
+
+    [Fact]
+    public async Task Acknowledge_GivenTransactionAndRegistrationOfSubscriptionFails_ShouldFailWithTheSameExceptionAndNotSend()
+    {
+        //Arrange
+        var transaction = CreateTransaction(out var tcClient);
+        tcClient.AddSubscriptionToTxn(Arg.Any<TransactionId>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(_ => new ValueTask(Task.FromException(new TransactionNotFoundException("not found"))));
+        await using var uut = CreateSubConsumer(false);
+
+        //Act
+        var first = await Record.ExceptionAsync(async () => await uut.Acknowledge(_messageId, transaction, Current.CancellationToken));
+        var second = await Record.ExceptionAsync(async () => await uut.Acknowledge(_messageId, transaction, Current.CancellationToken));
+
+        //Assert
+        first.ShouldBeOfType<TransactionNotFoundException>();
+        second.ShouldBeOfType<TransactionNotFoundException>();
+        await _channel.DidNotReceive().SendTransactional(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>());
+        _eventRegister.DidNotReceive().Register(Arg.Is<IEvent>(e => e is ExecutorFaulted));
+    }
+
+    [Fact]
+    public async Task Acknowledge_GivenTransactionThatIsNotOpen_ShouldThrowInvalidTransactionStatusExceptionAndNotSend()
+    {
+        //Arrange
+        var transaction = CreateTransaction(out var tcClient);
+        await transaction.Abort(Current.CancellationToken);
+        await using var uut = CreateSubConsumer(false);
+
+        //Act
+        var exception = await Record.ExceptionAsync(async () => await uut.Acknowledge(_messageId, transaction, Current.CancellationToken));
+
+        //Assert
+        exception.ShouldBeOfType<InvalidTransactionStatusException>();
+        await _channel.DidNotReceive().SendTransactional(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>());
+        await tcClient.DidNotReceive().AddSubscriptionToTxn(Arg.Any<TransactionId>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Acknowledge_GivenMessageIdsAndTransactionThatIsNotOpen_ShouldThrowInvalidTransactionStatusExceptionAndNotSend()
+    {
+        //Arrange
+        var transaction = CreateTransaction(out _);
+        await transaction.Abort(Current.CancellationToken);
+        await using var uut = CreateSubConsumer(false);
+
+        //Act
+        var exception = await Record.ExceptionAsync(async () => await uut.Acknowledge([_messageId], transaction, Current.CancellationToken));
+
+        //Assert
+        exception.ShouldBeOfType<InvalidTransactionStatusException>();
+        await _channel.DidNotReceive().SendTransactional(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>());
+    }
+
+    // Java only checks that the transaction is open for the acknowledgment of a single message id, and it does not register that failure as an operation of the transaction
+    [Fact]
+    public async Task Acknowledge_GivenTransactionThatIsCommitting_ShouldThrowInvalidTransactionStatusExceptionWithoutFailingTheCommit()
+    {
+        //Arrange
+        var receipt = new TaskCompletionSource<BaseCommand>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _channel.SendTransactional(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>()).Returns(receipt.Task);
+        var transaction = CreateTransaction(out var tcClient);
+        await using var uut = CreateSubConsumer(false);
+        var firstAck = uut.Acknowledge(_messageId, transaction, Current.CancellationToken).AsTask();
+        var commitTask = transaction.Commit(Current.CancellationToken).AsTask();
+
+        //Act
+        var exception = await Record.ExceptionAsync(async () => await uut.Acknowledge(new MessageId(1, 3, 0, -1), transaction, Current.CancellationToken));
+        receipt.SetResult(CreateAckResponse(null));
+        await commitTask;
+
+        //Assert
+        exception.ShouldBeOfType<InvalidTransactionStatusException>();
+        await firstAck;
+        await tcClient.Received(1).Commit(_transactionId, CancellationToken.None);
+        transaction.CurrentState.ShouldBe(TransactionState.Committed);
+    }
+
+    [Fact]
+    public async Task Acknowledge_GivenTransactionThatWasNotCreatedByDotPulsar_ShouldThrowArgumentException()
+    {
+        //Arrange
+        var transaction = Substitute.For<ITransaction>();
+        await using var uut = CreateSubConsumer(false);
+
+        //Act
+        var single = await Record.ExceptionAsync(async () => await uut.Acknowledge(_messageId, transaction, Current.CancellationToken));
+        var multiple = await Record.ExceptionAsync(async () => await uut.Acknowledge([_messageId], transaction, Current.CancellationToken));
+        var cumulative = await Record.ExceptionAsync(async () => await uut.AcknowledgeCumulative(_messageId, transaction, Current.CancellationToken));
+
+        //Assert
+        single.ShouldBeOfType<ArgumentException>();
+        multiple.ShouldBeOfType<ArgumentException>();
+        cumulative.ShouldBeOfType<ArgumentException>();
+        await _channel.DidNotReceive().SendTransactional(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Acknowledge_GivenTransactionAndBatchMessageId_ShouldSetBatchSizeAndKeepBatchIndexForTheChannel()
+    {
+        //Arrange
+        var sent = new List<(int BatchIndex, int BatchSize)>();
+        _channel.SendTransactional(Arg.Do<CommandAck>(command => sent.Add((command.MessageId[0].BatchIndex, command.MessageId[0].BatchSize))), Arg.Any<CancellationToken>()).Returns(CreateAckResponse(null));
+        var transaction = CreateTransaction(out _);
+        await using var uut = CreateSubConsumer(false);
+
+        //Act
+        await uut.Acknowledge(MessageIdInternals.Create(1, 2, 0, 3, BatchTestData.Topic, 5), transaction, Current.CancellationToken);
+
+        //Assert
+        sent.ShouldBe([(3, 5)]);
+    }
+
+    [Fact]
+    public async Task Acknowledge_GivenTransactionalAckFollowedByPlainAck_ShouldNotSendTransactionIdsOrRequestIdWithThePlainAck()
+    {
+        //Arrange
+        var observed = new List<(bool HasTxnMostBits, bool HasTxnLeastBits, bool HasRequestId, bool HasValidationError)>();
+        _channel.SendTransactional(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>()).Returns(CreateAckResponse(null));
+        _channel.Send(Arg.Do<CommandAck>(command => observed.Add((command.HasTxnidMostBits, command.HasTxnidLeastBits, command.HasRequestId, command.HasValidationError))), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<BaseCommand?>(null));
+        var transaction = CreateTransaction(out _);
+        await using var uut = CreateSubConsumer(false);
+
+        //Act
+        await uut.Acknowledge(_messageId, transaction, Current.CancellationToken);
+        await uut.Acknowledge(_messageId, Current.CancellationToken);
+        await uut.Acknowledge([_messageId], Current.CancellationToken);
+        await uut.AcknowledgeCumulative(_messageId, Current.CancellationToken);
+
+        //Assert
+        observed.Count.ShouldBe(3);
+        observed.ShouldAllBe(command => !command.HasTxnMostBits && !command.HasTxnLeastBits && !command.HasRequestId && !command.HasValidationError);
+    }
+
+    [Fact]
+    public async Task Acknowledge_GivenTransactionAndConnectionLostWhileWaiting_ShouldRetryOnNewChannelWithTheSameCommand()
+    {
+        //Arrange
+        var commands = new List<CommandAck>();
+        var calls = 0;
+        _channel.SendTransactional(Arg.Do<CommandAck>(commands.Add), Arg.Any<CancellationToken>()).Returns(_ => ++calls == 1
+            ? Task.FromException<BaseCommand>(new TaskCanceledException())
+            : Task.FromResult(CreateAckResponse(null)));
+        var transaction = CreateTransaction(out _);
+        await using var uut = CreateSubConsumer(false);
+
+        //Act
+        var exception = await Record.ExceptionAsync(async () => await uut.Acknowledge(_messageId, transaction, Current.CancellationToken));
+
+        //Assert
+        exception.ShouldBeNull();
+        calls.ShouldBe(2);
+        commands[1].ShouldBeSameAs(commands[0]);
+    }
+
+    [Fact]
+    public async Task Acknowledge_GivenTransactionAndNoReceiptWithinOperationTimeout_ShouldThrowOperationTimeoutExceptionAndNotFaultConsumer()
+    {
+        //Arrange
+        _channel.SendTransactional(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>()).Returns(callInfo => WaitForeverForResponse(callInfo.Arg<CancellationToken>()));
+        var transaction = CreateTransaction(out _);
+        await using var uut = CreateSubConsumer(false, TimeSpan.FromMilliseconds(100));
+
+        //Act
+        var exception = await Record.ExceptionAsync(async () => await uut.Acknowledge(_messageId, transaction, Current.CancellationToken));
+
+        //Assert
+        exception.ShouldBeOfType<OperationTimeoutException>();
+        _eventRegister.DidNotReceive().Register(Arg.Is<IEvent>(e => e is ExecutorFaulted));
+    }
+
+    [Fact]
+    public async Task Acknowledge_GivenTransactionAndCallerCancellation_ShouldThrowOperationCanceledExceptionAndFailTheOperation()
+    {
+        //Arrange
+        _channel.SendTransactional(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>()).Returns(callInfo => WaitForeverForResponse(callInfo.Arg<CancellationToken>()));
+        var transaction = CreateTransaction(out var tcClient);
+        await using var uut = CreateSubConsumer(false);
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(Current.CancellationToken);
+        cts.CancelAfter(TimeSpan.FromMilliseconds(100));
+
+        //Act
+        var exception = await Record.ExceptionAsync(async () => await uut.Acknowledge(_messageId, transaction, cts.Token));
+        var commitException = await Record.ExceptionAsync(async () => await transaction.Commit(Current.CancellationToken));
+
+        //Assert
+        exception.ShouldBeAssignableTo<OperationCanceledException>();
+        commitException.ShouldBeOfType<TransactionHasOperationFailedException>();
+        await tcClient.Received(1).Abort(_transactionId, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task Acknowledge_GivenTransactionAndBrokerWithoutSupportForAckReceipts_ShouldThrowNotSupportedExceptionAndNotFaultConsumer()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var messages = BatchTestData.AddBatch(batchHandler, 1, 2, 5);
+        var connection = Substitute.For<IConnection>();
+        connection.ProtocolVersion.Returns(16);
+        var transaction = CreateTransaction(out _);
+        await using var uut = CreateSubConsumer(false, channel: CreateChannel(connection, batchHandler, messageFactory, false));
+
+        //Act
+        var exception = await Record.ExceptionAsync(async () => await uut.Acknowledge(messages[2].MessageId, transaction, Current.CancellationToken));
+
+        //Assert
+        exception.ShouldBeOfType<NotSupportedException>();
+        await connection.DidNotReceive().SendWithResponse(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>());
+        _eventRegister.DidNotReceive().Register(Arg.Is<IEvent>(e => e is ExecutorFaulted));
+    }
+
+    [Fact]
+    public async Task Acknowledge_GivenTransactionAndBatchMessage_ShouldNotBeSwallowedByTheBatchHandlerAndSendBatchSizeAndAckSet()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var messages = BatchTestData.AddBatch(batchHandler, 1, 2, 5);
+        var connection = CreateTransactionalConnection(out var sent);
+        var transaction = CreateTransaction(out _);
+        await using var uut = CreateSubConsumer(false, channel: CreateChannel(connection, batchHandler, messageFactory, false));
+
+        //Act
+        await uut.Acknowledge(messages[2].MessageId, transaction, Current.CancellationToken);
+
+        //Assert
+        sent.Count.ShouldBe(1);
+        sent[0].TxnidMostBits.ShouldBe(_transactionId.MostSigBits);
+        sent[0].TxnidLeastBits.ShouldBe(_transactionId.LeastSigBits);
+        sent[0].MessageId.Count.ShouldBe(1);
+        sent[0].MessageId[0].EntryId.ShouldBe(2UL);
+        sent[0].MessageId[0].HasBatchIndex.ShouldBeFalse();
+        sent[0].MessageId[0].BatchSize.ShouldBe(5);
+        sent[0].MessageId[0].AckSet.ShouldBeAckSet(0b11011);
+    }
+
+    [Fact]
+    public async Task AcknowledgeCumulative_GivenTransactionAndBatchMessage_ShouldSendAckSetOfTheLaterIndexes()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var messages = BatchTestData.AddBatch(batchHandler, 1, 2, 5);
+        var connection = CreateTransactionalConnection(out var sent);
+        var transaction = CreateTransaction(out _);
+        await using var uut = CreateSubConsumer(false, channel: CreateChannel(connection, batchHandler, messageFactory, false));
+
+        //Act
+        await uut.AcknowledgeCumulative(messages[2].MessageId, transaction, Current.CancellationToken);
+
+        //Assert
+        sent.Count.ShouldBe(1);
+        sent[0].AckType.ShouldBe(CommandAck.Types.AckType.Cumulative);
+        sent[0].MessageId[0].BatchSize.ShouldBe(5);
+        sent[0].MessageId[0].AckSet.ShouldBeAckSet(0b11000);
+    }
+
+    // The messages of an aborted transaction are delivered again by the broker. Acknowledging every message of the new delivery must then acknowledge the whole batch.
+    [Fact]
+    public async Task AcknowledgeCumulative_GivenAbortedTransactionAndRedeliveryOfTheBatch_ShouldAcknowledgeEntryOnlyWhenAllIndexesAreAcknowledgedAgain()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var queue = new AsyncQueue<MessagePackage>();
+        var connection = CreateTransactionalConnection(out _);
+        var plainSent = new List<CommandAck>();
+        connection.Send(Arg.Do<CommandAck>(ack => plainSent.Add(ack.Clone())), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
+        var channel = new ConsumerChannel<byte[]>(1, 100, queue, connection, batchHandler, messageFactory, [], BatchTestData.Topic, false, false);
+        await using var uut = CreateSubConsumer(false, channel: channel);
+        queue.Enqueue(BatchTestData.CreateBatchPackage(BatchTestData.CreateEntryId(1, 2), 5));
+        var delivered = new List<DotPulsar.Abstractions.IMessage<byte[]>>();
+        for (var i = 0; i < 5; ++i)
+        {
+            delivered.Add(await uut.Receive(Current.CancellationToken));
+        }
+
+        var aborted = CreateTransaction(out _);
+        await uut.AcknowledgeCumulative(delivered[2].MessageId, aborted, Current.CancellationToken);
+        await aborted.Abort(Current.CancellationToken);
+        queue.Enqueue(BatchTestData.CreateBatchPackage(BatchTestData.CreateEntryId(1, 2), 5));
+        var redelivered = new List<DotPulsar.Abstractions.IMessage<byte[]>>();
+        for (var i = 0; i < 5; ++i)
+        {
+            redelivered.Add(await uut.Receive(Current.CancellationToken));
+        }
+
+        //Act
+        var entryAcksAfterEachAck = new List<int>();
+        foreach (var message in redelivered.Skip(3).Concat(redelivered.Take(3)))
+        {
+            await uut.Acknowledge(message.MessageId, Current.CancellationToken);
+            entryAcksAfterEachAck.Add(plainSent.Count);
+        }
+
+        //Assert
+        entryAcksAfterEachAck.ShouldBeSequence(0, 0, 0, 0, 1);
+    }
+
     private static (BatchHandler<byte[]> Handler, MessageFactory<byte[]> Factory) CreateBatchHandler()
     {
         var messageFactory = new MessageFactory<byte[]>(DotPulsar.Schema.ByteArray);
@@ -328,7 +831,23 @@ public sealed class SubConsumerTests
     private static ConsumerChannel<byte[]> CreateChannel(IConnection connection, BatchHandler<byte[]> batchHandler, MessageFactory<byte[]> messageFactory, bool batchIndexAckEnabled, bool ackReceiptEnabled = false)
         => new(1, 100, new AsyncQueue<MessagePackage>(), connection, batchHandler, messageFactory, [], BatchTestData.Topic, ackReceiptEnabled, batchIndexAckEnabled);
 
-    private SubConsumer<byte[]> CreateSubConsumer(bool ackReceiptEnabled, TimeSpan? operationTimeout = null, IConsumerChannel<byte[]>? channel = null)
+    private static Transaction CreateTransaction(out ITransactionCoordinatorClient tcClient)
+    {
+        tcClient = Substitute.For<ITransactionCoordinatorClient>();
+        return new Transaction(tcClient, _transactionId, TimeSpan.FromMinutes(5));
+    }
+
+    private static IConnection CreateTransactionalConnection(out List<CommandAck> sent)
+    {
+        var acks = new List<CommandAck>();
+        sent = acks;
+        var connection = Substitute.For<IConnection>();
+        connection.ProtocolVersion.Returns(19);
+        connection.SendWithResponse(Arg.Do<CommandAck>(ack => acks.Add(ack.Clone())), Arg.Any<CancellationToken>()).Returns(CreateAckResponse(null));
+        return connection;
+    }
+
+    private SubConsumer<byte[]> CreateSubConsumer(bool ackReceiptEnabled, TimeSpan? operationTimeout = null, IConsumerChannel<byte[]>? channel = null, SubscriptionType subscriptionType = SubscriptionType.Exclusive)
     {
         var correlationId = Guid.NewGuid();
         var executor = new Executor(correlationId, _eventRegister, new DefaultExceptionHandler());
@@ -339,7 +858,7 @@ public sealed class SubConsumerTests
             correlationId,
             new Uri("pulsar://localhost:6650"),
             "subscription",
-            SubscriptionType.Exclusive,
+            subscriptionType,
             "persistent://public/default/test",
             _eventRegister,
             channel ?? _channel,
@@ -367,5 +886,11 @@ public sealed class SubConsumerTests
     {
         await Task.Delay(Timeout.Infinite, cancellationToken);
         return null;
+    }
+
+    private static async Task<BaseCommand> WaitForeverForResponse(CancellationToken cancellationToken)
+    {
+        await Task.Delay(Timeout.Infinite, cancellationToken);
+        return CreateAckResponse(null);
     }
 }

@@ -25,14 +25,32 @@ public interface IConsumer : IGetLastMessageIds, ISeek, IStateHolder<ConsumerSta
     ValueTask Acknowledge(MessageId messageId, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Acknowledge the consumption of a single message using the MessageId as part of a transaction.
+    /// </summary>
+    ValueTask Acknowledge(MessageId messageId, ITransaction transaction, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Acknowledge the consumption of multiple messages using the MessageIds.
     /// </summary>
     ValueTask Acknowledge(IEnumerable<MessageId> messageIds, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Acknowledge the consumption of multiple messages using the MessageIds as part of a transaction.
+    /// </summary>
+    ValueTask Acknowledge(IEnumerable<MessageId> messageIds, ITransaction transaction, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Acknowledge the consumption of all the messages in the topic up to and including the provided MessageId.
     /// </summary>
     ValueTask AcknowledgeCumulative(MessageId messageId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Acknowledge the consumption of all the messages in the topic up to and including the provided MessageId as part of a transaction.
+    /// </summary>
+    /// <remarks>
+    /// Cumulative acknowledgment is not allowed for subscriptions of type 'Shared' and 'KeyShared'.
+    /// </remarks>
+    ValueTask AcknowledgeCumulative(MessageId messageId, ITransaction transaction, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// The consumer's service url.

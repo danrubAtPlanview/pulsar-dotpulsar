@@ -20,7 +20,9 @@ using DotPulsar.Internal.Abstractions;
 using DotPulsar.Internal.Events;
 using DotPulsar.Internal.Extensions;
 using DotPulsar.Internal.PulsarApi;
+using DotPulsar.Internal.Transactions;
 using Microsoft.Extensions.ObjectPool;
+using System.Runtime.ExceptionServices;
 
 public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChannel
 {
@@ -101,6 +103,49 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
     public async ValueTask AcknowledgeCumulative(MessageId messageId, CancellationToken cancellationToken)
         => await InternalAcknowledge(messageId, CommandAck.Types.AckType.Cumulative, cancellationToken).ConfigureAwait(false);
 
+    // Upstream: ConsumerBase#acknowledgeAsync(MessageId, Transaction)
+    public async ValueTask Acknowledge(MessageId messageId, ITransaction transaction, CancellationToken cancellationToken)
+    {
+        var transactionImpl = Transaction.From(transaction);
+        transactionImpl.EnsureOpen();
+
+        var command = CreateTransactionalAck(CommandAck.Types.AckType.Individual, transactionImpl);
+        command.MessageId.Add(ToTransactionalMessageIdData(messageId));
+        await InternalTransactionalAcknowledge(command, transactionImpl, cancellationToken).ConfigureAwait(false);
+    }
+
+    // Upstream: ConsumerBase#acknowledgeAsync(List<MessageId>, Transaction)
+    // Only the single message id acknowledgment checks that the transaction is open before anything is done. The other acknowledgments fail the
+    // operation that is registered with the transaction, as in Java, because the transaction coordinator rejects them.
+    public async ValueTask Acknowledge(IEnumerable<MessageId> messageIds, ITransaction transaction, CancellationToken cancellationToken)
+    {
+        var transactionImpl = Transaction.From(transaction);
+
+        var command = CreateTransactionalAck(CommandAck.Types.AckType.Individual, transactionImpl);
+        foreach (var messageId in messageIds)
+        {
+            command.MessageId.Add(ToTransactionalMessageIdData(messageId));
+        }
+
+        if (command.MessageId.Count == 0)
+            return;
+
+        await InternalTransactionalAcknowledge(command, transactionImpl, cancellationToken).ConfigureAwait(false);
+    }
+
+    // Upstream: ConsumerBase#acknowledgeCumulativeAsync(MessageId, Transaction)
+    public async ValueTask AcknowledgeCumulative(MessageId messageId, ITransaction transaction, CancellationToken cancellationToken)
+    {
+        if (SubscriptionType is SubscriptionType.Shared or SubscriptionType.KeyShared)
+            throw new ConfigurationException("Cannot use cumulative acks on a non-exclusive/non-failover subscription");
+
+        var transactionImpl = Transaction.From(transaction);
+
+        var command = CreateTransactionalAck(CommandAck.Types.AckType.Cumulative, transactionImpl);
+        command.MessageId.Add(ToTransactionalMessageIdData(messageId));
+        await InternalTransactionalAcknowledge(command, transactionImpl, cancellationToken).ConfigureAwait(false);
+    }
+
     public async ValueTask RedeliverUnacknowledgedMessages(IEnumerable<MessageId> messageIds, CancellationToken cancellationToken)
     {
         var command = new CommandRedeliverUnacknowledgedMessages();
@@ -170,31 +215,59 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
         return await _channel.Send(command, cancellationToken).ConfigureAwait(false);
     }
 
-    private async ValueTask AcknowledgeAndAwaitReceipt(CommandAck command, CancellationToken cancellationToken)
+    private async Task<BaseCommand?> InternalSendTransactional(CommandAck command, CancellationToken cancellationToken)
     {
-        BaseCommand? response;
+        Guard();
+        return await _channel.SendTransactional(command, cancellationToken).ConfigureAwait(false);
+    }
 
-        if (!_ackReceiptEnabled || _operationTimeout <= TimeSpan.Zero)
+    // A transactional acknowledgment always waits for the receipt of the broker
+    private async ValueTask<BaseCommand?> SendAndAwaitReceipt(CommandAck command, bool transactional, CancellationToken cancellationToken)
+    {
+        if (!(transactional || _ackReceiptEnabled) || _operationTimeout <= TimeSpan.Zero)
+            return await Send(command, transactional, cancellationToken).ConfigureAwait(false);
+
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(_operationTimeout);
+
+        try
         {
-            response = await _executor.Execute(() => InternalAcknowledge(command, cancellationToken), cancellationToken).ConfigureAwait(false);
+            return await Send(command, transactional, timeoutCts.Token).ConfigureAwait(false);
         }
-        else
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && timeoutCts.IsCancellationRequested)
         {
-            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeoutCts.CancelAfter(_operationTimeout);
+            throw new OperationTimeoutException($"The acknowledgment receipt was not received within {_operationTimeout}");
+        }
+    }
 
+    private ValueTask<BaseCommand?> Send(CommandAck command, bool transactional, CancellationToken cancellationToken)
+        => transactional ? SendTransactional(command, cancellationToken) : _executor.Execute(() => InternalAcknowledge(command, cancellationToken), cancellationToken);
+
+    private async ValueTask<BaseCommand?> SendTransactional(CommandAck command, CancellationToken cancellationToken)
+    {
+        // The channel rejects an acknowledgment when the broker does not support acknowledgment receipts. That must fail only this
+        // acknowledgment, but an exception that is not retried would fault the consumer when it is thrown inside the executor.
+        NotSupportedException? notSupported = null;
+
+        async Task<BaseCommand?> SendOnce()
+        {
             try
             {
-                response = await _executor.Execute(() => InternalAcknowledge(command, timeoutCts.Token), timeoutCts.Token).ConfigureAwait(false);
+                return await InternalSendTransactional(command, cancellationToken).ConfigureAwait(false);
             }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && timeoutCts.IsCancellationRequested)
+            catch (NotSupportedException exception)
             {
-                throw new OperationTimeoutException($"The acknowledgment receipt was not received within {_operationTimeout}");
+                notSupported = exception;
+                return null;
             }
         }
 
-        // The response is evaluated outside the executor, so that a server error fails only this call and does not fault the consumer
-        response?.ThrowIfAckError();
+        var response = await _executor.Execute(SendOnce, cancellationToken).ConfigureAwait(false);
+
+        if (notSupported is not null)
+            ExceptionDispatchInfo.Capture(notSupported).Throw();
+
+        return response;
     }
 
     private async ValueTask InternalRedeliverUnacknowledgedMessages(CommandRedeliverUnacknowledgedMessages command, CancellationToken cancellationToken)
@@ -239,7 +312,10 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
 
         try
         {
-            await AcknowledgeAndAwaitReceipt(commandAck, cancellationToken).ConfigureAwait(false);
+            var response = await SendAndAwaitReceipt(commandAck, false, cancellationToken).ConfigureAwait(false);
+
+            // The response is evaluated outside the executor, so that a server error fails only this call and does not fault the consumer
+            response?.ThrowIfAckError();
         }
         finally
         {
@@ -261,13 +337,58 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
 
         try
         {
-            await AcknowledgeAndAwaitReceipt(commandAck, cancellationToken).ConfigureAwait(false);
+            var response = await SendAndAwaitReceipt(commandAck, false, cancellationToken).ConfigureAwait(false);
+
+            // The response is evaluated outside the executor, so that a server error fails only this call and does not fault the consumer
+            response?.ThrowIfAckError();
         }
         finally
         {
             commandAck.MessageId.Clear();
             _commandAckPool.Return(commandAck);
         }
+    }
+
+    // Upstream: ConsumerBase#doAcknowledgeWithTxn
+    private async ValueTask InternalTransactionalAcknowledge(CommandAck command, Transaction transaction, CancellationToken cancellationToken)
+    {
+        var ackTask = TransactionalAcknowledge(command, transaction, cancellationToken);
+
+        // The operation is registered before it completes, so a commit or an abort that follows right after waits for it
+        transaction.RegisterAckOp(ackTask);
+
+        await ackTask.ConfigureAwait(false);
+    }
+
+    private async Task TransactionalAcknowledge(CommandAck command, Transaction transaction, CancellationToken cancellationToken)
+    {
+        await transaction.RegisterAckedTopic(Topic, SubscriptionName, cancellationToken).ConfigureAwait(false);
+
+        var response = await SendAndAwaitReceipt(command, true, cancellationToken).ConfigureAwait(false);
+
+        // The response is evaluated outside the executor (see InternalAcknowledge), so that a conflict fails only this acknowledgment
+        response?.ThrowIfAckError();
+    }
+
+    // Upstream: ConsumerImpl#doTransactionAcknowledgeForResponse
+    // The command is not pooled, because it carries the transaction and is awaited by the transaction. The request id is assigned when it is sent.
+    private static CommandAck CreateTransactionalAck(CommandAck.Types.AckType ackType, Transaction transaction)
+        => new()
+        {
+            AckType = ackType,
+            TxnidMostBits = transaction.Id.MostSigBits,
+            TxnidLeastBits = transaction.Id.LeastSigBits
+        };
+
+    // The batch size is needed by the channel, if it does not know the batch of the message
+    private static MessageIdData ToTransactionalMessageIdData(MessageId messageId)
+    {
+        var messageIdData = messageId.ToMessageIdData();
+
+        if (messageId.BatchSize > 0)
+            messageIdData.BatchSize = messageId.BatchSize;
+
+        return messageIdData;
     }
 
     private static void ResetPooledAck(CommandAck command)
