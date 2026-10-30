@@ -173,8 +173,7 @@ public sealed class TransactionCoordinatorClientTests
         var working = CreateDiscovery();
         var discoveries = new Queue<ITcDiscovery>(new[] { failing, working });
         await using var uut = new TransactionCoordinatorClient(Substitute.For<IConnectionPool>(), _operationTimeout, () => discoveries.Dequeue());
-        var callers = Enumerable.Range(0, 5).Select(_ => Task.Run(() => uut.EnsureStarted(Current.CancellationToken).AsTask())).ToArray();
-        await WaitFor.Until(() => uut.State == TransactionCoordinatorClientState.Starting, "the client is starting");
+        var callers = Enumerable.Range(0, 5).Select(_ => uut.EnsureStarted(Current.CancellationToken).AsTask()).ToArray(); // All the callers wait for the start before it fails, and a caller that comes after it has failed would start again
 
         //Act
         start.SetException(new TransactionCoordinatorClientException("not available"));
