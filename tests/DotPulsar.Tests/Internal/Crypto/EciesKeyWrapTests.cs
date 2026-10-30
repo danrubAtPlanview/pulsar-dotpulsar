@@ -186,7 +186,8 @@ public sealed class EciesKeyWrapTests
         using var privateKey = LoadPrivateKey("ClientEcdsa");
         var sawLeadingZero = false;
 
-        for (var i = 0; i < 1000; ++i)
+        // One key in about 128 has a coordinate with a leading zero, so it takes 128 keys on average. The test goes on until it has seen one, and does not depend on luck.
+        for (var i = 0; i < 100_000 && (i < 1000 || !sawLeadingZero); ++i)
         {
             var dataKey = CreateDataKey();
 
