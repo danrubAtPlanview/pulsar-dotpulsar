@@ -14,9 +14,11 @@
 
 namespace DotPulsar.Tests.Internal.Chunking;
 
+using DotPulsar.Internal;
 using DotPulsar.Internal.Chunking;
 using DotPulsar.Internal.PulsarApi;
 using System.Buffers;
+using System.Text;
 
 public static class ChunkTestData
 {
@@ -52,6 +54,25 @@ public static class ChunkTestData
 
     public static MessageIdData CreateEntryId(ulong ledgerId, ulong entryId)
         => new() { LedgerId = ledgerId, EntryId = entryId };
+
+    // The entry that the broker delivers for a chunk. The payload is "chunk-{uuid}-{chunkId}|", like the one of the Java tests.
+    public static MessagePackage CreateChunkPackage(
+        string uuid,
+        int chunkId,
+        int numberOfChunks,
+        ulong entryId,
+        ulong ledgerId = 1,
+        ulong publishTime = 1_000_000,
+        uint redeliveryCount = 0,
+        Action<MessageMetadata>? customize = null)
+    {
+        var metadata = CreateChunkMetadata(uuid, chunkId, numberOfChunks, 1000, publishTime);
+        customize?.Invoke(metadata);
+        return BatchTestData.CreatePackage(BatchTestData.CreateEntryId(ledgerId, entryId), metadata, Encoding.UTF8.GetBytes(CreateChunkText(uuid, chunkId)), redeliveryCount: redeliveryCount);
+    }
+
+    public static string CreateChunkText(string uuid, int chunkId)
+        => $"chunk-{uuid}-{chunkId}|";
 
     // The payload is a repeating pattern, so that a chunk that is in the wrong place is detected
     public static byte[] CreatePayload(int length)

@@ -159,6 +159,28 @@ public sealed class ConsumerChannelFactoryTests
         deadLetterHandler.Count.ShouldBe(0);
     }
 
+    // The chunks of a message can arrive on different channels, because the broker delivers the unacknowledged entries again after a reconnect
+    [Fact(Timeout = 30_000)]
+    public async Task Create_GivenTwoChannels_ShouldAssembleTheChunksThatArriveOnDifferentChannelsIntoOneMessage()
+    {
+        //Arrange
+        var channels = new List<IChannel>();
+        var uut = CreateFactory(CreateConnection(onSubscribe: channels.Add), CommandSubscribe.Types.SubType.Exclusive, null);
+        await using var first = await uut.Create(Current.CancellationToken);
+        await using var second = await uut.Create(Current.CancellationToken);
+        channels[0].Received(ChunkTestData.CreateChunkPackage("a", 0, 2, 1));
+        channels[0].Received(BatchTestData.CreateSinglePackage(BatchTestData.CreateEntryId(1, 2)));
+        _ = await first.Receive(Current.CancellationToken);
+
+        //Act
+        channels[1].Received(ChunkTestData.CreateChunkPackage("a", 1, 2, 3));
+        var actual = await second.Receive(Current.CancellationToken);
+
+        //Assert
+        actual.MessageId.EntryId.ShouldBe(3UL);
+        actual.MessageId.FirstChunkMessageId!.EntryId.ShouldBe(1UL);
+    }
+
     private static ConsumerChannelFactory<byte[]> CreateFactory(IConnection connection, CommandSubscribe.Types.SubType subscriptionType, ConsumerEpoch? consumerEpoch, UnAckedMessageTracker? tracker = null, DeadLetterHandler<byte[]>? deadLetterHandler = null)
     {
         var connectionPool = Substitute.For<IConnectionPool>();

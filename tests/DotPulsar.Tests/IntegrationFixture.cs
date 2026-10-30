@@ -202,6 +202,18 @@ public class IntegrationFixture : IAsyncLifetime
         }
     }
 
+    // TODO(WP8-producer): Replace this with IProducer chunking. Until then, the messages are produced by the perf tool of the broker image, which splits
+    // them into chunks as a Java producer does when they are larger than the maximum message size of the broker (5 MiB by default). The tool counts the
+    // messages when they are acknowledged, so it can send one or two more than asked for, which the tests that use this method have to allow for.
+    public async Task ProduceChunkedMessages(string topic, int numberOfMessages, int messageSize, CancellationToken cancellationToken)
+    {
+        var arguments = $"bin/pulsar-perf produce {topic} -m {numberOfMessages} -s {messageSize} -r 1 -db -ch";
+        var result = await _pulsarCluster.ExecAsync(["/bin/bash", "-c", arguments], cancellationToken);
+
+        if (result.ExitCode != 0)
+            throw new Exception($"Could not produce the chunked messages: {result.Stderr}");
+    }
+
     public async Task AddSchemaToExistingTopic(string topic, SchemaInfo pulsarSchemaInfo, CancellationToken cancellationToken)
     {
         var schDef = new

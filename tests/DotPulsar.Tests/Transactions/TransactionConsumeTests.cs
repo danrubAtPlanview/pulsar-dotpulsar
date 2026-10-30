@@ -217,6 +217,40 @@ public sealed class TransactionConsumeTests : IDisposable
         }
     }
 
+    // Upstream: TransactionConsumeTest#testAckChunkMessage
+    // TODO(WP8-producer): Produce the message with IProducer (Schema.String, EnableChunking(true), 'a' x 6,000,000), and assert that the id that Send returns is the id
+    // of a chunked message of which the first chunk is not the last chunk, as upstream does. Until then the perf tool of the broker image splits the message in 2 chunks.
+    [Fact]
+    public async Task Acknowledge_GivenChunkedMessageAndTransaction_ShouldLeaveNoUnackedMessagesAfterCommit()
+    {
+        //Arrange
+        const string subscription = "testAckChunkMessage";
+        var topic = CreateTopicName();
+        await _fixture.CreateTopic(topic, _cts.Token);
+        await using var client = _fixture.CreateClient(_testOutputHelper.Log);
+        await using var consumer = client.NewConsumer(Schema.ByteArray).InitialPosition(SubscriptionInitialPosition.Earliest).SubscriptionName(subscription).SubscriptionType(SubscriptionType.Shared).Topic(topic).Create();
+        await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+        await _fixture.ProduceChunkedMessages(topic, 1, 6_000 * 1_000, _cts.Token);
+        var transaction = await client.NewTransaction().Timeout(TimeSpan.FromHours(5)).Create(_cts.Token);
+        var message = await TransactionFixture.ReceiveOrNull(consumer, TimeSpan.FromSeconds(60), _cts.Token);
+        message.ShouldNotBeNull();
+        message.MessageId.FirstChunkMessageId.ShouldNotBeNull();
+        message.MessageId.FirstChunkMessageId.ShouldNotBe(message.MessageId);
+
+        // The perf tool can send a message or two more than it was asked to, and they are not part of the transaction
+        while (await TransactionFixture.ReceiveOrNull(consumer, TimeSpan.FromSeconds(5), _cts.Token) is { } other)
+        {
+            await consumer.Acknowledge(other, _cts.Token);
+        }
+
+        //Act
+        await consumer.Acknowledge(message.MessageId, transaction, _cts.Token);
+        await transaction.Commit(_cts.Token);
+
+        //Assert
+        (await _fixture.GetUnackedMessages(topic, subscription, _cts.Token)).ShouldBe(0);
+    }
+
     public void Dispose()
         => _cts.Dispose();
 
