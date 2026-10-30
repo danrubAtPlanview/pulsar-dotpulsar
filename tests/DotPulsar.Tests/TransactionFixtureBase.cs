@@ -382,6 +382,10 @@ public abstract class TransactionFixtureBase : IAsyncLifetime
     public Task SetNamespaceDeduplication(string ns, bool enabled, CancellationToken cancellationToken)
         => PostJson($"/admin/v2/namespaces/{ns}/deduplication", enabled ? "true" : "false", cancellationToken);
 
+    // The broker rejects a producer that does not encrypt its messages (it must set 'encrypted' when it is created), and the messages that are not encrypted
+    public Task SetNamespaceEncryptionRequired(string ns, bool required, CancellationToken cancellationToken)
+        => PostJson($"/admin/v2/namespaces/{ns}/encryptionRequired", required ? "true" : "false", cancellationToken);
+
     public Task SetTopicDelayedDeliveryPolicy(string topic, bool active, long tickTimeMillis, long maxDeliveryDelayInMillis, CancellationToken cancellationToken)
         => PostJson($"/admin/v2/{ToRestPath(topic)}/delayedDelivery", $"{{\"active\":{(active ? "true" : "false")},\"tickTime\":{tickTimeMillis},\"maxDeliveryDelayInMillis\":{maxDeliveryDelayInMillis}}}", cancellationToken);
 

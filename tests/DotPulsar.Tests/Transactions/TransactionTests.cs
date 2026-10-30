@@ -18,6 +18,8 @@ using DotPulsar.Abstractions;
 using DotPulsar.Exceptions;
 using DotPulsar.Extensions;
 using DotPulsar.Internal.Transactions;
+using DotPulsar.Tests.Internal.Crypto;
+using System.Buffers;
 using System.Net;
 using System.Text;
 
@@ -286,7 +288,7 @@ public sealed class TransactionTests : IDisposable
         await _fixture.CreateTopic(topic, _cts.Token);
         await _fixture.SetTopicDelayedDeliveryPolicy(topic, true, 100, maxDeliveryDelayInMillis, _cts.Token);
         await using var client = _fixture.CreateClient(_testOutputHelper.Log);
-        await using var producer = client.NewProducer(Schema.ByteArray).Topic(topic).SendTimeout(TimeSpan.FromSeconds(5)).Create(); // TODO(WP9): .EncryptionKey("my-app-key") and .CryptoKeyReader(...), as upstream
+        await using var producer = client.NewProducer(Schema.ByteArray).Topic(topic).SendTimeout(TimeSpan.FromSeconds(5)).EncryptionKey("my-app-key").DefaultCryptoKeyReader(CreateDataUri(CryptoTestKeys.Public("ClientRsa"))).Create();
         var transaction = await client.NewTransaction().Timeout(TimeSpan.FromSeconds(5)).Create(_cts.Token);
         var payload = Encoding.UTF8.GetBytes(Guid.NewGuid().ToString());
 
@@ -300,8 +302,48 @@ public sealed class TransactionTests : IDisposable
         await Should.ThrowAsync<TransactionHasOperationFailedException>(async () => await transaction.Commit(_cts.Token)); // Additional coverage: the failed send makes the commit abort
     }
 
+    // Upstream: TransactionTest#testEncryptionRequired
+    // Upstream does not wait for the send or the commit. The message is received and decrypted here, because a commit that is not awaited proves nothing.
+    [Fact]
+    public async Task Send_GivenEncryptionRequiredNamespaceAndEncryptedTransactionalMessage_ShouldCommit()
+    {
+        //Arrange
+        var ns = $"{TransactionFixture.Tenant}/testEncryptionRequired-{Guid.NewGuid():N}";
+        var topic = $"persistent://{ns}/test_transaction_topic";
+        await _fixture.CreateNamespace(ns, 4, _cts.Token);
+        await _fixture.SetNamespaceEncryptionRequired(ns, true, _cts.Token);
+        await _fixture.CreateTopic(topic, _cts.Token);
+        await using var client = _fixture.CreateClient(_testOutputHelper.Log);
+        await using var producer = client.NewProducer(Schema.ByteArray).Topic(topic).SendTimeout(TimeSpan.FromSeconds(5)).EncryptionKey("my-app-key").DefaultCryptoKeyReader(CreateDataUri(CryptoTestKeys.Public("ClientRsa"))).Create();
+        await using var consumer = client.NewConsumer(Schema.ByteArray)
+            .InitialPosition(SubscriptionInitialPosition.Earliest)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .SubscriptionName("subscription")
+            .Topic(topic)
+            .DefaultCryptoKeyReader(CreateDataUri(CryptoTestKeys.Private("ClientRsa")))
+            .Create();
+        var transaction = await client.NewTransaction().Timeout(TimeSpan.FromSeconds(5)).Create(_cts.Token);
+        var payload = Encoding.UTF8.GetBytes(Guid.NewGuid().ToString());
+
+        //Act
+        _ = await producer.NewMessage().Transaction(transaction).Send(payload, _cts.Token);
+        var receivedBeforeCommit = await TransactionFixture.ReceiveOrNull(consumer, TimeSpan.FromSeconds(1), _cts.Token);
+        await transaction.Commit(_cts.Token);
+        var actual = await TransactionFixture.ReceiveOrNull(consumer, TimeSpan.FromSeconds(30), _cts.Token);
+
+        //Assert
+        receivedBeforeCommit.ShouldBeNull("the message of a transaction is not visible before the commit");
+        actual.ShouldNotBeNull();
+        actual.Data.ToArray().ShouldBe(payload);
+        actual.EncryptionContext.ShouldNotBeNull().IsEncrypted.ShouldBeFalse();
+        actual.EncryptionContext.Keys.Keys.ShouldBe(["my-app-key"]);
+    }
+
     public void Dispose()
         => _cts.Dispose();
+
+    private static string CreateDataUri(byte[] key)
+        => "data:application/x-pem-file;base64," + Convert.ToBase64String(key);
 
     private async Task WaitUntilTransactionBufferState(string topic, string state)
     {
