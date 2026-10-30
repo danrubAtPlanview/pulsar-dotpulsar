@@ -479,6 +479,30 @@ public sealed class DeadLetterHandlerTests
         options.ChunkMaxMessageSize.ShouldBe(0);
     }
 
+    // Upstream: ConsumerImpl#initDeadLetterProducerIfNeeded (the producer has no encryption keys, so the message is published to the dead letter topic as plain text, as in the Java client)
+    [Fact]
+    public async Task TryDeadLetter_GivenFirstUse_ShouldCreateProducerThatDoesNotEncrypt()
+    {
+        //Arrange
+        var uut = CreateHandler();
+        uut.Register(1, 2, [CreateMessage(0, "payload-0")]);
+        ProducerOptions<ReadOnlySequence<byte>>? options = null;
+        _producerFactory(Arg.Any<ProducerOptions<ReadOnlySequence<byte>>>(), Arg.Any<string?>())
+            .Returns(call =>
+            {
+                options = call.Arg<ProducerOptions<ReadOnlySequence<byte>>>();
+                return _producer;
+            });
+
+        //Act
+        _ = await uut.TryDeadLetter(new MessageId(1, 2, 0, -1, Topic), _acknowledge, Current.CancellationToken);
+
+        //Assert
+        options.ShouldNotBeNull();
+        options.EncryptionKeys.ShouldBeEmpty();
+        options.CryptoKeyReader.ShouldBeNull();
+    }
+
     [Fact]
     public async Task TryDeadLetter_GivenNoInitialSubscriptionName_ShouldCreateProducerWithoutIt()
     {

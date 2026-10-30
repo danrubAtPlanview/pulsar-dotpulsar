@@ -153,7 +153,8 @@ public sealed class FakeProducerConnection
             NumChunksFromMsg = metadata.HasNumChunksFromMsg ? metadata.NumChunksFromMsg : null,
             TotalChunkMsgSize = metadata.HasTotalChunkMsgSize ? metadata.TotalChunkMsgSize : null,
             SkipSizeCheck = package.SkipSizeCheck,
-            Payload = package.Payload.ToArray()
+            Payload = package.Payload.ToArray(),
+            Metadata = metadata.Clone()
         };
 
         _sent.Enqueue(message);
@@ -205,4 +206,7 @@ public sealed record SentMessage(
     // Whether the connection does not check the size of the message, and the payload that was written
     public bool SkipSizeCheck { get; init; }
     public byte[] Payload { get; init; } = [];
+
+    // A copy of the metadata as it was when the message was written
+    public MessageMetadata Metadata { get; init; } = new();
 }

@@ -18,7 +18,9 @@ using DotPulsar.Internal;
 using DotPulsar.Internal.Abstractions;
 using DotPulsar.Internal.Batching;
 using DotPulsar.Internal.Compression;
+using DotPulsar.Internal.Crypto;
 using DotPulsar.Internal.PulsarApi;
+using DotPulsar.Tests.Internal.Crypto;
 using System.Buffers;
 
 // The batch of the container is sent by the ProducerChannel as it is, which also compresses the whole payload of the batch
@@ -109,6 +111,84 @@ public sealed class BatchSendThroughProducerChannelTests
 
         //Annihilate
         batch.Return();
+    }
+
+    // Upstream: BatchMessageContainerImpl#buildAndEncryptBatchPayload, BatchMessageContainerImplTest#testToByteBufWithCompressionAndEncryption (the batch is compressed, and the result is encrypted)
+    [Fact]
+    public async Task Send_GivenBatchAndCompressionAndEncryption_ShouldCompressTheWholeBatchAndEncryptItOnce()
+    {
+        //Arrange
+        var compressorFactory = CompressionFactories.CompressorFactories().Single(factory => factory.CompressionType == CompressionType.Zlib);
+        var decompressorFactory = CompressionFactories.DecompressorFactories().Single(factory => factory.CompressionType == CompressionType.Zlib);
+        var sent = new List<(MessageMetadata Metadata, byte[] Payload, ulong CommandSequenceId)>();
+        using var messageCrypto = CreateMessageCrypto();
+        var uut = new ProducerChannel(5, "producer", CreateConnection(sent), compressorFactory, null, messageCrypto, ProducerCryptoFailureAction.Fail);
+        var batch = CreateBatch(20, null);
+        var uncompressed = batch.Payload.ToArray();
+
+        //Act
+        await uut.Send(batch.Metadata, batch.Payload, new TaskCompletionSource<BaseCommand>(), CancellationToken.None);
+
+        //Assert
+        var actual = sent.ShouldHaveSingleItem();
+        actual.Metadata.NumMessagesInBatch.ShouldBe(20);
+        actual.Metadata.Compression.ShouldBe(CompressionType.Zlib);
+        actual.Metadata.UncompressedSize.ShouldBe((uint) uncompressed.Length, "the size is that of the payload before it was compressed and encrypted");
+        actual.Metadata.EncryptionKeys.Count.ShouldBe(1);
+        actual.Metadata.EncryptionParam.Length.ShouldBe(MessageCrypto.IvLength);
+
+        var compressed = Decrypt(actual.Metadata, actual.Payload);
+        using var decompressor = decompressorFactory.Create();
+        var decompressed = decompressor.Decompress(new ReadOnlySequence<byte>(compressed), uncompressed.Length).ToArray();
+        decompressed.ShouldBe(uncompressed);
+        BatchPayloadReader.Read(decompressed, 20).Count.ShouldBe(20);
+
+        //Annihilate
+        batch.Return();
+    }
+
+    // The batch is kept until the broker has acknowledged it, and it is sent again after a reconnect
+    [Fact]
+    public async Task Send_GivenBatchThatIsSentTwiceAndEncryption_ShouldEncryptItAgainWithAFreshIvAndLeaveNoEncryptionFieldsInTheBatch()
+    {
+        //Arrange
+        var sent = new List<(MessageMetadata Metadata, byte[] Payload, ulong CommandSequenceId)>();
+        using var messageCrypto = CreateMessageCrypto();
+        var uut = new ProducerChannel(5, "producer", CreateConnection(sent), null, null, messageCrypto, ProducerCryptoFailureAction.Fail);
+        var batch = CreateBatch(5, null);
+        var expected = batch.Payload.ToArray();
+
+        //Act
+        await uut.Send(batch.Metadata, batch.Payload, new TaskCompletionSource<BaseCommand>(), CancellationToken.None);
+        await uut.Send(batch.Metadata, batch.Payload, new TaskCompletionSource<BaseCommand>(), CancellationToken.None);
+
+        //Assert
+        sent.Count.ShouldBe(2);
+        sent[1].Metadata.EncryptionParam.ToByteArray().ShouldNotBe(sent[0].Metadata.EncryptionParam.ToByteArray());
+        sent[1].Payload.ShouldNotBe(sent[0].Payload);
+        Decrypt(sent[0].Metadata, sent[0].Payload).ShouldBe(expected);
+        Decrypt(sent[1].Metadata, sent[1].Payload).ShouldBe(expected);
+        batch.Metadata.EncryptionKeys.ShouldBeEmpty();
+        batch.Metadata.HasEncryptionParam.ShouldBeFalse();
+        batch.Payload.ToArray().ShouldBe(expected, "the payload of the batch is not encrypted in place");
+
+        //Annihilate
+        batch.Return();
+    }
+
+    private static MessageCrypto CreateMessageCrypto()
+    {
+        var messageCrypto = new MessageCrypto(true);
+        messageCrypto.AddPublicKeyCipher(["rsa"], new InMemoryCryptoKeyReader().WithPublicKey("rsa", CryptoTestKeys.Public("ClientRsa")));
+        return messageCrypto;
+    }
+
+    private static byte[] Decrypt(MessageMetadata metadata, byte[] payload)
+    {
+        using var consumer = new MessageCrypto(false);
+        var keyReader = new InMemoryCryptoKeyReader().WithPrivateKey("rsa", CryptoTestKeys.Private("ClientRsa"));
+        consumer.TryDecrypt(metadata, new ReadOnlySequence<byte>(payload), keyReader, out var decrypted).ShouldBeTrue("the consumer can decrypt what the producer encrypted");
+        return decrypted.ToArray();
     }
 
     private static IConnection CreateConnection(List<(MessageMetadata Metadata, byte[] Payload, ulong CommandSequenceId)> sent)

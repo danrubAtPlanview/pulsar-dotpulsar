@@ -16,6 +16,7 @@ namespace DotPulsar.Tests;
 
 using DotPulsar.Abstractions;
 using DotPulsar.Exceptions;
+using DotPulsar.Tests.Internal.Crypto;
 
 [Trait("Category", "Unit")]
 public sealed class PulsarClientProducerOptionsTests
@@ -110,6 +111,39 @@ public sealed class PulsarClientProducerOptionsTests
 
         //Assert
         exception.ShouldBeOfType<ConfigurationException>().Message.ShouldBe("ProducerOptions.EncryptionKeys may not contain a null or blank key name");
+    }
+
+    // Upstream: ProducerEncryptionKeyFailureTest#testProducerWhoseKeyCannotBeLoadedIsNotLeftBehind
+    [Fact]
+    public async Task CreateProducer_GivenKeyThatCannotBeLoaded_ShouldThrowCryptoExceptionAndReturnNoProducer()
+    {
+        //Arrange
+        await using var client = PulsarClient.Builder().ServiceUrl(_serviceUrl).Build();
+        var options = CreateOptions();
+        options.CryptoKeyReader = Substitute.For<ICryptoKeyReader>();
+        options.EncryptionKeys = ["my-key"];
+
+        //Act
+        var exception = Record.Exception(() => client.CreateProducer(options));
+
+        //Assert
+        exception.ShouldBeOfType<CryptoException>().Message.ShouldStartWith("Failed to load public key my-key.");
+    }
+
+    [Fact]
+    public async Task CreateProducer_GivenEncryptionKeysAndCryptoKeyReader_ShouldNotThrow()
+    {
+        //Arrange
+        await using var client = PulsarClient.Builder().ServiceUrl(_serviceUrl).Build();
+        var options = CreateOptions();
+        options.CryptoKeyReader = new InMemoryCryptoKeyReader().WithPublicKey("my-key", CryptoTestKeys.Public("ClientRsa"));
+        options.EncryptionKeys = ["my-key"];
+
+        //Act
+        var exception = Record.Exception(() => client.CreateProducer(options));
+
+        //Assert
+        exception.ShouldBeNull();
     }
 
     [Fact]
