@@ -103,8 +103,9 @@ public sealed class AckTimeoutTests : IDisposable
     }
 
     // Upstream: UnAcknowledgedMessagesTimeoutTest#testCheckUnAcknowledgedMessageTimer
+    // The last message is not acknowledged, so it is the only one that is tracked. The blocking receive waits for its redelivery, and acknowledging it empties the tracker.
     [Fact]
-    public async Task Acknowledge_GivenAllMessagesAcknowledged_ShouldLeaveTrackerEmptyAfterTimeout()
+    public async Task Receive_GivenLastMessageNotAcknowledged_ShouldTrackOnlyItAndLeaveTrackerEmptyAfterItIsRedeliveredAndAcknowledged()
     {
         //Arrange
         const int totalMessages = 3;
@@ -115,31 +116,34 @@ public sealed class AckTimeoutTests : IDisposable
         await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
         await Send(producer, totalMessages);
 
-        var received = new List<IMessage<string>>();
+        //Act
         for (var i = 0; i < totalMessages; i++)
         {
-            received.Add(await Receive(consumer, TimeSpan.FromMilliseconds(500)));
+            var message = await Receive(consumer, TimeSpan.FromSeconds(5));
+
+            if (i != totalMessages - 1)
+                await consumer.Acknowledge(message, _cts.Token);
         }
 
         var trackedAfterReceive = UnAckedMessageCount(consumer);
 
-        //Act
-        foreach (var message in received)
-        {
-            await consumer.Acknowledge(message, _cts.Token);
-        }
-
+        // The ack timeout redelivers the message that was not acknowledged
+        var redelivered = await consumer.Receive(_cts.Token);
+        await consumer.Acknowledge(redelivered, _cts.Token);
         var trackedAfterAcknowledge = UnAckedMessageCount(consumer);
         await Task.Delay(TimeSpan.FromMilliseconds(2200), _cts.Token);
 
         //Assert
-        trackedAfterReceive.ShouldBe(totalMessages);
+        trackedAfterReceive.ShouldBe(1);
+        redelivered.Value().ShouldBe($"my-message-{totalMessages - 1}");
         trackedAfterAcknowledge.ShouldBe(0);
         UnAckedMessageCount(consumer).ShouldBe(0);
         (await TransactionFixture.ReceiveOrNull(consumer, TimeSpan.FromSeconds(1), _cts.Token)).ShouldBeNull();
     }
 
     // Upstream: PerMessageUnAcknowledgedRedeliveryTest#testSharedAckedNormalTopic
+    // The messages of the phases have the same values, like upstream. A Shared subscription redelivers only the messages that expired: the 5 of the first phase. The 5 of the third phase
+    // are tracked again from when they were received, so they have not expired yet when the redelivered messages are received.
     [Fact]
     public async Task Receive_GivenSharedSubscriptionAndPartiallyAcknowledgedMessages_ShouldRedeliverOnlyExpired()
     {
@@ -151,48 +155,40 @@ public sealed class AckTimeoutTests : IDisposable
         await using var consumer = CreateConsumer(client, topicName, SubscriptionType.Shared, 50);
         await using var producer = CreateProducer(client, topicName);
         await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
-        await Send(producer, totalMessages);
 
-        var firstPhase = new List<IMessage<string>>();
-        for (var i = 0; i < numberOfMessagesInPhase; i++)
-        {
-            firstPhase.Add(await Receive(consumer, TimeSpan.FromMilliseconds(100)));
-        }
+        //Act
+        // The messages are received and not acknowledged
+        await Send(producer, numberOfMessagesInPhase);
+        await ReceiveAll(consumer, TimeSpan.FromMilliseconds(100), false, true);
+        var trackedAfterFirstPhase = UnAckedMessageCount(consumer);
+
+        // The messages are received and acknowledged
+        await Send(producer, numberOfMessagesInPhase);
+        var received = await ReceiveAll(consumer, TimeSpan.FromMilliseconds(100), true, true);
+        var trackedAfterSecondPhase = UnAckedMessageCount(consumer);
+
+        // Simulate the ack timeout
+        await Task.Delay(_ackTimeout, _cts.Token);
+
+        // The messages are received and not acknowledged
+        await Send(producer, numberOfMessagesInPhase);
+        await ReceiveAll(consumer, TimeSpan.FromMilliseconds(100), false, true);
+        var trackedAfterThirdPhase = UnAckedMessageCount(consumer);
 
         await Task.Delay(_ackTimeout, _cts.Token);
 
-        var secondPhase = new List<IMessage<string>>();
-        for (var i = 0; i < numberOfMessagesInPhase; i++)
-        {
-            secondPhase.Add(await Receive(consumer, TimeSpan.FromMilliseconds(100)));
-        }
-
-        //Act
-        // The messages of the second phase are acknowledged, so only the messages of the first phase and the third phase are left
-        foreach (var message in secondPhase)
-        {
-            await consumer.Acknowledge(message, _cts.Token);
-        }
-
-        var thirdPhase = new List<IMessage<string>>();
-        for (var i = 0; i < numberOfMessagesInPhase; i++)
-        {
-            thirdPhase.Add(await Receive(consumer, TimeSpan.FromMilliseconds(100)));
-        }
-
-        await Task.Delay(_ackTimeout + TimeSpan.FromSeconds(1), _cts.Token);
+        // The redelivered messages are received and acknowledged
+        var redelivered = await ReceiveAll(consumer, TimeSpan.FromMilliseconds(100), true, true);
+        var trackedAfterRedelivery = UnAckedMessageCount(consumer);
 
         //Assert
-        // The first phase expired and is redelivered, together with the third phase that expired too
-        var redelivered = new List<IMessage<string>>();
-        while (await TransactionFixture.ReceiveOrNull(consumer, TimeSpan.FromSeconds(2), _cts.Token) is { } message)
-        {
-            redelivered.Add(message);
-        }
-
-        var expectedValues = firstPhase.Concat(thirdPhase).Select(message => message.Value()).ToHashSet();
-        redelivered.Select(message => message.Value()).ToHashSet().ShouldBe(expectedValues, true);
+        trackedAfterFirstPhase.ShouldBe(5);
+        trackedAfterSecondPhase.ShouldBe(5);
+        received.Count.ShouldBe(5);
+        trackedAfterThirdPhase.ShouldBe(10);
+        redelivered.Count.ShouldBe(5);
         redelivered.ShouldAllBe(message => message.RedeliveryCount >= 1);
+        trackedAfterRedelivery.ShouldBe(5);
     }
 
     // Upstream: PerMessageUnAcknowledgedRedeliveryTest#testUnAckedMessageTrackerSize
@@ -225,45 +221,54 @@ public sealed class AckTimeoutTests : IDisposable
 
     // Upstream: PerMessageUnAcknowledgedRedeliveryTest#testExclusiveAckedNormalTopic
     // Upstream: PerMessageUnAcknowledgedRedeliveryTest#testFailoverAckedNormalTopic
+    // The expiry of the 5 messages of the first phase redelivers all the messages that are not acknowledged, which includes the 5 messages of the third phase, so 10 are redelivered.
+    // The messages of the phases have the same values, like upstream.
     [Theory]
     [InlineData(SubscriptionType.Exclusive)]
     [InlineData(SubscriptionType.Failover)]
     public async Task Receive_GivenSubscriptionWithSingleActiveConsumerAndPartiallyAcknowledgedMessages_ShouldRedeliverAllUnacknowledged(SubscriptionType subscriptionType)
     {
         //Arrange
-        const int totalMessages = 10;
+        const int totalMessages = 15;
+        const int numberOfMessagesInPhase = totalMessages / 3;
         var topicName = await _fixture.CreateTopic(_cts.Token);
         await using var client = CreateClient();
         await using var consumer = CreateConsumer(client, topicName, subscriptionType, 50);
         await using var producer = CreateProducer(client, topicName);
         await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
-        await Send(producer, totalMessages);
-
-        var received = new List<IMessage<string>>();
-        for (var i = 0; i < totalMessages; i++)
-        {
-            received.Add(await Receive(consumer, TimeSpan.FromMilliseconds(500)));
-        }
-
-        for (var i = 0; i < totalMessages; i += 2)
-        {
-            await consumer.Acknowledge(received[i], _cts.Token);
-        }
 
         //Act
-        await Task.Delay(_ackTimeout + TimeSpan.FromSeconds(2), _cts.Token);
-        var trackedAfterExpiry = UnAckedMessageCount(consumer);
+        // The messages are received and not acknowledged
+        await Send(producer, numberOfMessagesInPhase);
+        await ReceiveAll(consumer, TimeSpan.FromMilliseconds(100), false, true);
+        var trackedAfterFirstPhase = UnAckedMessageCount(consumer);
+
+        // The messages are received and acknowledged
+        await Send(producer, numberOfMessagesInPhase);
+        var received = await ReceiveAll(consumer, TimeSpan.FromMilliseconds(100), true, true);
+        var trackedAfterSecondPhase = UnAckedMessageCount(consumer);
+
+        // Simulate the ack timeout
+        await Task.Delay(_ackTimeout, _cts.Token);
+
+        // The messages are received and not acknowledged
+        await Send(producer, numberOfMessagesInPhase);
+        await ReceiveAll(consumer, TimeSpan.FromMilliseconds(100), false, true);
+        var trackedAfterThirdPhase = UnAckedMessageCount(consumer);
+
+        await Task.Delay(_ackTimeout, _cts.Token);
+
+        // The redelivered messages are received and acknowledged
+        var redelivered = await ReceiveAll(consumer, TimeSpan.FromMilliseconds(100), true, true);
+        var trackedAfterRedelivery = UnAckedMessageCount(consumer);
 
         //Assert
-        // The expiry of the unacknowledged messages redelivers all the messages that are not acknowledged
-        var redelivered = new List<string>();
-        while (await TransactionFixture.ReceiveOrNull(consumer, TimeSpan.FromSeconds(2), _cts.Token) is { } message)
-        {
-            redelivered.Add(message.Value());
-        }
-
-        trackedAfterExpiry.ShouldBe(0);
-        redelivered.OrderBy(value => value).ShouldBe(received.Where((_, index) => index % 2 == 1).Select(message => message.Value()).OrderBy(value => value));
+        trackedAfterFirstPhase.ShouldBe(5);
+        trackedAfterSecondPhase.ShouldBe(5);
+        received.Count.ShouldBe(5);
+        trackedAfterThirdPhase.ShouldBe(10);
+        redelivered.Count.ShouldBe(10);
+        trackedAfterRedelivery.ShouldBe(0);
     }
 
     // Upstream: ConsumerRedeliveryTest#testMessageRedeliveryWhenTimeoutInListener
@@ -315,6 +320,83 @@ public sealed class AckTimeoutTests : IDisposable
         hello0.Select(message => message.RedeliveryCount).Order().ShouldBe([0U, 1U]);
         received.Count(message => message.Value() != "Hello-0").ShouldBe(totalMessages - 1);
         (await TransactionFixture.ReceiveOrNull(consumer, TimeSpan.FromSeconds(2), _cts.Token)).ShouldBeNull();
+    }
+
+    // Upstream: UnAcknowledgedMessagesTimeoutTest#testSharedSingleAckedPartitionedTopic (the row {false}; the row {true} uses ackTimeoutRedeliveryBackoff, which DotPulsar does not support)
+    // Consumer-1 receives its messages and does not acknowledge them, so they are redelivered to one of the consumers after the ack timeout. Consumer-2 acknowledges everything it receives,
+    // and what is redelivered to it is not acknowledged until the last round.
+    [Fact]
+    public async Task Receive_GivenSharedPartitionedTopicAndOneConsumerNotAcknowledging_ShouldRedeliverAfterAckTimeout()
+    {
+        //Arrange
+        const int totalMessages = 20;
+        const string subscriptionName = "my-shared-subscription";
+        var topicName = await _fixture.CreatePartitionedTopic(3, _cts.Token);
+        await using var client = CreateClient();
+        await using var consumer1 = CreateConsumer(client, topicName, SubscriptionType.Shared, 100, subscriptionName, "Consumer-1");
+        await using var consumer2 = CreateConsumer(client, topicName, SubscriptionType.Shared, 100, subscriptionName, "Consumer-2");
+        await using var producer = CreateProducer(client, topicName);
+        await consumer1.StateChangedTo(ConsumerState.Active, _cts.Token);
+        await consumer2.StateChangedTo(ConsumerState.Active, _cts.Token);
+        await Send(producer, totalMessages);
+
+        //Act
+        var messageCount1 = (await ReceiveAll(consumer1, TimeSpan.FromSeconds(1), false, false)).Count;
+        var messageCount2 = (await ReceiveAll(consumer2, TimeSpan.FromSeconds(1), true, false)).Count;
+        var ackCount2 = messageCount2;
+        var totalAfterFirstRound = messageCount1 + messageCount2;
+
+        // The messages of Consumer-1 are redelivered after the ack timeout
+        await Task.Delay(TimeSpan.FromMilliseconds(_ackTimeout.TotalMilliseconds * 1.1), _cts.Token);
+        messageCount1 = (await ReceiveAll(consumer1, TimeSpan.FromSeconds(1), true, false)).Count;
+        messageCount2 += (await ReceiveAll(consumer2, TimeSpan.FromSeconds(1), false, false)).Count;
+        var ackCount1 = messageCount1;
+        var totalAfterSecondRound = messageCount1 + messageCount2;
+        var acknowledgedAfterSecondRound = ackCount1 + messageCount2;
+
+        // The messages that were redelivered to Consumer-2 and not acknowledged are redelivered again after the ack timeout
+        await Task.Delay(_ackTimeout * 2, _cts.Token);
+        ackCount1 += (await ReceiveAll(consumer1, TimeSpan.FromSeconds(1), true, false)).Count;
+        ackCount2 += (await ReceiveAll(consumer2, TimeSpan.FromSeconds(1), true, false)).Count;
+
+        //Assert
+        totalAfterFirstRound.ShouldBe(totalMessages);
+        totalAfterSecondRound.ShouldBe(totalMessages);
+        acknowledgedAfterSecondRound.ShouldBe(totalMessages);
+        (ackCount1 + ackCount2).ShouldBe(totalMessages);
+    }
+
+    // Upstream: UnAcknowledgedMessagesTimeoutTest#testFailoverSingleAckedPartitionedTopic (the row {false}; the row {true} uses ackTimeoutRedeliveryBackoff, which DotPulsar does not support)
+    // Despite its name, the upstream test uses a Shared subscription, and so does this test.
+    [Fact]
+    public async Task Receive_GivenTwoSharedConsumersOnPartitionedTopicOneNotAcknowledging_ShouldRedeliverOnlyUnacknowledged()
+    {
+        //Arrange
+        const int totalMessages = 10;
+        const string subscriptionName = "my-failover-subscription";
+        var topicName = await _fixture.CreatePartitionedTopic(3, _cts.Token);
+        await using var client = CreateClient();
+        await using var consumer1 = CreateConsumer(client, topicName, SubscriptionType.Shared, 7, subscriptionName, "Consumer-1");
+        await using var consumer2 = CreateConsumer(client, topicName, SubscriptionType.Shared, 7, subscriptionName, "Consumer-2");
+        await using var producer = CreateProducer(client, topicName);
+        await consumer1.StateChangedTo(ConsumerState.Active, _cts.Token);
+        await consumer2.StateChangedTo(ConsumerState.Active, _cts.Token);
+        await Send(producer, totalMessages);
+
+        //Act
+        var messagesReceived = (await ReceiveAll(consumer1, TimeSpan.FromMilliseconds(500), false, false)).Count;
+        var ackCount = (await ReceiveAll(consumer2, TimeSpan.FromMilliseconds(500), true, false)).Count;
+        messagesReceived += ackCount;
+        var totalAfterFirstRound = messagesReceived;
+
+        // The messages of Consumer-1 are redelivered after the ack timeout
+        await Task.Delay(_ackTimeout * 2, _cts.Token);
+        messagesReceived = (await ReceiveAll(consumer1, TimeSpan.FromMilliseconds(500), false, false)).Count;
+        messagesReceived += (await ReceiveAll(consumer2, TimeSpan.FromMilliseconds(500), false, false)).Count;
+
+        //Assert
+        totalAfterFirstRound.ShouldBe(totalMessages);
+        (messagesReceived + ackCount).ShouldBe(totalMessages);
     }
 
     // Upstream: PerMessageUnAcknowledgedRedeliveryTest#testSharedAckedPartitionedTopic
@@ -484,6 +566,25 @@ public sealed class AckTimeoutTests : IDisposable
         return receipt.Task;
     }
 
+    // The receive loop of the Java tests: the messages are received until no message arrives within the timeout. The first receive blocks if 'waitForFirst' is true, like consumer.receive().
+    private async Task<List<IMessage<string>>> ReceiveAll(IConsumer<string> consumer, TimeSpan timeout, bool acknowledge, bool waitForFirst)
+    {
+        var messages = new List<IMessage<string>>();
+        var message = waitForFirst ? await consumer.Receive(_cts.Token) : await TransactionFixture.ReceiveOrNull(consumer, timeout, _cts.Token);
+
+        while (message is not null)
+        {
+            messages.Add(message);
+
+            if (acknowledge)
+                await consumer.Acknowledge(message, _cts.Token);
+
+            message = await TransactionFixture.ReceiveOrNull(consumer, timeout, _cts.Token);
+        }
+
+        return messages;
+    }
+
     private async Task<IMessage<string>> Receive(IConsumer<string> consumer, TimeSpan timeout)
     {
         var message = await TransactionFixture.ReceiveOrNull(consumer, timeout + TimeSpan.FromSeconds(4), _cts.Token);
@@ -491,16 +592,22 @@ public sealed class AckTimeoutTests : IDisposable
         return message;
     }
 
-    private IConsumer<string> CreateConsumer(IPulsarClient client, string topicName, SubscriptionType subscriptionType, uint prefetchCount)
-        => client.NewConsumer(Schema.String)
+    private IConsumer<string> CreateConsumer(IPulsarClient client, string topicName, SubscriptionType subscriptionType, uint prefetchCount, string? subscriptionName = null, string? consumerName = null)
+    {
+        var builder = client.NewConsumer(Schema.String)
             .AckTimeout(_ackTimeout)
             .InitialPosition(SubscriptionInitialPosition.Earliest)
             .MessagePrefetchCount(prefetchCount)
             .StateChangedHandler(_testOutputHelper.Log)
-            .SubscriptionName($"subscription-{Guid.NewGuid():N}")
+            .SubscriptionName(subscriptionName ?? $"subscription-{Guid.NewGuid():N}")
             .SubscriptionType(subscriptionType)
-            .Topic(topicName)
-            .Create();
+            .Topic(topicName);
+
+        if (consumerName is not null)
+            builder = builder.ConsumerName(consumerName);
+
+        return builder.Create();
+    }
 
     private IProducer<string> CreateProducer(IPulsarClient client, string topicName)
         => client.NewProducer(Schema.String)
