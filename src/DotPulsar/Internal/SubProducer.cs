@@ -152,33 +152,33 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
         await responseProcessorTask.ConfigureAwait(false);
     }
 
-    // Returns true if the message can be written. Returns false if it was removed from the queue, because the registration failed or the message was cancelled.
+    // Returns true if the message can be written. Returns false if it was removed from the queue, because the registration failed or the receipt of the message was completed before it was written.
     private async ValueTask<bool> TryAwaitRegistrationGate(SendOp sendOp, CancellationToken cancellationToken)
     {
         var registrationGate = sendOp.RegistrationGate!;
 
         try
         {
-            if (registrationGate.IsCompleted)
-                await registrationGate.ConfigureAwait(false);
-            else
+            if (!registrationGate.IsCompleted)
             {
-                // The registration is not cancelled, because it is shared with the other messages of the transaction. Only the waiting is.
-                using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, sendOp.CancellationToken);
-                await registrationGate.WaitAsync(linkedCts.Token).ConfigureAwait(false);
+                // The registration is not cancelled, because it is shared with the other messages of the transaction. Only the waiting is, and it ends if the dispatcher is stopped
+                // or if the receipt of the message is completed, which is what happens when the caller cancels the send.
+                var completed = await Task.WhenAny(registrationGate, sendOp.ReceiptTcs.Task).WaitAsync(cancellationToken).ConfigureAwait(false);
+
+                if (completed != registrationGate)
+                {
+                    _sendQueue.RemoveCurrentItem();
+                    return false;
+                }
             }
 
+            await registrationGate.ConfigureAwait(false); // Throws the exception of a failed registration
             return true;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             // The dispatcher is stopped. The message stays in the queue, so the next dispatcher will wait for the registration again.
             throw;
-        }
-        catch (OperationCanceledException) when (sendOp.CancellationToken.IsCancellationRequested)
-        {
-            _sendQueue.RemoveCurrentItem();
-            return false;
         }
         catch (Exception exception)
         {

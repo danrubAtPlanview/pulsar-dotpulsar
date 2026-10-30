@@ -153,10 +153,34 @@ public class SubProducerTests
 
         //Act
         await cts.CancelAsync();
+        _ = cancelledOp.ReceiptTcs.TrySetCanceled(cts.Token); // This is what Producer.Send does when the caller cancels
 
         //Assert
         await plainOp.ReceiptTcs.Task.WaitAsync(_timeout, Current.CancellationToken);
         channel.Written.ShouldBe([2UL]);
+    }
+
+    [Fact]
+    public async Task Send_GivenReceiptCompletedWhileWaitingForRegistration_ShouldNotWriteTheMessageAndContinueWithTheNext()
+    {
+        //Arrange
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var channel = new FakeChannel();
+        await using var sut = CreateSubProducer(CreateFactory(channel));
+        await sut.EstablishNewChannel(Current.CancellationToken);
+        var expiredOp = CreateSendOp(1, gate.Task);
+        var plainOp = CreateSendOp(2);
+        await sut.Send(expiredOp, Current.CancellationToken);
+        await sut.Send(plainOp, Current.CancellationToken);
+        await Task.Delay(TimeSpan.FromMilliseconds(250), Current.CancellationToken);
+
+        //Act
+        _ = expiredOp.ReceiptTcs.TrySetException(new OperationTimeoutException("The message was not sent in time"));
+
+        //Assert
+        await plainOp.ReceiptTcs.Task.WaitAsync(_timeout, Current.CancellationToken);
+        channel.Written.ShouldBe([2UL]);
+        await Should.ThrowAsync<OperationTimeoutException>(expiredOp.ReceiptTcs.Task);
     }
 
     [Fact]
