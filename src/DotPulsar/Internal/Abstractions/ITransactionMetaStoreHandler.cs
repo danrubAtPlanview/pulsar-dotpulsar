@@ -14,7 +14,22 @@
 
 namespace DotPulsar.Internal.Abstractions;
 
-public interface ITransactionMetaStoreHandler
+using DotPulsar.Abstractions;
+using DotPulsar.Internal.PulsarApi;
+using DotPulsar.Internal.Transactions;
+
+public interface ITransactionMetaStoreHandler : IStateHolder<TransactionMetaStoreHandlerState>, IAsyncDisposable
 {
+    TransactionMetaStoreHandlerState CurrentState { get; }
+
+    Task Connected { get; }
+
+    void Start();
+
     void ConnectionClosed();
+
+    ValueTask<TransactionId> NewTransaction(TimeSpan timeout, CancellationToken cancellationToken);
+    ValueTask AddPublishPartitionToTxn(TransactionId transactionId, string partition, CancellationToken cancellationToken);
+    ValueTask AddSubscriptionToTxn(TransactionId transactionId, string topic, string subscription, CancellationToken cancellationToken);
+    ValueTask EndTxn(TransactionId transactionId, TxnAction action, CancellationToken cancellationToken);
 }

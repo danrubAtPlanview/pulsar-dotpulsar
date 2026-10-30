@@ -51,6 +51,7 @@ public sealed class DefaultExceptionHandler : IHandleException
             AsyncQueueWithCursorNoItemException => FaultAction.Rethrow,
             ProducerSendReceiptOrderingException _ => FaultAction.Retry,
             OperationCanceledException _ => cancellationToken.IsCancellationRequested ? FaultAction.Rethrow : FaultAction.Retry,
+            OperationTimeoutException _ => FaultAction.Rethrow,
             DotPulsarException _ => FaultAction.Rethrow,
             IOException _ => FaultAction.Retry,
             SocketException socketException => socketException.SocketErrorCode switch
