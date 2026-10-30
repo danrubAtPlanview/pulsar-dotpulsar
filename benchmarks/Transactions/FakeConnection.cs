@@ -30,15 +30,16 @@ public sealed class FakeConnection : IConnection
     private readonly bool _serializeFrames;
 
     // The frame of a message is serialized like a connection does it when serializeFrames is true. It is the work that batching saves.
-    public FakeConnection(bool completeOnThreadPool, bool serializeFrames = false)
+    public FakeConnection(bool completeOnThreadPool, bool serializeFrames = false, int maxMessageSize = int.MaxValue)
     {
         _state = new StateManager<ConnectionState>(ConnectionState.Connected, ConnectionState.Disconnected, ConnectionState.Closed);
         _completeOnThreadPool = completeOnThreadPool;
         _serializeFrames = serializeFrames;
+        MaxMessageSize = maxMessageSize;
     }
 
     public IState<ConnectionState> State => _state;
-    public int MaxMessageSize => int.MaxValue;
+    public int MaxMessageSize { get; }
     public int ProtocolVersion => 19;
 
     public Task<ProducerResponse> Send(CommandProducer command, IChannel channel, CancellationToken cancellationToken)
