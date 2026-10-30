@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 - Support for acknowledgment receipts using ConsumerOptions.AckReceiptEnabled and IConsumerBuilder.AckReceiptEnabled
 - Support for transactions using IPulsarClient.CreateTransaction and IPulsarClient.NewTransaction()
+- Support for acknowledging messages in a transaction using the IConsumer.Acknowledge and IConsumer.AcknowledgeCumulative overloads that take an ITransaction
 - Support for batch index acknowledgment using ConsumerOptions.BatchIndexAckEnabled and IConsumerBuilder.BatchIndexAckEnabled
 - EnableTransaction and OperationTimeout on IPulsarClientBuilder
 - New exceptions: TransactionNotFoundException, TransactionHasOperationFailedException, TransactionCoordinatorClientException, TransactionCoordinatorClientStateException, MetaStoreHandlerNotExistsException, MetaStoreHandlerNotReadyException and OperationTimeoutException
@@ -17,7 +18,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 ### Changed
 
 - Updated the protocol version from 14 to 19
-- IPulsarClient, IPulsarClientBuilder and IConsumerBuilder have new members. This is a breaking change for custom implementations of these interfaces
+- IPulsarClient, IPulsarClientBuilder, IConsumer and IConsumerBuilder have new members. This is a breaking change for custom implementations of these interfaces
 - PulsarClientClosedException has a new constructor that takes a message
 
 ### Fixed
