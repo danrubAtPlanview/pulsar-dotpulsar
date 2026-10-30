@@ -1408,15 +1408,16 @@ public sealed class ChunkedMessageAssemblerTests
         }
 
         //Act
-        var before = GC.GetAllocatedBytesForCurrentThread();
-        for (var i = 0; i < 1000; ++i)
+        var allocated = AllocationMeasurement.SmallestBytesOfCurrentThread(() =>
         {
-            uut.Process(id, orphan, payload, _acks, _track);
-            uut.Process(id, duplicated, payload, _acks, _track);
-            _acks.Clear();
-            _track.Clear();
-        }
-        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+            for (var i = 0; i < 1000; ++i)
+            {
+                uut.Process(id, orphan, payload, _acks, _track);
+                uut.Process(id, duplicated, payload, _acks, _track);
+                _acks.Clear();
+                _track.Clear();
+            }
+        });
 
         //Assert
         allocated.ShouldBe(0);

@@ -489,20 +489,21 @@ public sealed class BatchHandlerTests
         uut.CopyAckSetTo(tracker!, ackSet);
         uut.TryGetBatchSize(messageId, out _);
         uut.PruneUpTo(olderEntryId);
-        var before = GC.GetAllocatedBytesForCurrentThread();
 
         //Act
-        for (var i = 1; i < 900; ++i)
+        var allocated = AllocationMeasurement.SmallestBytesOfCurrentThread(() =>
         {
-            messageId.BatchIndex = i;
-            uut.AcknowledgeIndividual(messageId, out _);
-            uut.TryGetBatchSize(messageId, out _);
-            uut.CopyAckSetTo(tracker!, ackSet);
-            uut.PruneUpTo(olderEntryId);
-        }
+            for (var i = 1; i < 900; ++i)
+            {
+                messageId.BatchIndex = i;
+                uut.AcknowledgeIndividual(messageId, out _);
+                uut.TryGetBatchSize(messageId, out _);
+                uut.CopyAckSetTo(tracker!, ackSet);
+                uut.PruneUpTo(olderEntryId);
+            }
+        });
 
         //Assert
-        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
         allocated.ShouldBe(0);
     }
 

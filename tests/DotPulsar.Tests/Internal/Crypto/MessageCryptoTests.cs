@@ -1227,9 +1227,7 @@ public sealed class MessageCryptoTests
         uut.Encrypt(metadata, payload); // Warm up
 
         //Act
-        var before = GC.GetAllocatedBytesForCurrentThread();
-        uut.Encrypt(metadata, payload);
-        var actual = GC.GetAllocatedBytesForCurrentThread() - before;
+        var actual = AllocationMeasurement.SmallestBytesOfCurrentThread(() => uut.Encrypt(metadata, payload), payloadLength + 16 + 100);
 
         //Assert (the output buffer, the IV and its ByteString)
         actual.ShouldBeLessThan(payloadLength + 16 + 100);
@@ -1248,9 +1246,8 @@ public sealed class MessageCryptoTests
         uut.TryDecrypt(metadata, encrypted, keyReader, out _); // Warm up (the key is unwrapped and cached)
 
         //Act
-        var before = GC.GetAllocatedBytesForCurrentThread();
-        var decrypted = uut.TryDecrypt(metadata, encrypted, keyReader, out _);
-        var actual = GC.GetAllocatedBytesForCurrentThread() - before;
+        var decrypted = false;
+        var actual = AllocationMeasurement.SmallestBytesOfCurrentThread(() => decrypted = uut.TryDecrypt(metadata, encrypted, keyReader, out _), payloadLength + 100);
 
         //Assert
         decrypted.ShouldBeTrue();

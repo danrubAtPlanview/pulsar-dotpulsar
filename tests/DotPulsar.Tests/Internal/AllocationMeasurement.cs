@@ -58,6 +58,22 @@ public static class AllocationMeasurement
         return smallest;
     }
 
+    // The smallest of a few attempts of a synchronous action that allocates the same when it is repeated. A one-time allocation of the runtime (tiered compilation, a test listener)
+    // is not an allocation of the code under test, and a real allocation shows up in every attempt. The result is the number of bytes that the current thread allocated.
+    public static long SmallestBytesOfCurrentThread(Action action, long target = 0)
+    {
+        var smallest = long.MaxValue;
+
+        for (var attempt = 0; attempt < MaxAttempts && smallest > target; ++attempt)
+        {
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            action();
+            smallest = Math.Min(smallest, GC.GetAllocatedBytesForCurrentThread() - before);
+        }
+
+        return smallest;
+    }
+
     // The same for operations that continue on other threads, so that the allocations of all threads are counted. Every other thread that allocates adds to the number, so the tests
     // that use this are in a collection that does not run in parallel with other tests.
     public static async Task<double> BytesPerOperationOfAllThreads(Func<ValueTask> operation, double target = 0)

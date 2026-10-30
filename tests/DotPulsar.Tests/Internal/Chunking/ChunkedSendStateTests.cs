@@ -398,13 +398,15 @@ public sealed class ChunkedSendStateTests
             length += uut.GetChunk(chunkId).Length;
 
         //Act
-        var before = GC.GetAllocatedBytesForCurrentThread();
-        for (var chunkId = 0; chunkId < uut.TotalChunks; ++chunkId)
-            length += uut.GetChunk(chunkId).Length;
-        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        var allocated = AllocationMeasurement.SmallestBytesOfCurrentThread(() =>
+        {
+            length = 0;
+            for (var chunkId = 0; chunkId < uut.TotalChunks; ++chunkId)
+                length += uut.GetChunk(chunkId).Length;
+        });
 
         //Assert
-        length.ShouldBe(payload.Length * 2L);
+        length.ShouldBe(payload.Length);
         allocated.ShouldBe(0);
     }
 

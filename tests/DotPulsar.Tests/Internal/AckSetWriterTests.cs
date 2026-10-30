@@ -288,17 +288,18 @@ public sealed class AckSetWriterTests
         var target = new RepeatedField<long>();
         AckSetWriter.WriteIndividual(target, 1000, 500);
         AckSetWriter.WriteCumulative(target, 1000, 500);
-        var before = GC.GetAllocatedBytesForCurrentThread();
 
         //Act
-        for (var i = 0; i < 1000; ++i)
+        var allocated = AllocationMeasurement.SmallestBytesOfCurrentThread(() =>
         {
-            AckSetWriter.WriteIndividual(target, 1000, i);
-            AckSetWriter.WriteCumulative(target, 1000, i);
-        }
+            for (var i = 0; i < 1000; ++i)
+            {
+                AckSetWriter.WriteIndividual(target, 1000, i);
+                AckSetWriter.WriteCumulative(target, 1000, i);
+            }
+        });
 
         //Assert
-        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
         allocated.ShouldBe(0);
     }
 
