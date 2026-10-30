@@ -295,25 +295,28 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
     }
 
     private Task SendGroup(IProducerChannel channel, SendOp head, TaskCompletionSource<BaseCommand> tcs, CancellationToken cancellationToken)
-        => head.BatchCount > 1 ? SendBatch(channel, head, tcs, cancellationToken) : channel.Send(head.Metadata, head.Data, tcs, cancellationToken);
-
-    private async Task SendBatch(IProducerChannel channel, SendOp head, TaskCompletionSource<BaseCommand> tcs, CancellationToken cancellationToken)
     {
-        var batch = head.Batch!;
+        var send = head.BatchCount > 1 ? channel.Send(head.Batch!.Metadata, head.Batch.Payload, tcs, cancellationToken) : channel.Send(head.Metadata, head.Data, tcs, cancellationToken);
 
+        // A send that is completed at once is returned as it is, so nothing is allocated for it
+        return send.Status == TaskStatus.RanToCompletion ? send : AwaitSend(send, head);
+    }
+
+    private async Task AwaitSend(Task send, SendOp head)
+    {
         try
         {
-            await channel.Send(batch.Metadata, batch.Payload, tcs, cancellationToken).ConfigureAwait(false);
+            await send.ConfigureAwait(false);
         }
         catch (TooLargeMessageException exception)
         {
             // Upstream: ProducerImpl#processOpSendMsg
-            // The batch is not written, so no receipt will come. The messages of the batch fail, and the producer is not faulted.
+            // The message or the batch is not written, so no receipt will come. The messages of the group fail, and the producer is not faulted.
             FailGroupAtCursor(head, exception);
         }
     }
 
-    // The cursor is at the last message of the group
+    // The cursor is at the last message of the group. A message that is not batched is not in a group, and is a group of one.
     private void FailGroupAtCursor(SendOp head, Exception exception)
     {
         var failed = new List<SendOp>();
@@ -325,7 +328,7 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
                 return;
 
             var batch = head.Batch;
-            var count = head.BatchCount;
+            var count = Math.Max(head.BatchCount, 1);
 
             for (var i = 0; i < count; ++i)
             {

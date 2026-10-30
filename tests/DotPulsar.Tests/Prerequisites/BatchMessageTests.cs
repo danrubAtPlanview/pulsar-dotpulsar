@@ -15,7 +15,9 @@
 namespace DotPulsar.Tests.Prerequisites;
 
 using DotPulsar.Abstractions;
+using DotPulsar.Exceptions;
 using DotPulsar.Extensions;
+using System.Security.Cryptography;
 using System.Text.Json;
 
 // Upstream: BatchMessageTest
@@ -398,11 +400,43 @@ public sealed class BatchMessageTests : IDisposable
         }
     }
 
-    // Upstream: BatchMessageTest#testSendOverSizeMessage
-    // The send of a message that is larger than the maximum message size faults the producer today, instead of failing the send (followups/0006).
-    [Fact(Skip = "Requires that a message that is too large fails only its send (WP8)")]
-    public Task Send_GivenMessageLargerThanMaxMessageSize_ShouldFailTheSendAndNotFaultTheProducer()
-        => Task.CompletedTask;
+    // Upstream: BatchMessageTest#testSendOverSizeMessage (the data provider codecAndContainerBuilder)
+    // The message is random, so it is larger than the maximum message size of the broker (5 MiB) also when it is compressed. The Java test accepts that the send does not fail.
+    [Theory]
+    [InlineData(CompressionType.None, BatcherType.Default)]
+    [InlineData(CompressionType.Lz4, BatcherType.Default)]
+    [InlineData(CompressionType.Zlib, BatcherType.Default)]
+    [InlineData(CompressionType.None, BatcherType.KeyBased)]
+    [InlineData(CompressionType.Lz4, BatcherType.KeyBased)]
+    [InlineData(CompressionType.Zlib, BatcherType.KeyBased)]
+    public async Task Send_GivenMessageLargerThanMaxMessageSize_ShouldFailTheSendAndNotFaultTheProducer(CompressionType compressionType, BatcherType batcherType)
+    {
+        //Arrange
+        var topic = await _fixture.CreateTopic(_cts.Token);
+        await using var client = CreateClient();
+        await using var consumer = await CreateConsumer(client, topic);
+        await using var producer = await CreateProducer(client, topic, builder => builder
+            .CompressionType(compressionType)
+            .BatcherType(batcherType)
+            .BatchingMaxMessages(2)
+            .BatchingMaxPublishDelay(TimeSpan.FromMilliseconds(1)));
+        var tooLarge = Convert.ToBase64String(RandomNumberGenerator.GetBytes(8 * 1024 * 1024));
+
+        //Act
+        var act = async () => await producer.Send(tooLarge, _cts.Token);
+
+        //Assert
+        await act.ShouldThrowAsync<TooLargeMessageException>();
+        var receipts = new List<Task<MessageId>>();
+        for (var i = 0; i < 10; ++i)
+        {
+            receipts.Add(await SendAsync(producer, $"msg-{i}"));
+        }
+
+        await Task.WhenAll(receipts).WaitAsync(TimeSpan.FromSeconds(30), _cts.Token);
+        producer.State.IsFinalState().ShouldBeFalse(); // A faulted producer is in a final state
+        await AssertReceived(consumer, 10);
+    }
 
     // Additional coverage
     [Fact]

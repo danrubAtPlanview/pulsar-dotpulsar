@@ -273,6 +273,58 @@ public class SubProducerTests
         notAllowedOp.ReceiptTcs.Task.IsCompleted.ShouldBeFalse();
     }
 
+    // Upstream: BatchMessageTest#testSendOverSizeMessage, ProducerImpl#processOpSendMsg
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Send_GivenMessageThatIsTooLarge_ShouldFailOnlyThatMessageWithTooLargeMessageExceptionAndContinueWithTheNext(bool failsAfterAwaiting)
+    {
+        //Arrange
+        var registerEvent = Substitute.For<IRegisterEvent>();
+        var exception = new TooLargeMessageException(10 * 1024 * 1024, 5 * 1024 * 1024);
+        var channel = new FakeChannel { Fail = sequenceId => sequenceId == 1 ? (failsAfterAwaiting ? FailAfterYield(exception) : Task.FromException(exception)) : null };
+        await using var sut = CreateSubProducer(CreateFactory(channel), registerEvent, true);
+        await sut.EstablishNewChannel(Current.CancellationToken);
+        var tooLargeOp = CreateSendOp(1);
+        var plainOp = CreateSendOp(2);
+
+        //Act
+        await sut.Send(tooLargeOp, Current.CancellationToken);
+        await sut.Send(plainOp, Current.CancellationToken);
+
+        //Assert
+        var actual = await Should.ThrowAsync<TooLargeMessageException>(tooLargeOp.ReceiptTcs.Task.WaitAsync(_timeout, Current.CancellationToken));
+        actual.ShouldBeSameAs(exception);
+        await plainOp.ReceiptTcs.Task.WaitAsync(_timeout, Current.CancellationToken); // The receipt of the next message is matched with the head of the queue, so it would fail if the message that is too large was still there
+        channel.Written.ShouldBe([2UL]);
+        registerEvent.ReceivedCalls().Select(x => x.GetArguments()[0]).ShouldNotContain(x => x is ExecutorFaulted || x is ChannelDisconnected);
+    }
+
+    [Fact]
+    public async Task Send_GivenMessageThatIsTooLargeAndMaxPendingMessagesReached_ShouldReleaseTheQueueForTheNextMessage()
+    {
+        //Arrange
+        var channel = new FakeChannel { Fail = sequenceId => sequenceId == 1 ? Task.FromException(new TooLargeMessageException(10, 5)) : null };
+        await using var sut = CreateSubProducer(CreateFactory(channel), maxPendingMessages: 1);
+        await sut.EstablishNewChannel(Current.CancellationToken);
+        var tooLargeOp = CreateSendOp(1);
+        var plainOp = CreateSendOp(2);
+
+        //Act
+        await sut.Send(tooLargeOp, Current.CancellationToken);
+        await sut.Send(plainOp, Current.CancellationToken).AsTask().WaitAsync(_timeout, Current.CancellationToken);
+
+        //Assert
+        await Should.ThrowAsync<TooLargeMessageException>(tooLargeOp.ReceiptTcs.Task.WaitAsync(_timeout, Current.CancellationToken));
+        await plainOp.ReceiptTcs.Task.WaitAsync(_timeout, Current.CancellationToken);
+    }
+
+    private static async Task FailAfterYield(Exception exception)
+    {
+        await Task.Yield();
+        throw exception;
+    }
+
     private static SendOp CreateSendOp(ulong sequenceId, Task? registrationGate = null)
         => new(new MessageMetadata { SequenceId = sequenceId }, ReadOnlySequence<byte>.Empty, new TaskCompletionSource<MessageId>(TaskCreationOptions.RunContinuationsAsynchronously), registrationGate: registrationGate);
 
@@ -297,7 +349,7 @@ public class SubProducerTests
         return factory;
     }
 
-    private static SubProducer CreateSubProducer(IProducerChannelFactory factory, IRegisterEvent? registerEvent = null, bool useExecutorOfProducer = false)
+    private static SubProducer CreateSubProducer(IProducerChannelFactory factory, IRegisterEvent? registerEvent = null, bool useExecutorOfProducer = false, uint maxPendingMessages = 1000)
     {
         registerEvent ??= Substitute.For<IRegisterEvent>();
         var correlationId = Guid.NewGuid();
@@ -310,7 +362,7 @@ public class SubProducerTests
             state: Substitute.For<IState<ProducerState>>(),
             factory: factory,
             partition: 0,
-            maxPendingMessages: 1000,
+            maxPendingMessages: maxPendingMessages,
             topic: "persistent://public/default/test",
             enableBatching: false,
             batcherType: BatcherType.Default,
@@ -329,12 +381,19 @@ public class SubProducerTests
         // Decides the answer to a message. By default it is a receipt. Returning null leaves the message unanswered.
         public Func<ulong, BaseCommand?>? Respond { get; set; }
 
+        // Decides if writing a message fails. It returns the task that the write returns, or null if the write does not fail.
+        public Func<ulong, Task?>? Fail { get; set; }
+
         public ulong[] Written => _written.ToArray();
 
         public int MaxMessageSize => 5 * 1024 * 1024;
 
         public Task Send(MessageMetadata metadata, ReadOnlySequence<byte> payload, TaskCompletionSource<BaseCommand> responseTcs, CancellationToken cancellationToken)
         {
+            var failure = Fail?.Invoke(metadata.SequenceId);
+            if (failure is not null)
+                return failure;
+
             _written.Enqueue(metadata.SequenceId);
 
             var response = Respond is null ? CreateReceipt(metadata.SequenceId) : Respond(metadata.SequenceId);
