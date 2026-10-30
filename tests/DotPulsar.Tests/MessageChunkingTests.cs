@@ -350,7 +350,7 @@ public sealed class MessageChunkingTests : IDisposable
         (received1.Count + received2.Count).ShouldBe(values.Count);
         received1.ShouldNotBeEmpty();
         received2.ShouldNotBeEmpty();
-        received1.Concat(received2).ToHashSet().ShouldBe(values);
+        received1.Concat(received2).ToHashSet().ShouldBe(values, true);
     }
 
     // Upstream: MessageChunkingSharedTest#testInterleavedChunks
@@ -444,13 +444,14 @@ public sealed class MessageChunkingTests : IDisposable
         await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
         await using var producer = CreateChunkingProducer(client, topic, 100); // Small enough that the payload would otherwise be split in several chunks
         var payload = new string('a', 500);
+        var receiving = await StartReceiving(consumer);
 
         //Act
         var messageId = await producer.Send(payload, _cts.Token);
 
         //Assert
         messageId.FirstChunkMessageId.ShouldBeNull();
-        (await Receive(consumer, TimeSpan.FromSeconds(10))).Value().ShouldBe(payload);
+        (await receiving).ShouldNotBeNull().Value().ShouldBe(payload);
         (await TransactionFixture.ReceiveOrNull(consumer, TimeSpan.FromSeconds(3), _cts.Token)).ShouldBeNull("the payload was published more than once");
     }
 
@@ -465,6 +466,7 @@ public sealed class MessageChunkingTests : IDisposable
         await using var consumer = CreateConsumer(client, topic, SubscriptionType.Exclusive);
         await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
         await using var producer = client.NewProducer(Schema.ByteArray).StateChangedHandler(_testOutputHelper.Log).Topic(topic).EnableChunking(true).Create();
+        var receiving = await StartReceiving(consumer);
 
         //Act
         var act = async () => await producer.Send(new byte[maxMessageSize + 10 * 1024 + 1024], _cts.Token);
@@ -472,7 +474,7 @@ public sealed class MessageChunkingTests : IDisposable
         //Assert
         await act.ShouldThrowAsync<TooLargeMessageException>();
         _ = await producer.Send([1, 2, 3], _cts.Token);
-        (await Receive(consumer, TimeSpan.FromSeconds(10))).Value().ShouldBe([1, 2, 3]);
+        (await receiving).ShouldNotBeNull().Value().ShouldBe([1, 2, 3]);
     }
 
     // Upstream: BatchMessageTest#testSendOverSizeMessage (the producer does not chunk, so the send of a message that is larger than the maximum message size fails)
@@ -508,7 +510,7 @@ public sealed class MessageChunkingTests : IDisposable
         await using var client = CreateClient();
         await using var consumer = CreateStringConsumer(client, topic, subscription);
         await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
-        await using var producer = client.NewProducer(Schema.String).StateChangedHandler(_testOutputHelper.Log).Topic(topic).CompressionType(compressionType).EnableChunking(true).ChunkMaxMessageSize(1000).Create();
+        await using var producer = client.NewProducer(Schema.String).StateChangedHandler(_testOutputHelper.Log).Topic(topic).CompressionType(compressionType).EnableChunking(true).ChunkMaxMessageSize(100).Create();
         var values = Enumerable.Range(0, 5).Select(i => CreateRandomDigits(i * 1000)).ToList();
 
         //Act
@@ -593,6 +595,14 @@ public sealed class MessageChunkingTests : IDisposable
     }
 
     private static string CreateSubscriptionName() => $"subscription-{Guid.NewGuid():N}";
+
+    // The consumer sends its permits to the broker when it starts to receive, and the broker does not keep a message of a non-persistent topic for a consumer that has none
+    private async Task<Task<IMessage<TMessage>?>> StartReceiving<TMessage>(IReceive<IMessage<TMessage>> receiver)
+    {
+        var receiving = TransactionFixture.ReceiveOrNull(receiver, TimeSpan.FromSeconds(10), _cts.Token);
+        await Task.Delay(TimeSpan.FromSeconds(1), _cts.Token);
+        return receiving;
+    }
 
     private static string CreateRepeatedMessage(int number)
         => string.Concat(Enumerable.Repeat($"message-{number}", 30));
