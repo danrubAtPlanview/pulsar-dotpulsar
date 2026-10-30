@@ -239,6 +239,34 @@ public sealed class BatchMessageTests : IDisposable
         }
     }
 
+    // Upstream: BatchMessageTest#testSimpleBatchSyncProducerWithFixedBatchSize (the data provider containerBuilder)
+    // Java expects 2 entries for 10 messages with a batch size of 5, but each synchronous send waits for the broker, so every message goes as an entry of its own and the backlog is 10.
+    [Theory]
+    [InlineData(BatcherType.Default)]
+    [InlineData(BatcherType.KeyBased)]
+    public async Task Send_GivenFixedBatchSizeAndSynchronousSends_ShouldCreateOneEntryPerMessage(BatcherType batcherType)
+    {
+        //Arrange
+        const int numberOfMessages = 10;
+        var topic = await _fixture.CreateTopic(_cts.Token);
+        await using var client = CreateClient();
+        await using var consumer = await CreateConsumer(client, topic);
+        await using var producer = await CreateProducer(client, topic, builder => builder
+            .BatcherType(batcherType)
+            .BatchingMaxMessages(numberOfMessages / 2)
+            .BatchingMaxPublishDelay(TimeSpan.FromSeconds(1)));
+
+        //Act
+        for (var i = 0; i < numberOfMessages; ++i)
+        {
+            _ = await producer.Send($"my-message-{i}", _cts.Token);
+        }
+
+        //Assert
+        (await GetBacklog(topic)).ShouldBe(10);
+        (await AssertReceived(consumer, numberOfMessages, false)).ShouldBe(Enumerable.Range(0, numberOfMessages).Select(i => $"my-message-{i}"));
+    }
+
     // Upstream: BatchMessageTest#testSimpleBatchProducerConsumer1kMessages
     [Fact]
     public async Task Send_GivenThousandMessagesAndBatching_ShouldDeliverAllInOrder()
