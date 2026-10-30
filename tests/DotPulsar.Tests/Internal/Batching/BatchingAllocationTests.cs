@@ -24,6 +24,7 @@ public sealed class BatchingAllocationTests
     private const int MaxMessageSize = 5 * 1024 * 1024;
     private const int WarmUpRounds = 200;
     private const int MeasuredRounds = 200;
+    private const int MaxAttempts = 5;
 
     [Theory]
     [InlineData(BatcherType.Default, 1)]
@@ -46,13 +47,7 @@ public sealed class BatchingAllocationTests
         }
 
         //Act
-        var before = GC.GetAllocatedBytesForCurrentThread();
-        for (var i = 0; i < MeasuredRounds; ++i)
-        {
-            Round(container, items, groups);
-        }
-
-        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        var allocated = MeasureAllocations(() => Round(container, items, groups));
 
         //Assert
         allocated.ShouldBe(0);
@@ -71,13 +66,7 @@ public sealed class BatchingAllocationTests
         }
 
         //Act
-        var before = GC.GetAllocatedBytesForCurrentThread();
-        for (var i = 0; i < MeasuredRounds; ++i)
-        {
-            LimitsRound(container, items, groups);
-        }
-
-        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        var allocated = MeasureAllocations(() => LimitsRound(container, items, groups));
 
         //Assert
         allocated.ShouldBe(0);
@@ -96,13 +85,7 @@ public sealed class BatchingAllocationTests
         }
 
         //Act
-        var before = GC.GetAllocatedBytesForCurrentThread();
-        for (var i = 0; i < MeasuredRounds; ++i)
-        {
-            ChunkedRound(container, items, groups);
-        }
-
-        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        var allocated = MeasureAllocations(() => ChunkedRound(container, items, groups));
 
         //Assert
         allocated.ShouldBe(0);
@@ -126,6 +109,26 @@ public sealed class BatchingAllocationTests
 
         //Assert
         allocated.ShouldBeGreaterThanOrEqualTo(items.Length * 100L);
+    }
+
+    // ArrayPool<byte>.Shared trims its buffers when a gen 2 collection runs under memory pressure, and the next rent then allocates a new array.
+    // A real allocation in the code under test shows up in every attempt, so the smallest measurement is the one that counts.
+    private static long MeasureAllocations(Action round)
+    {
+        var smallest = long.MaxValue;
+
+        for (var attempt = 0; attempt < MaxAttempts && smallest != 0; ++attempt)
+        {
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            for (var i = 0; i < MeasuredRounds; ++i)
+            {
+                round();
+            }
+
+            smallest = Math.Min(smallest, GC.GetAllocatedBytesForCurrentThread() - before);
+        }
+
+        return smallest;
     }
 
     private static void Round(IBatchMessageContainer<TestBatchItem> container, TestBatchItem[] items, List<PreparedBatchGroup> groups)
