@@ -209,12 +209,12 @@ public sealed class ConnectionTests
     public async Task AddTransactionMetaStoreHandler_GivenHandler_ShouldNotCloseConnectionOnInactivity()
     {
         //Arrange
-        await using var uut = Connect(new FakePulsarStream(), TimeSpan.FromMilliseconds(200));
-        var handler = Substitute.For<ITransactionMetaStoreHandler>();
+        var handler = Substitute.For<ITransactionMetaStoreHandler>(); // The time that it takes to create it would be a part of the time that the connection has been without a channel
+        await using var uut = Connect(new FakePulsarStream(), TimeSpan.FromMilliseconds(500));
 
         //Act
         _ = uut.AddTransactionMetaStoreHandler(handler);
-        await Task.Delay(TimeSpan.FromMilliseconds(800), Current.CancellationToken);
+        await Task.Delay(TimeSpan.FromMilliseconds(1500), Current.CancellationToken);
 
         //Assert
         uut.State.IsFinalState().ShouldBeFalse();

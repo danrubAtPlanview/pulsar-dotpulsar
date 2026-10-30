@@ -220,7 +220,7 @@ public sealed class TransactionMetaStoreHandlerTests
         var error = new ServiceNotReadyException("not ready");
         var pool = Substitute.For<IConnectionPool>();
         pool.FindConnectionForTopic(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(_ => ValueTask.FromException<IConnection>(error));
-        await using var uut = CreateHandler(pool, operationTimeout: TimeSpan.FromMilliseconds(400));
+        await using var uut = CreateHandler(pool, operationTimeout: TimeSpan.FromSeconds(1)); // The deadline of the lookup starts when the handler is created, and the first lookup must come before it
 
         //Act
         uut.Start();
