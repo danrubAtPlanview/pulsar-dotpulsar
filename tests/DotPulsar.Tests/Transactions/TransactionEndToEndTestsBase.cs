@@ -435,8 +435,7 @@ public abstract class TransactionEndToEndTestsBase<TFixture> : IDisposable where
     }
 
     // Upstream: TransactionEndToEndTest#testMsgsInPendingAckStateWouldNotGetTheConsumerStuck
-    // The Java producer batches by default, but every message is sent before the next one is produced, so every batch has one message.
-    // DotPulsar does not batch by default.
+    // The Java producer batches by default, and DotPulsar does not, so batching is enabled here. Every message is sent before the next one is produced, so every batch has one message.
     [Fact]
     public async Task Receive_GivenMessagesInPendingAckStateAndSmallPrefetch_ShouldNotGetConsumerStuck()
     {
@@ -447,6 +446,7 @@ public abstract class TransactionEndToEndTestsBase<TFixture> : IDisposable where
         await using var client = CreateClient();
         await using var producer = client.NewProducer(Schema.Int32)
             .Topic(topicName)
+            .EnableBatching(true)
             .StateChangedHandler(_testOutputHelper.Log)
             .Create();
         var consumer = client.NewConsumer(Schema.Int32)
@@ -1036,7 +1036,10 @@ public abstract class TransactionEndToEndTestsBase<TFixture> : IDisposable where
     }
 
     // Upstream: TransactionEndToEndTest#testSendTxnAckMessageToDLQ
-    // The assertion of the Java test on the available permits of the consumer is dropped, it is a counter of the Java client. The dead letter consumer receiving the message covers it.
+    // The assertion of the Java test on the available permits of the consumer (ConsumerImpl#getAvailablePermits is 3) is dropped, because it reads a counter of the Java client that DotPulsar does not have.
+    // The state that DotPulsar has instead, the number of messages after which the consumer sends a new flow command, is private, and the broker only knows the permits that were granted minus the messages
+    // that it sent, whatever the client counts. The consumer would have to be given a prefetch count of 3 to make the broker show whether the permit of the message that went to the dead letter topic was counted,
+    // which changes the test. The count is tested in ConsumerChannelTests#Receive_GivenNonBatchedMessageAboveMaxRedeliverCount_ShouldCountItsPermitAsReceived.
     [Fact]
     public async Task Abort_GivenMessageExceedsMaxRedeliverCount_ShouldSendMessageToDeadLetterTopic()
     {
@@ -1047,6 +1050,8 @@ public abstract class TransactionEndToEndTestsBase<TFixture> : IDisposable where
         await using var client = CreateClient();
         await using var producer = client.NewProducer(Schema.ByteArray)
             .Topic(topicName)
+            .EnableBatching(false)
+            .SendTimeout(TimeSpan.FromSeconds(1))
             .StateChangedHandler(_testOutputHelper.Log)
             .Create();
         await using var consumer = CreateDeadLetterConsumer(client, topicName);
@@ -1075,8 +1080,8 @@ public abstract class TransactionEndToEndTestsBase<TFixture> : IDisposable where
     }
 
     // Upstream: TransactionEndToEndTest#testSendTxnAckBatchMessageToDLQ
-    // The two messages are sent as one batch. Java relies on the default maximum publish delay of 1 millisecond, so two sends that follow each other form a batch in practice. The test
-    // makes it certain with a batch of exactly two messages. The send timeout is 5 seconds and not the 1 second of the upstream test, so that a loaded machine does not fail the test.
+    // The two messages are sent as one batch. Like upstream, the test relies on the default maximum publish delay of 1 millisecond, so two sends that follow each other form a batch in practice.
+    // The assertion on the available permits of the consumer is dropped as in Abort_GivenMessageExceedsMaxRedeliverCount_ShouldSendMessageToDeadLetterTopic.
     [Fact]
     public async Task Abort_GivenBatchMessageExceedsMaxRedeliverCount_ShouldSendBatchToDeadLetterTopic()
     {
@@ -1089,9 +1094,7 @@ public abstract class TransactionEndToEndTestsBase<TFixture> : IDisposable where
         await using var producer = client.NewProducer(Schema.ByteArray)
             .Topic(topicName)
             .EnableBatching(true)
-            .BatchingMaxMessages(2)
-            .BatchingMaxPublishDelay(TimeSpan.FromSeconds(1))
-            .SendTimeout(TimeSpan.FromSeconds(5))
+            .SendTimeout(TimeSpan.FromSeconds(1))
             .StateChangedHandler(_testOutputHelper.Log)
             .Create();
         await using var consumer = CreateDeadLetterConsumer(client, topicName);
