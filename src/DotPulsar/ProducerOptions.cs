@@ -77,6 +77,13 @@ public sealed class ProducerOptions<TMessage>
     public static readonly int DefaultChunkMaxMessageSize = 0;
 
     /// <summary>
+    /// The default crypto failure action.
+    /// </summary>
+    public static readonly ProducerCryptoFailureAction DefaultCryptoFailureAction = ProducerCryptoFailureAction.Fail;
+
+    private readonly SortedSet<string> _encryptionKeys;
+
+    /// <summary>
     /// Initializes a new instance using the specified topic.
     /// </summary>
     public ProducerOptions(string topic, ISchema<TMessage> schema)
@@ -97,6 +104,8 @@ public sealed class ProducerOptions<TMessage>
         SendTimeout = DefaultSendTimeout;
         EnableChunking = DefaultEnableChunking;
         ChunkMaxMessageSize = DefaultChunkMaxMessageSize;
+        CryptoFailureAction = DefaultCryptoFailureAction;
+        _encryptionKeys = new SortedSet<string>(StringComparer.Ordinal);
     }
 
     /// <summary>
@@ -196,4 +205,37 @@ public sealed class ProducerOptions<TMessage>
     /// Set the maximum number of bytes in the payload of a chunk. 0 or less means that the maximum message size of the broker is used. The default is 0.
     /// </summary>
     public int ChunkMaxMessageSize { get; set; }
+
+    /// <summary>
+    /// Set the crypto key reader used to read the public keys that encrypt the data key. This is required if encryption keys are set.
+    /// </summary>
+    /// <remarks>
+    /// The messages are only encrypted if at least one encryption key and a crypto key reader are set.
+    /// </remarks>
+    public ICryptoKeyReader? CryptoKeyReader { get; set; }
+
+    /// <summary>
+    /// Set the names of the public keys that encrypt the data key. If this is empty then the messages are not encrypted. The default is empty.
+    /// </summary>
+    /// <remarks>
+    /// Setting encryption keys without setting a crypto key reader is not allowed, so that messages are never sent unencrypted by mistake.
+    /// </remarks>
+    public IEnumerable<string> EncryptionKeys
+    {
+        get => _encryptionKeys;
+        set
+        {
+            _encryptionKeys.Clear();
+
+            foreach (var keyName in value)
+            {
+                _encryptionKeys.Add(keyName);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Set the action to take when encryption fails. The default is 'Fail'.
+    /// </summary>
+    public ProducerCryptoFailureAction CryptoFailureAction { get; set; }
 }

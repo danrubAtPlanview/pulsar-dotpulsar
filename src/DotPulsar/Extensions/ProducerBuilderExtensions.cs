@@ -57,4 +57,20 @@ public static class ProducerBuilderExtensions
         builder.StateChangedHandler(new FuncStateChangedHandler<ProducerStateChanged>(handler, cancellationToken));
         return builder;
     }
+
+    /// <summary>
+    /// Use the DefaultCryptoKeyReader with a public key URI that is always used to encrypt.
+    /// </summary>
+    public static IProducerBuilder<TMessage> DefaultCryptoKeyReader<TMessage>(
+        this IProducerBuilder<TMessage> builder,
+        string publicKey)
+        => builder.CryptoKeyReader(new DefaultCryptoKeyReader(publicKey, null));
+
+    /// <summary>
+    /// Use the DefaultCryptoKeyReader with public key URIs by key name.
+    /// </summary>
+    public static IProducerBuilder<TMessage> DefaultCryptoKeyReader<TMessage>(
+        this IProducerBuilder<TMessage> builder,
+        IReadOnlyDictionary<string, string> publicKeys)
+        => builder.CryptoKeyReader(new DefaultCryptoKeyReader(null, null, publicKeys));
 }

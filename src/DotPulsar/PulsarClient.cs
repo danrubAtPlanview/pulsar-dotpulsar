@@ -85,6 +85,11 @@ public sealed class PulsarClient : IPulsarClient
         if (options.EnableChunking && options.EnableBatching)
             throw new ConfigurationException("Batching and chunking of messages can't be enabled together");
 
+        if (!Enum.IsDefined(typeof(ProducerCryptoFailureAction), options.CryptoFailureAction))
+            throw new ConfigurationException("ProducerOptions.CryptoFailureAction is not a valid ProducerCryptoFailureAction");
+
+        ValidateEncryption(options);
+
         ICompressorFactory? compressorFactory = null;
         if (options.CompressionType != CompressionType.None)
         {
@@ -210,6 +215,24 @@ public sealed class PulsarClient : IPulsarClient
         await _connectionPool.DisposeAsync().ConfigureAwait(false);
 
         DotPulsarMeter.ClientDisposed();
+    }
+
+    // Upstream: ProducerBuilderImpl#addEncryptionKey, ProducerConfigurationData#isEncryptionEnabled
+    // Java sends the messages unencrypted if there are encryption keys, but no crypto key reader. That is not allowed here, since a message that was meant to be encrypted would be sent as plain text.
+    private static void ValidateEncryption<TMessage>(ProducerOptions<TMessage> options)
+    {
+        var hasEncryptionKeys = false;
+
+        foreach (var keyName in options.EncryptionKeys)
+        {
+            if (string.IsNullOrWhiteSpace(keyName))
+                throw new ConfigurationException("ProducerOptions.EncryptionKeys may not contain a null or blank key name");
+
+            hasEncryptionKeys = true;
+        }
+
+        if (hasEncryptionKeys && options.CryptoKeyReader is null)
+            throw new ConfigurationException("ProducerOptions.CryptoKeyReader must be set when ProducerOptions.EncryptionKeys is not empty");
     }
 
     private void AddDisposable(IAsyncDisposable disposable)

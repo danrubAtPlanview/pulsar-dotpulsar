@@ -39,6 +39,9 @@ public sealed class ProducerBuilder<TMessage> : IProducerBuilder<TMessage>
     private TimeSpan _sendTimeout;
     private bool _enableChunking;
     private int _chunkMaxMessageSize;
+    private readonly SortedSet<string> _encryptionKeys;
+    private ICryptoKeyReader? _cryptoKeyReader;
+    private ProducerCryptoFailureAction _cryptoFailureAction;
 
     public ProducerBuilder(IPulsarClient pulsarClient, ISchema<TMessage> schema)
     {
@@ -58,6 +61,8 @@ public sealed class ProducerBuilder<TMessage> : IProducerBuilder<TMessage>
         _sendTimeout = ProducerOptions<TMessage>.DefaultSendTimeout;
         _enableChunking = ProducerOptions<TMessage>.DefaultEnableChunking;
         _chunkMaxMessageSize = ProducerOptions<TMessage>.DefaultChunkMaxMessageSize;
+        _encryptionKeys = new SortedSet<string>(StringComparer.Ordinal);
+        _cryptoFailureAction = ProducerOptions<TMessage>.DefaultCryptoFailureAction;
     }
 
     public IProducerBuilder<TMessage> AttachTraceInfoToMessages(bool attachTraceInfoToMessages)
@@ -168,6 +173,28 @@ public sealed class ProducerBuilder<TMessage> : IProducerBuilder<TMessage>
         return this;
     }
 
+    public IProducerBuilder<TMessage> CryptoKeyReader(ICryptoKeyReader cryptoKeyReader)
+    {
+        _cryptoKeyReader = cryptoKeyReader;
+        return this;
+    }
+
+    // Upstream: ProducerBuilderImpl#addEncryptionKey
+    public IProducerBuilder<TMessage> EncryptionKey(string keyName)
+    {
+        if (string.IsNullOrWhiteSpace(keyName))
+            throw new ArgumentException("Encryption key cannot be blank", nameof(keyName));
+
+        _ = _encryptionKeys.Add(keyName);
+        return this;
+    }
+
+    public IProducerBuilder<TMessage> CryptoFailureAction(ProducerCryptoFailureAction cryptoFailureAction)
+    {
+        _cryptoFailureAction = cryptoFailureAction;
+        return this;
+    }
+
     public IProducer<TMessage> Create()
     {
         if (string.IsNullOrEmpty(_topic))
@@ -182,6 +209,9 @@ public sealed class ProducerBuilder<TMessage> : IProducerBuilder<TMessage>
         // Upstream: ProducerBuilderImpl#createAsync
         if (_enableChunking && _enableBatching)
             throw new ConfigurationException("Batching and chunking of messages can't be enabled together");
+
+        if (_encryptionKeys.Count != 0 && _cryptoKeyReader is null)
+            throw new ConfigurationException("ProducerOptions.CryptoKeyReader must be set when ProducerOptions.EncryptionKeys is not empty");
 
         var options = new ProducerOptions<TMessage>(_topic!, _schema)
         {
@@ -200,7 +230,10 @@ public sealed class ProducerBuilder<TMessage> : IProducerBuilder<TMessage>
             BatcherType = _batcherType,
             SendTimeout = _sendTimeout,
             EnableChunking = _enableChunking,
-            ChunkMaxMessageSize = _chunkMaxMessageSize
+            ChunkMaxMessageSize = _chunkMaxMessageSize,
+            EncryptionKeys = _encryptionKeys,
+            CryptoKeyReader = _cryptoKeyReader,
+            CryptoFailureAction = _cryptoFailureAction
         };
 
         if (_messageRouter is not null)

@@ -111,6 +111,24 @@ public interface IProducerBuilder<TMessage>
     IProducerBuilder<TMessage> ChunkMaxMessageSize(int chunkMaxMessageSize);
 
     /// <summary>
+    /// Set the crypto key reader used to read the public keys that encrypt the data key. This is required if encryption keys are added.
+    /// </summary>
+    IProducerBuilder<TMessage> CryptoKeyReader(ICryptoKeyReader cryptoKeyReader);
+
+    /// <summary>
+    /// Add the name of a public key that encrypts the data key. The messages are encrypted if at least one key name is added, and a crypto key reader is set. This is optional.
+    /// </summary>
+    /// <remarks>
+    /// The name may not be null or blank. Adding the same name again does nothing.
+    /// </remarks>
+    IProducerBuilder<TMessage> EncryptionKey(string keyName);
+
+    /// <summary>
+    /// Set the action to take when encryption fails. The default is 'Fail'.
+    /// </summary>
+    IProducerBuilder<TMessage> CryptoFailureAction(ProducerCryptoFailureAction cryptoFailureAction);
+
+    /// <summary>
     /// Create the producer.
     /// </summary>
     IProducer<TMessage> Create();
