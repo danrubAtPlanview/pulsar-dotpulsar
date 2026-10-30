@@ -165,6 +165,46 @@ public sealed class ChunkedMessageAssemblerTests
     }
 
     [Fact]
+    public void Process_GivenMoreChunksThanTheInitialCapacityOfTheIdArray_ShouldReturnTheIdOfEveryChunkInChunkOrder()
+    {
+        //Arrange
+        const int numberOfChunks = 300;
+        using var uut = CreateUut();
+        for (var chunkId = 0; chunkId < numberOfChunks - 1; ++chunkId)
+            Process(uut, "a", chunkId, numberOfChunks, (ulong) chunkId + 1, new byte[1], numberOfChunks);
+
+        //Act
+        var actual = Process(uut, "a", numberOfChunks - 1, numberOfChunks, numberOfChunks, new byte[1], numberOfChunks);
+
+        //Assert
+        actual.ShouldNotBeNull();
+        EntryIds(actual.Value.ChunkMessageIds).ShouldBe(Enumerable.Range(1, numberOfChunks).Select(entry => (ulong) entry).ToArray());
+        actual.Value.Payload.Length.ShouldBe(numberOfChunks);
+    }
+
+    [Fact]
+    public void Process_GivenBrokerThatClaimsAHugeNumberOfChunks_ShouldNotAllocateTheIdArrayForAllChunks()
+    {
+        //Arrange
+        const int numberOfChunks = 100_000_000;
+        using var uut = CreateUut();
+        WarmUp(uut);
+        var before = GC.GetAllocatedBytesForCurrentThread();
+
+        //Act
+        var first = Process(uut, "a", 0, numberOfChunks, 1, new byte[1]);
+        var second = Process(uut, "a", 1, numberOfChunks, 2, new byte[1]);
+
+        //Assert
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+        first.ShouldBeNull();
+        second.ShouldBeNull();
+        allocated.ShouldBeLessThan(1_000_000);
+        _acks.ShouldBeEmpty();
+        _track.ShouldBeEmpty();
+    }
+
+    [Fact]
     public void Process_GivenCompletedMessage_ShouldLeaveNoPendingContext()
     {
         //Arrange

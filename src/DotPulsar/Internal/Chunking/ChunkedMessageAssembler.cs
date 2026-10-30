@@ -165,7 +165,7 @@ public sealed class ChunkedMessageAssembler : IDisposable
                 return null;
             }
 
-            context.ChunkIds[chunkId] = messageId;
+            context.SetChunkId(chunkId, messageId);
             context.Append(chunkPayload);
             context.LastChunkId = chunkId;
 
@@ -345,6 +345,8 @@ public sealed class ChunkedMessageAssembler : IDisposable
     // Upstream: ConsumerImpl#ChunkedMessageCtx
     private sealed class Context
     {
+        private const int InitialChunkIdCapacity = 64;
+
         private Segment? _first;
         private Segment? _last;
 
@@ -354,7 +356,8 @@ public sealed class ChunkedMessageAssembler : IDisposable
             TotalChunks = totalChunks;
             TotalChunkMsgSize = totalChunkMsgSize;
             ReceivedTimeMs = receivedTimeMs;
-            ChunkIds = new MessageIdData[totalChunks];
+            // The number of chunks comes from the broker, so the array is not allocated for all chunks at once. It grows as the chunks are received.
+            ChunkIds = new MessageIdData[Math.Min(totalChunks, InitialChunkIdCapacity)];
             LastChunkId = -1;
             WrittenBytes = 0;
             Older = null;
@@ -368,10 +371,24 @@ public sealed class ChunkedMessageAssembler : IDisposable
         public int TotalChunkMsgSize { get; }
         public long ReceivedTimeMs { get; }
 
-        // The id of the entry of every chunk that is received. The elements of the chunks that are not received are null.
-        public MessageIdData[] ChunkIds { get; }
+        // The id of the entry of every chunk that is received. The elements of the chunks that are not received are null. When the last chunk is received the
+        // array has an element for every chunk of the message.
+        public MessageIdData[] ChunkIds { get; private set; }
 
         public int LastChunkId { get; set; }
+
+        public void SetChunkId(int chunkId, MessageIdData messageId)
+        {
+            if (chunkId >= ChunkIds.Length)
+            {
+                var capacity = (int) Math.Min(TotalChunks, Math.Max((long) chunkId + 1, (long) ChunkIds.Length * 2));
+                var chunkIds = new MessageIdData[capacity];
+                Array.Copy(ChunkIds, chunkIds, ChunkIds.Length);
+                ChunkIds = chunkIds;
+            }
+
+            ChunkIds[chunkId] = messageId;
+        }
         public long WrittenBytes { get; private set; }
 
         // The neighbours in the queue of the incomplete messages. The older ones were started before this one.
