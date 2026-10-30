@@ -81,6 +81,10 @@ public sealed class PulsarClient : IPulsarClient
         if (options.SendTimeout < TimeSpan.Zero)
             throw new ConfigurationException("ProducerOptions.SendTimeout may not be negative");
 
+        // Upstream: ProducerBuilderImpl#createAsync
+        if (options.EnableChunking && options.EnableBatching)
+            throw new ConfigurationException("Batching and chunking of messages can't be enabled together");
+
         ICompressorFactory? compressorFactory = null;
         if (options.CompressionType != CompressionType.None)
         {

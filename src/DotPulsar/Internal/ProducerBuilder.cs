@@ -37,6 +37,8 @@ public sealed class ProducerBuilder<TMessage> : IProducerBuilder<TMessage>
     private TimeSpan _batchingMaxPublishDelay;
     private BatcherType _batcherType;
     private TimeSpan _sendTimeout;
+    private bool _enableChunking;
+    private int _chunkMaxMessageSize;
 
     public ProducerBuilder(IPulsarClient pulsarClient, ISchema<TMessage> schema)
     {
@@ -54,6 +56,8 @@ public sealed class ProducerBuilder<TMessage> : IProducerBuilder<TMessage>
         _batchingMaxPublishDelay = ProducerOptions<TMessage>.DefaultBatchingMaxPublishDelay;
         _batcherType = ProducerOptions<TMessage>.DefaultBatcherType;
         _sendTimeout = ProducerOptions<TMessage>.DefaultSendTimeout;
+        _enableChunking = ProducerOptions<TMessage>.DefaultEnableChunking;
+        _chunkMaxMessageSize = ProducerOptions<TMessage>.DefaultChunkMaxMessageSize;
     }
 
     public IProducerBuilder<TMessage> AttachTraceInfoToMessages(bool attachTraceInfoToMessages)
@@ -152,6 +156,18 @@ public sealed class ProducerBuilder<TMessage> : IProducerBuilder<TMessage>
         return this;
     }
 
+    public IProducerBuilder<TMessage> EnableChunking(bool enableChunking)
+    {
+        _enableChunking = enableChunking;
+        return this;
+    }
+
+    public IProducerBuilder<TMessage> ChunkMaxMessageSize(int chunkMaxMessageSize)
+    {
+        _chunkMaxMessageSize = chunkMaxMessageSize;
+        return this;
+    }
+
     public IProducer<TMessage> Create()
     {
         if (string.IsNullOrEmpty(_topic))
@@ -162,6 +178,10 @@ public sealed class ProducerBuilder<TMessage> : IProducerBuilder<TMessage>
 
         if (_sendTimeout < TimeSpan.Zero)
             throw new ConfigurationException("ProducerOptions.SendTimeout may not be negative");
+
+        // Upstream: ProducerBuilderImpl#createAsync
+        if (_enableChunking && _enableBatching)
+            throw new ConfigurationException("Batching and chunking of messages can't be enabled together");
 
         var options = new ProducerOptions<TMessage>(_topic!, _schema)
         {
@@ -178,7 +198,9 @@ public sealed class ProducerBuilder<TMessage> : IProducerBuilder<TMessage>
             BatchingMaxBytes = _batchingMaxBytes,
             BatchingMaxPublishDelay = _batchingMaxPublishDelay,
             BatcherType = _batcherType,
-            SendTimeout = _sendTimeout
+            SendTimeout = _sendTimeout,
+            EnableChunking = _enableChunking,
+            ChunkMaxMessageSize = _chunkMaxMessageSize
         };
 
         if (_messageRouter is not null)

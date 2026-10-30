@@ -182,6 +182,88 @@ public sealed class ProducerBuilderTests
         actual.SendTimeout.ShouldBe(TimeSpan.Zero);
     }
 
+    // Upstream: MessageChunkingTest (cpp: #testInvalidConfig), ProducerBuilderImpl#createAsync
+    // Java throws when the producer is created, and so does DotPulsar.
+    [Fact]
+    public void Create_GivenChunkingAndBatchingEnabled_ShouldThrowConfigurationException()
+    {
+        // Arrange
+        var uut = new ProducerBuilder<string>(Substitute.For<IPulsarClient>(), Schema.String);
+
+        // Act
+        var act = () => uut
+            .Topic("persistent://public/default/my-topic")
+            .EnableBatching(true)
+            .EnableChunking(true)
+            .Create();
+
+        // Assert
+        var exception = act.ShouldThrow<ConfigurationException>();
+        exception.Message.ShouldBe("Batching and chunking of messages can't be enabled together");
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(false, false)]
+    public void Create_GivenChunkingAndBatchingNotBothEnabled_ShouldNotThrow(bool enableChunking, bool enableBatching)
+    {
+        // Arrange
+        var pulsarClient = Substitute.For<IPulsarClient>();
+        pulsarClient.CreateProducer(Arg.Any<ProducerOptions<string>>()).Returns(Substitute.For<IProducer<string>>());
+        var uut = new ProducerBuilder<string>(pulsarClient, Schema.String);
+
+        // Act
+        var act = () => uut
+            .Topic("persistent://public/default/my-topic")
+            .EnableChunking(enableChunking)
+            .EnableBatching(enableBatching)
+            .Create();
+
+        // Assert
+        _ = act.ShouldNotThrow();
+    }
+
+    [Fact]
+    public void Create_GivenChunkingOptions_ShouldCopyThemToProducerOptions()
+    {
+        // Arrange
+        var pulsarClient = Substitute.For<IPulsarClient>();
+        ProducerOptions<string>? actual = null;
+        pulsarClient.CreateProducer(Arg.Do<ProducerOptions<string>>(options => actual = options)).Returns(Substitute.For<IProducer<string>>());
+        var uut = new ProducerBuilder<string>(pulsarClient, Schema.String);
+
+        // Act
+        _ = uut
+            .Topic("persistent://public/default/my-topic")
+            .EnableChunking(true)
+            .ChunkMaxMessageSize(1000)
+            .Create();
+
+        // Assert
+        actual.ShouldNotBeNull();
+        actual.EnableChunking.ShouldBeTrue();
+        actual.ChunkMaxMessageSize.ShouldBe(1000);
+    }
+
+    [Fact]
+    public void Create_GivenDefaults_ShouldNotEnableChunking()
+    {
+        // Arrange
+        var pulsarClient = Substitute.For<IPulsarClient>();
+        ProducerOptions<string>? actual = null;
+        pulsarClient.CreateProducer(Arg.Do<ProducerOptions<string>>(options => actual = options)).Returns(Substitute.For<IProducer<string>>());
+        var uut = new ProducerBuilder<string>(pulsarClient, Schema.String);
+
+        // Act
+        _ = uut.Topic("persistent://public/default/my-topic").Create();
+
+        // Assert
+        actual.ShouldNotBeNull();
+        actual.EnableChunking.ShouldBeFalse();
+        actual.ChunkMaxMessageSize.ShouldBe(0);
+    }
+
     private static IPulsarClient CreateClient()
         => PulsarClient
             .Builder()

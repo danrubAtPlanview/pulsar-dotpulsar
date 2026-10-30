@@ -101,6 +101,16 @@ public interface IProducerBuilder<TMessage>
     IProducerBuilder<TMessage> SendTimeout(TimeSpan sendTimeout);
 
     /// <summary>
+    /// Whether to split messages that are larger than the maximum message size of the broker into chunks. It only applies to persistent topics, and it can not be combined with batching. The default is 'false'.
+    /// </summary>
+    IProducerBuilder<TMessage> EnableChunking(bool enableChunking);
+
+    /// <summary>
+    /// Set the maximum number of bytes in the payload of a chunk. 0 or less means that the maximum message size of the broker is used. The default is 0.
+    /// </summary>
+    IProducerBuilder<TMessage> ChunkMaxMessageSize(int chunkMaxMessageSize);
+
+    /// <summary>
     /// Create the producer.
     /// </summary>
     IProducer<TMessage> Create();
