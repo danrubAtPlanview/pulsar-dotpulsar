@@ -23,8 +23,7 @@ using System.Text;
 // The tests of TransactionEndToEndTest that use transactions only to acknowledge messages. The messages are produced without a transaction,
 // so these tests do not depend on the transactional producer. The tests that produce messages as part of a transaction are ported separately.
 //
-// Until the producer can batch messages (TODO(WP6)), a batch is produced by the perf tool of the broker image (TransactionFixtureBase.ProduceBatchedMessages).
-// The tool produces its own payloads, so the tests that produce batches identify the messages by their batch index instead of by their value.
+// A batch is produced by TransactionFixtureBase.ProduceBatchedMessages. It produces numbered payloads, so the tests that produce batches identify the messages by their batch index instead of by their value.
 public abstract class TransactionConsumerEndToEndTestsBase<TFixture> : IDisposable where TFixture : TransactionFixture
 {
     private static readonly TimeSpan _waitTimeForCanReceiveMsg = TimeSpan.FromSeconds(5); // Upstream: TransactionEndToEndTest#waitTimeForCanReceiveMsgInSec
@@ -50,7 +49,7 @@ public abstract class TransactionConsumerEndToEndTestsBase<TFixture> : IDisposab
     public void Dispose() => _cts.Dispose();
 
     // Upstream: TransactionEndToEndTest#testIndividualAckAbortFilterAckSetInPendingAckState
-    // The values 0 to 8 of the upstream test are the batch indexes, because the batch is produced by the perf tool (TODO(WP6)).
+    // The values 0 to 8 of the upstream test are the batch indexes of the messages of the batch.
     [Fact]
     public async Task Abort_GivenBatchIndexesAckedByTwoTransactionsAndPlainAck_ShouldRedeliverOnlyTheAbortedIndexes()
     {
@@ -106,7 +105,7 @@ public abstract class TransactionConsumerEndToEndTestsBase<TFixture> : IDisposab
     }
 
     // Upstream: TransactionEndToEndTest#testFilterMsgsInPendingAckStateWhenConsumerDisconnect
-    // The values 0 to 9 of the upstream test are the batch indexes when the messages are produced as a batch (TODO(WP6)).
+    // The values 0 to 9 of the upstream test are the batch indexes when the messages are produced as a batch.
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
@@ -243,13 +242,11 @@ public abstract class TransactionConsumerEndToEndTestsBase<TFixture> : IDisposab
     }
 
     // Upstream: TransactionEndToEndTest#testUnackMessageAfterAckAllMessages
-    // TODO(WP6): Remove the skips of the rows with batchSend. The body produces the 5 batches of 10 messages with the perf tool, which takes a minute per row.
-    // When the producer can batch, produce them with EnableBatching(true) and BatchingMaxMessages(10) instead.
     [Theory]
-    [InlineData(true, true, true, Skip = "Requires producer batching (WP6)")]
-    [InlineData(true, true, false, Skip = "Requires producer batching (WP6)")]
-    [InlineData(true, false, true, Skip = "Requires producer batching (WP6)")]
-    [InlineData(true, false, false, Skip = "Requires producer batching (WP6)")]
+    [InlineData(true, true, true)]
+    [InlineData(true, true, false)]
+    [InlineData(true, false, true)]
+    [InlineData(true, false, false)]
     [InlineData(false, true, true)]
     [InlineData(false, true, false)]
     [InlineData(false, false, true)]
@@ -336,10 +333,8 @@ public abstract class TransactionConsumerEndToEndTestsBase<TFixture> : IDisposab
 
     // Upstream: TransactionEndToEndTest#testAckWithTransactionReduceUnAckMessageCount
     // The broker is not accessible from the test, so the unacknowledged messages of the consumer are read from the topic stats of the admin API.
-    // TODO(WP6): Remove the skip of the batch row. The body produces the 5 batches of 10 messages with the perf tool, which takes a minute.
-    // When the producer can batch, produce them with EnableBatching(true) and BatchingMaxMessages(10) instead.
     [Theory]
-    [InlineData(true, Skip = "Requires producer batching (WP6)")]
+    [InlineData(true)]
     [InlineData(false)]
     public async Task Commit_GivenHalfOfMessagesAckedWithTransaction_ShouldReduceUnackedMessageCount(bool enableBatch)
     {
@@ -400,10 +395,8 @@ public abstract class TransactionConsumerEndToEndTestsBase<TFixture> : IDisposab
     public async Task Acknowledge_GivenNoBatchAndSharedSubscription_ShouldRedeliverAfterAbortAndRemoveAfterCommit()
         => await TxnAckTest(false, 1, SubscriptionType.Shared);
 
-    // TODO(WP6): Remove the skip. The body produces the 5 batches of 200 messages with the perf tool, which takes more than 2 minutes. When the producer can
-    // batch, produce them with EnableBatching(true) and BatchingMaxMessages(200) instead (see TxnAckTest).
     // Upstream: TransactionEndToEndTest#txnIndividualAckTestBatchAndSharedSub
-    [Fact(Skip = "Requires producer batching (WP6)")]
+    [Fact]
     public async Task Acknowledge_GivenBatchAndSharedSubscription_ShouldRedeliverAfterAbortAndRemoveAfterCommit()
         => await TxnAckTest(true, 200, SubscriptionType.Shared);
 
@@ -412,9 +405,8 @@ public abstract class TransactionConsumerEndToEndTestsBase<TFixture> : IDisposab
     public async Task Acknowledge_GivenNoBatchAndFailoverSubscription_ShouldRedeliverAfterAbortAndRemoveAfterCommit()
         => await TxnAckTest(false, 1, SubscriptionType.Failover);
 
-    // TODO(WP6): Remove the skip. See txnIndividualAckTestBatchAndSharedSub.
     // Upstream: TransactionEndToEndTest#txnIndividualAckTestBatchAndFailoverSub
-    [Fact(Skip = "Requires producer batching (WP6)")]
+    [Fact]
     public async Task Acknowledge_GivenBatchAndFailoverSubscription_ShouldRedeliverAfterAbortAndRemoveAfterCommit()
     {
         Assert.SkipWhen(SkipReasonForBatchAndFailoverIndividualAck is not null, SkipReasonForBatchAndFailoverIndividualAck ?? string.Empty);
@@ -618,7 +610,7 @@ public abstract class TransactionConsumerEndToEndTestsBase<TFixture> : IDisposab
         => Task.CompletedTask;
 
     // Upstream: TransactionEndToEndTest#testAckWithTransactionReduceUnackCountNotInPendingAcks
-    // The batch of 5 messages is produced by the perf tool (TODO(WP6)). The unacknowledged messages of the consumer are read from the topic stats of the admin API.
+    // The unacknowledged messages of the consumer are read from the topic stats of the admin API.
     [Fact]
     public async Task Acknowledge_GivenOneBatchIndexAckedWithTransaction_ShouldReduceUnackedCountByOne()
     {
@@ -659,8 +651,6 @@ public abstract class TransactionConsumerEndToEndTestsBase<TFixture> : IDisposab
     }
 
     // Upstream: TransactionEndToEndTest#txnAckTest
-    // TODO(WP6): The batches of the test are produced by the perf tool. When the producer can batch, produce the messages with
-    // EnableBatching(batchEnable) and BatchingMaxMessages(maxBatchSize) instead.
     private async Task TxnAckTest(bool batchEnable, uint maxBatchSize, SubscriptionType subscriptionType)
     {
         //Arrange
@@ -677,6 +667,8 @@ public abstract class TransactionConsumerEndToEndTestsBase<TFixture> : IDisposab
         await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
         await using var producer = client.NewProducer(Schema.ByteArray)
             .Topic(normalTopic)
+            .EnableBatching(batchEnable)
+            .BatchingMaxMessages(maxBatchSize)
             .StateChangedHandler(_testOutputHelper.Log)
             .Create();
 
@@ -686,16 +678,9 @@ public abstract class TransactionConsumerEndToEndTestsBase<TFixture> : IDisposab
 
             // produce normal messages
             var receipts = new List<Task<MessageId>>();
-            if (batchEnable)
+            for (var i = 0; i < messageCnt; i++)
             {
-                await Fixture.ProduceBatchedMessages(normalTopic, messageCnt / (int) maxBatchSize, (int) maxBatchSize, _cts.Token);
-            }
-            else
-            {
-                for (var i = 0; i < messageCnt; i++)
-                {
-                    receipts.Add(await SendAsync(producer, Encoding.UTF8.GetBytes("hello")));
-                }
+                receipts.Add(await SendAsync(producer, Encoding.UTF8.GetBytes("hello")));
             }
 
             // consume and ack messages with txn

@@ -17,8 +17,7 @@ namespace DotPulsar.Tests.Prerequisites;
 using DotPulsar.Abstractions;
 using DotPulsar.Extensions;
 
-// The broker has acknowledgmentAtBatchIndexLevelEnabled=true. The batches are produced by the perf tool of the broker image,
-// because the producer of DotPulsar cannot batch yet (TODO(WP6)).
+// The broker has acknowledgmentAtBatchIndexLevelEnabled=true. The batches are produced by TransactionFixtureBase.ProduceBatchedMessages.
 [Collection("Transaction"), Trait("Category", "Integration")]
 public sealed class BatchMessageIndexAckTests : IDisposable
 {

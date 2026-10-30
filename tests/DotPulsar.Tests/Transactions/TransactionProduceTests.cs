@@ -53,7 +53,7 @@ public sealed class TransactionProduceTests : IDisposable
         await using var client = _fixture.CreateClient(_testOutputHelper.Log);
         var transaction = await client.NewTransaction().Create(_cts.Token);
         var topic = TransactionFixture.CreateTopicName("test-commit-failure");
-        await using var producer = client.NewProducer(Schema.ByteArray).Topic(topic).Create(); // TODO(WP6): .EnableBatching(true), as upstream relies on the default of the Java client
+        await using var producer = client.NewProducer(Schema.ByteArray).Topic(topic).EnableBatching(true).Create(); // Upstream relies on the default of the Java client, which is batching
         await producer.StateChangedTo(ProducerState.Connected, _cts.Token);
         var send = producer.NewMessage().Transaction(transaction).Send(new byte[1024 * 1024 * 10], _cts.Token).AsTask(); // The message is larger than the maximum message size of the broker
 
@@ -67,6 +67,43 @@ public sealed class TransactionProduceTests : IDisposable
         var sendException = await Record.ExceptionAsync(async () => await send.WaitAsync(TimeSpan.FromSeconds(10), _cts.Token));
         sendException.ShouldNotBeNull();
         _testOutputHelper.Log($"The send failed with: {sendException}");
+    }
+
+    // Upstream: TransactionProduceTest#testAbortedTransactionDoesNotDiscardPlainMessageBatchedWithIt
+    [Fact]
+    public async Task Abort_GivenPlainMessageBatchedAfterTransactionalMessage_ShouldDeliverPlainMessage()
+    {
+        //Arrange
+        var topic = TransactionFixture.CreateTopicName("txn-batch-isolation");
+        await _fixture.CreateTopic(topic, _cts.Token);
+        await using var client = _fixture.CreateClient(_testOutputHelper.Log);
+        await using var consumer = client.NewConsumer(Schema.String).SubscriptionName("txn-batch-isolation-sub").Topic(topic).Create();
+        await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+        var transaction = await client.NewTransaction().Timeout(TimeSpan.FromSeconds(60)).Create(_cts.Token);
+        await using var producer = client.NewProducer(Schema.String)
+            .Topic(topic)
+            .EnableBatching(true)
+            .BatchingMaxMessages(100)
+            .BatchingMaxPublishDelay(TimeSpan.FromSeconds(5))
+            .Create(); // TODO(WP7): .SendTimeout(TimeSpan.Zero), which is what the producer does without a send timeout
+        await producer.StateChangedTo(ProducerState.Connected, _cts.Token);
+        using var warmUpCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+        warmUpCts.CancelAfter(TimeSpan.FromSeconds(30));
+        _ = await producer.NewMessage().Transaction(transaction).Send("warm-up", warmUpCts.Token);
+        var inTransaction = producer.NewMessage().Transaction(transaction).Send("in-txn", _cts.Token).AsTask();
+        var plain = producer.Send("plain", _cts.Token).AsTask();
+
+        //Act
+        await producer.Flush(_cts.Token);
+        await plain.WaitAsync(TimeSpan.FromSeconds(30), _cts.Token);
+        await transaction.Abort(_cts.Token);
+
+        //Assert
+        var message = await TransactionFixture.ReceiveOrNull(consumer, TimeSpan.FromSeconds(30), _cts.Token);
+        message.ShouldNotBeNull("the plain message was discarded by the aborted transaction");
+        message.Value().ShouldBe("plain");
+        (await TransactionFixture.ReceiveOrNull(consumer, TimeSpan.FromSeconds(3), _cts.Token)).ShouldBeNull();
+        _ = await Record.ExceptionAsync(async () => await inTransaction);
     }
 
     public void Dispose()

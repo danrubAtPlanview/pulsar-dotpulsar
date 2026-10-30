@@ -41,7 +41,7 @@ public sealed class TransactionStablePositionTests : IDisposable
         //Arrange
         var topic = TransactionFixture.CreateTopicName("test-topic");
         await using var client = _fixture.CreateClient(_testOutputHelper.Log);
-        await using var producer = client.NewProducer(Schema.ByteArray).Topic(topic).Create(); // TODO(WP6): .EnableBatching(false), which is what the producer does by default, and TODO(WP7): .SendTimeout(TimeSpan.Zero), which is what the producer does without a send timeout
+        await using var producer = client.NewProducer(Schema.ByteArray).Topic(topic).EnableBatching(false).Create(); // TODO(WP7): .SendTimeout(TimeSpan.Zero), which is what the producer does without a send timeout
         await producer.StateChangedTo(ProducerState.Connected, _cts.Token);
         await using var consumer = client.NewConsumer(Schema.ByteArray).SubscriptionName("test").SubscriptionType(SubscriptionType.Failover).InitialPosition(SubscriptionInitialPosition.Earliest).Topic(topic).Create();
         await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
@@ -70,7 +70,7 @@ public sealed class TransactionStablePositionTests : IDisposable
         //Arrange
         var topic = TransactionFixture.CreateTopicName("test-topic");
         await using var client = _fixture.CreateClient(_testOutputHelper.Log);
-        await using var producer = client.NewProducer(Schema.ByteArray).Topic(topic).Create(); // TODO(WP6): .EnableBatching(false), which is what the producer does by default, and TODO(WP7): .SendTimeout(TimeSpan.Zero), which is what the producer does without a send timeout
+        await using var producer = client.NewProducer(Schema.ByteArray).Topic(topic).EnableBatching(false).Create(); // TODO(WP7): .SendTimeout(TimeSpan.Zero), which is what the producer does without a send timeout
         await producer.StateChangedTo(ProducerState.Connected, _cts.Token);
         await using var consumer = client.NewConsumer(Schema.ByteArray).SubscriptionName("test").SubscriptionType(SubscriptionType.Failover).InitialPosition(SubscriptionInitialPosition.Earliest).Topic(topic).Create();
         await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);

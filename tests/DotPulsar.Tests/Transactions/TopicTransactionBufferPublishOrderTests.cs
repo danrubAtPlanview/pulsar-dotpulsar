@@ -44,7 +44,7 @@ public sealed class TopicTransactionBufferPublishOrderTests : IDisposable
         await _fixture.SetNamespaceDeduplication(ns, false, _cts.Token);
         var topic = $"persistent://{ns}/test";
         await using var client = _fixture.CreateClient(_testOutputHelper.Log);
-        await using var producer = client.NewProducer(Schema.String).Topic(topic).Create(); // TODO(WP6): .EnableBatching(false), which is what the producer does by default
+        await using var producer = client.NewProducer(Schema.String).Topic(topic).EnableBatching(false).Create();
         await producer.StateChangedTo(ProducerState.Connected, _cts.Token);
 
         if (recovering)

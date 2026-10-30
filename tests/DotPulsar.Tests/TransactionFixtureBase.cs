@@ -313,21 +313,24 @@ public abstract class TransactionFixtureBase : IAsyncLifetime
 
     // ---- Batched messages ----
 
-    // TODO(WP6): Replace this with IProducer batching. Until then, the messages are produced by the perf tool of the broker image, which batches
-    // them as a Java producer does. Every run of the tool produces exactly one batch that is closed by the number of messages. The tool counts
-    // the messages when they are acknowledged, so it sends a few more before it stops. The rate limit makes sure that they are too few to fill
-    // another batch, and the time window of the batch is so long that it is never closed by it (the tool discards it when it stops).
+    // Produces batches of batchSize messages. A batch is closed by the number of messages, and the time window of a batch is so long that it is never closed by it.
+    // The payloads are the numbers of the messages, so the tests identify the messages by their batch index.
     public async Task ProduceBatchedMessages(string topic, int numberOfBatches, int batchSize, CancellationToken cancellationToken)
     {
-        var arguments = $"bin/pulsar-perf produce {topic} -m {batchSize} -s 8 -r {Math.Max(1, (batchSize + 2) / 3)} -o {batchSize} -bm {batchSize} -b 600000";
+        await using var client = CreateClient(enableTransaction: false);
+        await using var producer = client.NewProducer(Schema.ByteArray)
+            .Topic(topic)
+            .EnableBatching(true)
+            .BatchingMaxMessages((uint) batchSize)
+            .BatchingMaxPublishDelay(TimeSpan.FromHours(1))
+            .Create();
 
-        for (var i = 0; i < numberOfBatches; i++)
+        for (var i = 0; i < numberOfBatches * batchSize; i++)
         {
-            var result = await _pulsarCluster.ExecAsync(["/bin/bash", "-c", arguments], cancellationToken);
-
-            if (result.ExitCode != 0)
-                throw new Exception($"Could not produce the batched messages: {result.Stderr}");
+            await producer.SendChannel.Send(Encoding.UTF8.GetBytes(i.ToString()), null, cancellationToken);
         }
+
+        await producer.Flush(cancellationToken);
     }
 
     // ---- Chunked messages ----

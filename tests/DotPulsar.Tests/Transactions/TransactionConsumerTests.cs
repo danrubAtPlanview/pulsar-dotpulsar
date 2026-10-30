@@ -23,8 +23,7 @@ using System.Text;
 // transactions only to acknowledge messages, and the tests of the transactional acknowledgments of DotPulsar that have no upstream counterpart.
 // The messages are produced without a transaction. The broker has acknowledgmentAtBatchIndexLevelEnabled=true.
 //
-// Until the producer can batch messages (TODO(WP6)), a batch is produced by the perf tool of the broker image (TransactionFixtureBase.ProduceBatchedMessages).
-// The tool produces its own payloads, so the tests that produce batches identify the messages by their batch index.
+// A batch is produced by TransactionFixtureBase.ProduceBatchedMessages. It produces numbered payloads, so the tests that produce batches identify the messages by their batch index.
 [Collection("Transaction"), Trait("Category", "Integration")]
 public sealed class TransactionConsumerTests : IDisposable
 {
@@ -164,7 +163,6 @@ public sealed class TransactionConsumerTests : IDisposable
         noMoreMessage.ShouldBeNull();
     }
 
-    // The batch of 5 messages is produced by the perf tool (TODO(WP6)).
     // Upstream: TransactionTest#testPendingAckBatchMessageCommit
     [Fact]
     public async Task Acknowledge_GivenBatchMessageAckedInAbortedTransaction_ShouldAllowAckInNewTransaction()
@@ -201,7 +199,6 @@ public sealed class TransactionConsumerTests : IDisposable
         await Should.NotThrowAsync(act);
     }
 
-    // The batch of 3 messages is produced by the perf tool (TODO(WP6)).
     // Upstream: PendingAckPersistentTest#testTransactionConflictExceptionWhenAckBatchMessage
     [Fact]
     public async Task Acknowledge_GivenBatchIndexAckedInCommittedTransaction_ShouldThrowTransactionConflictException()
@@ -234,22 +231,88 @@ public sealed class TransactionConsumerTests : IDisposable
         await Should.ThrowAsync<TransactionConflictException>(act);
     }
 
-    // TODO(WP6): Remove the skip. The test needs producer batching with a key based batcher (BatcherType.KeyBased, BatchingMaxMessages of 2 and BatchingMaxPublishDelay of 1 hour).
-    // Steps of ConsumerRedeliveryTest#testSelectiveRedeliveryAfterConflictingTransactionalBatchAck, for each of Shared and KeyShared and with and without a pending position:
-    // send 0 and 1 with the key "key" as one batch, receive both, (optionally send 2 and 3 as one batch and receive both), acknowledge the first message in a transaction,
-    // expect TransactionConflictException for the same acknowledgment in another transaction, commit, redeliver the unacknowledged messages (the last message of the batch
-    // and the optional second batch) with RedeliverUnacknowledgedMessages and expect exactly those messages to be received.
     // Upstream: ConsumerRedeliveryTest#testSelectiveRedeliveryAfterConflictingTransactionalBatchAck
-    [Theory(Skip = "Requires producer batching (WP6)")]
+    [Theory]
     [InlineData(SubscriptionType.Shared, false)]
     [InlineData(SubscriptionType.Shared, true)]
     [InlineData(SubscriptionType.KeyShared, false)]
     [InlineData(SubscriptionType.KeyShared, true)]
-    public Task RedeliverUnacknowledgedMessages_GivenConflictingTransactionalBatchAck_ShouldRedeliverUntouchedBatchIndexes(SubscriptionType subscriptionType, bool includePendingPosition)
+    public async Task RedeliverUnacknowledgedMessages_GivenConflictingTransactionalBatchAck_ShouldRedeliverUntouchedBatchIndexes(SubscriptionType subscriptionType, bool includePendingPosition)
     {
-        _ = subscriptionType;
-        _ = includePendingPosition;
-        return Task.CompletedTask;
+        //Arrange
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+        cts.CancelAfter(TimeSpan.FromSeconds(60));
+        var topicName = TransactionFixture.CreateTopicName("selective-redelivery");
+        await _fixture.CreateTopic(topicName, cts.Token);
+        await using var client = CreateClient();
+        await using var producer = client.NewProducer(Schema.Int32)
+            .Topic(topicName)
+            .EnableBatching(true)
+            .BatcherType(BatcherType.KeyBased)
+            .BatchingMaxMessages(2)
+            .BatchingMaxPublishDelay(TimeSpan.FromHours(1))
+            .StateChangedHandler(_testOutputHelper.Log)
+            .Create();
+        await using var consumer = client.NewConsumer(Schema.Int32)
+            .Topic(topicName)
+            .AckReceiptEnabled(true)
+            .BatchIndexAckEnabled(true)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .SubscriptionName("sub")
+            .SubscriptionType(subscriptionType)
+            .Create();
+        await consumer.StateChangedTo(ConsumerState.Active, cts.Token);
+
+        var receipts = new List<Task<MessageId>>
+        {
+            await SendWithKey(producer, "key", 0, cts.Token),
+            await SendWithKey(producer, "key", 1, cts.Token)
+        };
+        await Task.WhenAll(receipts).WaitAsync(TimeSpan.FromSeconds(10), cts.Token);
+        var first = await ReceiveMessage(consumer, cts.Token);
+        var last = await ReceiveMessage(consumer, cts.Token);
+        var unacked = new List<IMessage<int>> { last };
+
+        if (includePendingPosition)
+        {
+            receipts = [await SendWithKey(producer, "key", 2, cts.Token), await SendWithKey(producer, "key", 3, cts.Token)];
+            await Task.WhenAll(receipts).WaitAsync(TimeSpan.FromSeconds(10), cts.Token);
+            unacked.Add(await ReceiveMessage(consumer, cts.Token));
+            unacked.Add(await ReceiveMessage(consumer, cts.Token));
+        }
+
+        var txn = await client.NewTransaction().Timeout(TimeSpan.FromMinutes(2)).Create(cts.Token);
+        var conflicting = await client.NewTransaction().Timeout(TimeSpan.FromMinutes(2)).Create(cts.Token);
+
+        try
+        {
+            await consumer.Acknowledge(first.MessageId, txn, cts.Token);
+            await Should.ThrowAsync<TransactionConflictException>(async () => await consumer.Acknowledge(first.MessageId, conflicting, cts.Token));
+            await txn.Commit(cts.Token);
+            var requested = unacked.Select(message => message.MessageId).ToList();
+
+            //Act
+            await consumer.RedeliverUnacknowledgedMessages(requested, cts.Token);
+
+            //Assert
+            var redelivered = new List<MessageId>();
+            for (var i = 0; i < unacked.Count; i++)
+            {
+                var message = await TransactionFixture.ReceiveOrNull(consumer, TimeSpan.FromSeconds(10), cts.Token);
+                message.ShouldNotBeNull("untouched batch indexes must remain selectively redeliverable");
+                redelivered.Add(message.MessageId);
+                await consumer.Acknowledge(message.MessageId, cts.Token);
+            }
+
+            redelivered.ShouldBe(requested, ignoreOrder: true);
+        }
+        finally
+        {
+            if (txn.CurrentState == TransactionState.Open)
+                await txn.Abort(cts.Token);
+
+            await conflicting.Abort(cts.Token);
+        }
     }
 
     // Upstream: TransactionProduceTest#ackCommitTest
@@ -775,6 +838,25 @@ public sealed class TransactionConsumerTests : IDisposable
             return ValueTask.CompletedTask;
         }, _cts.Token);
         return receipt.Task;
+    }
+
+    // The Java producer.newMessage().key(key).value(value).sendAsync(): the message is queued in the order of the calls, and the task completes when the broker has stored the message
+    private static async ValueTask<Task<MessageId>> SendWithKey<TMessage>(IProducer<TMessage> producer, string key, TMessage value, CancellationToken cancellationToken)
+    {
+        var receipt = new TaskCompletionSource<MessageId>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await producer.SendChannel.Send(new MessageMetadata { Key = key }, value, messageId =>
+        {
+            receipt.TrySetResult(messageId);
+            return ValueTask.CompletedTask;
+        }, cancellationToken);
+        return receipt.Task;
+    }
+
+    private static async Task<IMessage<TMessage>> ReceiveMessage<TMessage>(IReceive<IMessage<TMessage>> receiver, CancellationToken cancellationToken)
+    {
+        var message = await TransactionFixture.ReceiveOrNull(receiver, TimeSpan.FromSeconds(10), cancellationToken);
+        message.ShouldNotBeNull();
+        return message;
     }
 
     private async Task<List<IMessage<byte[]>>> ReceiveMessages(IConsumer<byte[]> consumer, int count)

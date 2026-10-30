@@ -44,7 +44,7 @@ public sealed class TransactionConsumeTests : IDisposable
         //Arrange
         var topic = CreateTopicName();
         await using var client = _fixture.CreateClient(_testOutputHelper.Log);
-        await using var producer = client.NewProducer(Schema.ByteArray).Topic(topic).Create(); // TODO(WP6): .EnableBatching(true), as upstream relies on the default of the Java client
+        await using var producer = client.NewProducer(Schema.ByteArray).Topic(topic).EnableBatching(true).Create(); // Upstream relies on the default of the Java client, which is batching
         await using var exclusive = client.NewConsumer(Schema.ByteArray).SubscriptionName("exclusive-test").SubscriptionType(SubscriptionType.Exclusive).Topic(topic).Create();
         await using var shared = client.NewConsumer(Schema.ByteArray).SubscriptionName("shared-test").SubscriptionType(SubscriptionType.Shared).Topic(topic).Create();
         await exclusive.StateChangedTo(ConsumerState.Active, _cts.Token);
@@ -93,7 +93,7 @@ public sealed class TransactionConsumeTests : IDisposable
         //Arrange
         var topic = CreateTopicName();
         await using var client = _fixture.CreateClient(_testOutputHelper.Log);
-        await using var producer = client.NewProducer(Schema.ByteArray).Topic(topic).Create(); // TODO(WP6): .EnableBatching(true), as upstream relies on the default of the Java client
+        await using var producer = client.NewProducer(Schema.ByteArray).Topic(topic).EnableBatching(true).Create(); // Upstream relies on the default of the Java client, which is batching
         await using var exclusive = client.NewConsumer(Schema.ByteArray).SubscriptionName("exclusive-test").SubscriptionType(SubscriptionType.Exclusive).Topic(topic).Create();
         await using var shared = client.NewConsumer(Schema.ByteArray).SubscriptionName("shared-test").SubscriptionType(SubscriptionType.Shared).Topic(topic).Create();
         await exclusive.StateChangedTo(ConsumerState.Active, _cts.Token);
@@ -154,7 +154,7 @@ public sealed class TransactionConsumeTests : IDisposable
             {
                 var client = _fixture.CreateClient(_testOutputHelper.Log);
                 clients.Add(client);
-                var producer = client.NewProducer(Schema.String).Topic(topic).Create(); // TODO(WP6): .EnableBatching(true), as upstream relies on the default of the Java client
+                var producer = client.NewProducer(Schema.String).Topic(topic).EnableBatching(true).Create(); // Upstream relies on the default of the Java client, which is batching
                 producers.Add(producer);
             }
 

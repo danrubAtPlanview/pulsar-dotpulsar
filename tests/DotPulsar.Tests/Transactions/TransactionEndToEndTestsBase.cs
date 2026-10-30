@@ -42,7 +42,7 @@ public abstract class TransactionEndToEndTestsBase<TFixture> : IDisposable where
 
     // Upstream: TransactionEndToEndTest#produceCommitTest
     [Theory]
-    [InlineData(true, Skip = "Requires producer batching (WP6)")] // TODO(WP6): remove the skip, and add .EnableBatching(enableBatch) to the producer
+    [InlineData(true)]
     [InlineData(false)]
     public async Task Commit_GivenTwoTransactionsProducingToPartitionedTopic_ShouldDeliverAllMessagesOnlyAfterCommit(bool enableBatch)
     {
@@ -53,7 +53,7 @@ public abstract class TransactionEndToEndTestsBase<TFixture> : IDisposable where
         await using var client = CreateClient();
         await using var consumer = client.NewConsumer(Schema.ByteArray).SubscriptionName("test").Topic(topic).Create();
         await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
-        await using var producer = client.NewProducer(Schema.ByteArray).Topic(topic).Create(); // TODO(WP6): .EnableBatching(enableBatch), and TODO(WP7): .SendTimeout(TimeSpan.Zero), which is what the producer does without a send timeout
+        await using var producer = client.NewProducer(Schema.ByteArray).Topic(topic).EnableBatching(enableBatch).Create(); // TODO(WP7): .SendTimeout(TimeSpan.Zero), which is what the producer does without a send timeout
         var txn1 = await GetTxn(client);
         var txn2 = await GetTxn(client);
         var txnMessageCnt = 0;
@@ -137,7 +137,7 @@ public abstract class TransactionEndToEndTestsBase<TFixture> : IDisposable where
 
     // Upstream: TransactionEndToEndTest#txnMetadataHandlerRecoverTest
     [Theory]
-    [InlineData(true, Skip = "Requires producer batching (WP6)")] // TODO(WP6): remove the skip, and add .EnableBatching(enableBatch) to the producer. Upstream relies on the default of the Java client, which is batching
+    [InlineData(true)] // Upstream relies on the default of the Java client, which is batching
     [InlineData(false)]
     public async Task Commit_GivenTransactionsCommittedByIdFromAnotherClient_ShouldDeliverAllMessages(bool enableBatch)
     {
@@ -145,7 +145,7 @@ public abstract class TransactionEndToEndTestsBase<TFixture> : IDisposable where
         _testOutputHelper.Log($"Batching is {(enableBatch ? "enabled" : "disabled")}");
         var topic = TransactionFixture.CreateTopicName("tc-metadata-handler-recover");
         await using var client = CreateClient();
-        await using var producer = client.NewProducer(Schema.ByteArray).Topic(topic).Create(); // TODO(WP6): .EnableBatching(enableBatch), and TODO(WP7): .SendTimeout(TimeSpan.Zero), which is what the producer does without a send timeout
+        await using var producer = client.NewProducer(Schema.ByteArray).Topic(topic).EnableBatching(enableBatch).Create(); // TODO(WP7): .SendTimeout(TimeSpan.Zero), which is what the producer does without a send timeout
         var txnCnt = 20;
         var messageCnt = 10;
         var ids = new List<TransactionId>();
@@ -183,7 +183,7 @@ public abstract class TransactionEndToEndTestsBase<TFixture> : IDisposable where
 
     // Upstream: TransactionEndToEndTest#produceTxnMessageOrderTest
     [Theory]
-    [InlineData(true, Skip = "Requires producer batching (WP6)")] // TODO(WP6): remove the skip, and add .EnableBatching(enableBatch) to the producer. Upstream relies on the default of the Java client, which is batching
+    [InlineData(true)] // Upstream relies on the default of the Java client, which is batching
     [InlineData(false)]
     public async Task Commit_GivenThousandTransactionalMessages_ShouldDeliverInSendOrder(bool enableBatch)
     {
@@ -193,7 +193,7 @@ public abstract class TransactionEndToEndTestsBase<TFixture> : IDisposable where
         await using var client = CreateClient();
         await using var consumer = client.NewConsumer(Schema.ByteArray).SubscriptionName("test").Topic(topic).Create();
         await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
-        await using var producer = client.NewProducer(Schema.ByteArray).ProducerName("txn-publish-order").Topic(topic).Create(); // TODO(WP6): .EnableBatching(enableBatch), and TODO(WP7): .SendTimeout(TimeSpan.Zero), which is what the producer does without a send timeout
+        await using var producer = client.NewProducer(Schema.ByteArray).ProducerName("txn-publish-order").Topic(topic).EnableBatching(enableBatch).Create(); // TODO(WP7): .SendTimeout(TimeSpan.Zero), which is what the producer does without a send timeout
 
         for (var ti = 0; ti < 10; ++ti)
         {
@@ -250,7 +250,7 @@ public abstract class TransactionEndToEndTestsBase<TFixture> : IDisposable where
         await using var sharedConsumer = client.NewConsumer(Schema.String).SubscriptionName("shared-sub").SubscriptionType(SubscriptionType.Shared).Topic(topic).Create();
         await failoverConsumer.StateChangedTo(ConsumerState.Active, _cts.Token); // The subscriptions are created when the consumers are created upstream, but here it is done in the background
         await sharedConsumer.StateChangedTo(ConsumerState.Active, _cts.Token);
-        await using var producer = client.NewProducer(Schema.String).Topic(topic).Create(); // TODO(WP6): .EnableBatching(false), which is what the producer does by default
+        await using var producer = client.NewProducer(Schema.String).Topic(topic).EnableBatching(false).Create();
         var transaction = await client.NewTransaction().Timeout(TimeSpan.FromSeconds(10)).Create(_cts.Token);
         var receipts = new List<Task<MessageId>>();
 

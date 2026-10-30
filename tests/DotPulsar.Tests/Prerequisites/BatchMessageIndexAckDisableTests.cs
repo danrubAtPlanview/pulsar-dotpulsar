@@ -18,7 +18,7 @@ using DotPulsar.Abstractions;
 using DotPulsar.Extensions;
 
 // The broker of the IntegrationFixture has acknowledgmentAtBatchIndexLevelEnabled=false (verified by the test below).
-// The batches are produced by the perf tool of the broker image, because the producer of DotPulsar cannot batch yet (TODO(WP6)).
+// The batches are produced by IntegrationFixture.ProduceBatchedMessages.
 [Collection("Integration"), Trait("Category", "Integration")]
 public sealed class BatchMessageIndexAckDisableTests : IDisposable
 {

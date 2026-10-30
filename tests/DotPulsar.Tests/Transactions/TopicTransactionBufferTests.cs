@@ -38,7 +38,7 @@ public sealed class TopicTransactionBufferTests : IDisposable
         var topic = TransactionFixture.CreateTopicName("testWriteSnapshotWhenFirstTxnMessageSend");
         await _fixture.CreateTopic(topic, _cts.Token);
         await using var client = _fixture.CreateClient(_testOutputHelper.Log);
-        await using var producer = client.NewProducer(Schema.String).Topic(topic).Create(); // TODO(WP6): .EnableBatching(true), as upstream relies on the default of the Java client
+        await using var producer = client.NewProducer(Schema.String).Topic(topic).EnableBatching(true).Create(); // Upstream relies on the default of the Java client, which is batching
         await using var consumer = client.NewConsumer(Schema.String).SubscriptionName("my-sub").Topic(topic).Create();
         await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
         await WaitUntilState(topic, "NoSnapshot");
@@ -90,7 +90,7 @@ public sealed class TopicTransactionBufferTests : IDisposable
         var topic = TransactionFixture.CreateTopicName("testMessagePublishInOrder");
         await _fixture.CreateTopic(topic, _cts.Token);
         await using var client = _fixture.CreateClient(_testOutputHelper.Log);
-        await using var producer = client.NewProducer(Schema.Int32).Topic(topic).Create(); // TODO(WP6): .EnableBatching(true), as upstream relies on the default of the Java client
+        await using var producer = client.NewProducer(Schema.Int32).Topic(topic).EnableBatching(true).Create(); // Upstream relies on the default of the Java client, which is batching
         await producer.StateChangedTo(ProducerState.Connected, _cts.Token);
         await using var consumer = client.NewConsumer(Schema.Int32).SubscriptionName("sub").Topic(topic).Create();
         await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
