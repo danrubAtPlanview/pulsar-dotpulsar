@@ -185,11 +185,12 @@ public sealed class BatchMessageIndexAckTests : IDisposable
     }
 
     // Upstream: BatchMessageIndexAckTest#testDoNotRecycleAckSetMultipleTimes
+    // The upstream test sends 100 messages with a maximum of 10 messages in a batch, and ProduceBatchedMessages makes sure that they are 10 batches of 10 messages.
     [Fact]
     public async Task AcknowledgeCumulative_GivenEveryMessageOfBatchesAcknowledgedOneByOne_ShouldNotThrowAndAcknowledgeEverything()
     {
         //Arrange
-        const int numberOfBatches = 3;
+        const int numberOfBatches = 10;
         const int batchSize = 10;
         const int numberOfMessages = numberOfBatches * batchSize;
         var topicName = TransactionFixture.CreateTopicName("batch-index-ack-recycle");
