@@ -17,6 +17,7 @@ namespace DotPulsar.Internal;
 using DotPulsar.Abstractions;
 using DotPulsar.Exceptions;
 using DotPulsar.Internal.Abstractions;
+using DotPulsar.Internal.Chunking;
 using DotPulsar.Internal.Events;
 using DotPulsar.Internal.PulsarApi;
 
@@ -28,6 +29,7 @@ public sealed class SubReader<TMessage> : IContainsChannel, IReader<TMessage>
     private readonly IExecute _executor;
     private readonly IState<ReaderState> _state;
     private readonly IConsumerChannelFactory<TMessage> _factory;
+    private readonly ChunkedMessageAssembler _chunkAssembler;
     private int _isDisposed;
     private Exception? _faultException;
 
@@ -43,7 +45,8 @@ public sealed class SubReader<TMessage> : IContainsChannel, IReader<TMessage>
         IConsumerChannel<TMessage> initialChannel,
         IExecute executor,
         IState<ReaderState> state,
-        IConsumerChannelFactory<TMessage> factory)
+        IConsumerChannelFactory<TMessage> factory,
+        ChunkedMessageAssembler chunkAssembler)
     {
         _correlationId = correlationId;
         ServiceUrl = serviceUrl;
@@ -53,6 +56,7 @@ public sealed class SubReader<TMessage> : IContainsChannel, IReader<TMessage>
         _executor = executor;
         _state = state;
         _factory = factory;
+        _chunkAssembler = chunkAssembler;
         _isDisposed = 0;
 
         _eventRegister.Register(new ReaderCreated(_correlationId));
@@ -79,9 +83,11 @@ public sealed class SubReader<TMessage> : IContainsChannel, IReader<TMessage>
         return await _channel.Receive(cancellationToken).ConfigureAwait(false);
     }
 
+    // Upstream: ConsumerImpl#seekAsync(MessageId)
+    // A chunked message is seeked to by its first chunk, because the broker redelivers entries
     public async ValueTask Seek(MessageId messageId, CancellationToken cancellationToken)
     {
-        var seek = new CommandSeek { MessageId = messageId.ToMessageIdData() };
+        var seek = new CommandSeek { MessageId = (messageId.FirstChunkMessageId ?? messageId).ToMessageIdData() };
         await _executor.Execute(() => InternalSeek(seek, cancellationToken), cancellationToken).ConfigureAwait(false);
     }
 
@@ -97,6 +103,7 @@ public sealed class SubReader<TMessage> : IContainsChannel, IReader<TMessage>
             return;
 
         _eventRegister.Register(new ReaderDisposed(_correlationId));
+        _chunkAssembler.Dispose();
         await DisposeChannel().ConfigureAwait(false);
     }
 
@@ -138,6 +145,7 @@ public sealed class SubReader<TMessage> : IContainsChannel, IReader<TMessage>
     public async ValueTask ChannelFaulted(Exception exception)
     {
         _faultException = exception;
+        _chunkAssembler.Dispose();
         await DisposeChannel().ConfigureAwait(false);
     }
     public ValueTask<IEnumerable<MessageId>> GetLastMessageIds(CancellationToken cancellationToken = default) =>

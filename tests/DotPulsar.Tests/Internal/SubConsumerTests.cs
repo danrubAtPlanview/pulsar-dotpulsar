@@ -18,9 +18,11 @@ using DotPulsar.Abstractions;
 using DotPulsar.Exceptions;
 using DotPulsar.Internal;
 using DotPulsar.Internal.Abstractions;
+using DotPulsar.Internal.Chunking;
 using DotPulsar.Internal.Events;
 using DotPulsar.Internal.PulsarApi;
 using DotPulsar.Internal.Transactions;
+using DotPulsar.Tests.Internal.Chunking;
 using System.Buffers;
 
 [Trait("Category", "Unit")]
@@ -782,7 +784,7 @@ public sealed class SubConsumerTests
         var connection = CreateTransactionalConnection(out _);
         var plainSent = new List<CommandAck>();
         connection.Send(Arg.Do<CommandAck>(ack => plainSent.Add(ack.Clone())), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
-        var channel = new ConsumerChannel<byte[]>(1, 100, queue, connection, batchHandler, messageFactory, [], BatchTestData.Topic, false, false, null, null, null);
+        var channel = new ConsumerChannel<byte[]>(1, 100, queue, connection, batchHandler, messageFactory, [], BatchTestData.Topic, false, false, null, null, null, ChunkTestData.CreateAssembler());
         await using var uut = CreateSubConsumer(false, channel: channel);
         queue.Enqueue(BatchTestData.CreateBatchPackage(BatchTestData.CreateEntryId(1, 2), 5));
         var delivered = new List<DotPulsar.Abstractions.IMessage<byte[]>>();
@@ -1376,7 +1378,7 @@ public sealed class SubConsumerTests
     }
 
     private static ConsumerChannel<byte[]> CreateChannel(IConnection connection, BatchHandler<byte[]> batchHandler, MessageFactory<byte[]> messageFactory, bool batchIndexAckEnabled, bool ackReceiptEnabled = false)
-        => new(1, 100, new AsyncQueue<MessagePackage>(), connection, batchHandler, messageFactory, [], BatchTestData.Topic, ackReceiptEnabled, batchIndexAckEnabled, null, null, null);
+        => new(1, 100, new AsyncQueue<MessagePackage>(), connection, batchHandler, messageFactory, [], BatchTestData.Topic, ackReceiptEnabled, batchIndexAckEnabled, null, null, null, ChunkTestData.CreateAssembler());
 
     private static Transaction CreateTransaction(out ITransactionCoordinatorClient tcClient)
     {
@@ -1394,7 +1396,7 @@ public sealed class SubConsumerTests
         return connection;
     }
 
-    private SubConsumer<byte[]> CreateSubConsumer(bool ackReceiptEnabled, TimeSpan? operationTimeout = null, IConsumerChannel<byte[]>? channel = null, SubscriptionType subscriptionType = SubscriptionType.Exclusive, ConsumerEpoch? consumerEpoch = null, UnAckedMessageTracker? tracker = null, NegativeAcknowledgeTracker? negativeAcknowledgeTracker = null, DeadLetterHandler<byte[]>? deadLetterHandler = null, Func<Func<MessageId[], CancellationToken, ValueTask>, NegativeAcknowledgeTracker>? negativeAcknowledgeTrackerFactory = null)
+    private SubConsumer<byte[]> CreateSubConsumer(bool ackReceiptEnabled, TimeSpan? operationTimeout = null, IConsumerChannel<byte[]>? channel = null, SubscriptionType subscriptionType = SubscriptionType.Exclusive, ConsumerEpoch? consumerEpoch = null, UnAckedMessageTracker? tracker = null, NegativeAcknowledgeTracker? negativeAcknowledgeTracker = null, DeadLetterHandler<byte[]>? deadLetterHandler = null, Func<Func<MessageId[], CancellationToken, ValueTask>, NegativeAcknowledgeTracker>? negativeAcknowledgeTrackerFactory = null, ChunkedMessageAssembler? chunkAssembler = null)
     {
         var correlationId = Guid.NewGuid();
         var executor = new Executor(correlationId, _eventRegister, new DefaultExceptionHandler());
@@ -1418,7 +1420,8 @@ public sealed class SubConsumerTests
             consumerEpoch ?? new ConsumerEpoch(),
             tracker,
             negativeAcknowledgeTracker ?? negativeAcknowledgeTrackerFactory?.Invoke((ids, ct) => subConsumer!.RedeliverUnacknowledgedMessages(ids, ct)) ?? new NegativeAcknowledgeTracker(TimeSpan.FromMinutes(1), (_, _) => default),
-            deadLetterHandler);
+            deadLetterHandler,
+            chunkAssembler ?? ChunkTestData.CreateAssembler());
 
         return subConsumer;
     }

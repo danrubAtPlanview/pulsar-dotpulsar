@@ -16,8 +16,10 @@ namespace DotPulsar.Tests.Internal;
 
 using DotPulsar.Internal;
 using DotPulsar.Internal.Abstractions;
+using DotPulsar.Internal.Chunking;
 using DotPulsar.Internal.Extensions;
 using DotPulsar.Internal.PulsarApi;
+using DotPulsar.Tests.Internal.Chunking;
 
 [Trait("Category", "Unit")]
 public sealed class ConsumerChannelTests
@@ -1725,8 +1727,9 @@ public sealed class ConsumerChannelTests
         uint prefetchCount = 100,
         ConsumerEpoch? consumerEpoch = null,
         UnAckedMessageTracker? unAckedMessageTracker = null,
-        DeadLetterHandler<byte[]>? deadLetterHandler = null)
-        => new(1, prefetchCount, queue ?? new AsyncQueue<MessagePackage>(), connection, batchHandler, messageFactory, [], BatchTestData.Topic, ackReceiptEnabled, batchIndexAckEnabled, consumerEpoch, unAckedMessageTracker, deadLetterHandler);
+        DeadLetterHandler<byte[]>? deadLetterHandler = null,
+        ChunkedMessageAssembler? chunkAssembler = null)
+        => new(1, prefetchCount, queue ?? new AsyncQueue<MessagePackage>(), connection, batchHandler, messageFactory, [], BatchTestData.Topic, ackReceiptEnabled, batchIndexAckEnabled, consumerEpoch, unAckedMessageTracker, deadLetterHandler, chunkAssembler ?? ChunkTestData.CreateAssembler());
 
     private static MessageIdData ToProtocolId(MessageId messageId)
         => new()

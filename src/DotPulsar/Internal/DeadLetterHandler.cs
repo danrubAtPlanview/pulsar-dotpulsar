@@ -141,7 +141,8 @@ public sealed class DeadLetterHandler<TMessage> : IAsyncDisposable
 
             _ = _candidates.TryRemove(key, out _);
 
-            await acknowledge(new MessageId(messageId.LedgerId, messageId.EntryId, messageId.Partition, -1, messageId.Topic), cancellationToken).ConfigureAwait(false);
+            // The chunks of a chunked message are acknowledged with it, so the broker does not redeliver them
+            await acknowledge(new MessageId(messageId.LedgerId, messageId.EntryId, messageId.Partition, -1, messageId.Topic, messageId.FirstChunkMessageId, messageId.ChunkMessageIds), cancellationToken).ConfigureAwait(false);
 
             return true;
         }

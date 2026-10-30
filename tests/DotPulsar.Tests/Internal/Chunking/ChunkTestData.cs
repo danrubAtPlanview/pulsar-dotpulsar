@@ -14,11 +14,21 @@
 
 namespace DotPulsar.Tests.Internal.Chunking;
 
+using DotPulsar.Internal.Chunking;
 using DotPulsar.Internal.PulsarApi;
 using System.Buffers;
 
 public static class ChunkTestData
 {
+    // An assembler with the defaults of a consumer, a clock that tells the real time, and no timer, because nothing acknowledges expired chunks
+    public static ChunkedMessageAssembler CreateAssembler(
+        uint maxPendingChunkedMessage = 10,
+        bool autoAckOldestChunkedMessageOnQueueFull = false,
+        TimeSpan? expireTimeOfIncompleteChunkedMessage = null,
+        Func<long>? utcNowMs = null,
+        Func<IReadOnlyList<MessageIdData>, ValueTask>? acknowledgeExpired = null)
+        => new(maxPendingChunkedMessage, autoAckOldestChunkedMessageOnQueueFull, expireTimeOfIncompleteChunkedMessage ?? TimeSpan.FromMinutes(1), utcNowMs ?? (() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()), acknowledgeExpired);
+
     public static MessageMetadata CreateMetadata(string producerName = "producer", ulong sequenceId = 7)
         => new()
         {

@@ -17,6 +17,7 @@ namespace DotPulsar.Internal;
 using DotPulsar.Abstractions;
 using DotPulsar.Exceptions;
 using DotPulsar.Internal.Abstractions;
+using DotPulsar.Internal.Chunking;
 using DotPulsar.Internal.Events;
 using DotPulsar.Internal.Extensions;
 using DotPulsar.Internal.PulsarApi;
@@ -42,6 +43,7 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
     private readonly UnAckedMessageTracker? _unAckedMessageTracker;
     private readonly NegativeAcknowledgeTracker _negativeAcknowledgeTracker;
     private readonly DeadLetterHandler<TMessage>? _deadLetterHandler;
+    private readonly ChunkedMessageAssembler _chunkAssembler;
     private int _isDisposed;
     private Exception? _faultException;
 
@@ -70,7 +72,8 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
         ConsumerEpoch consumerEpoch,
         UnAckedMessageTracker? unAckedMessageTracker,
         NegativeAcknowledgeTracker negativeAcknowledgeTracker,
-        DeadLetterHandler<TMessage>? deadLetterHandler)
+        DeadLetterHandler<TMessage>? deadLetterHandler,
+        ChunkedMessageAssembler chunkAssembler)
     {
         _correlationId = correlationId;
         ServiceUrl = serviceUrl;
@@ -88,6 +91,7 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
         _unAckedMessageTracker = unAckedMessageTracker;
         _negativeAcknowledgeTracker = negativeAcknowledgeTracker;
         _deadLetterHandler = deadLetterHandler;
+        _chunkAssembler = chunkAssembler;
         _commandAckPool = new DefaultObjectPool<CommandAck>(new DefaultPooledObjectPolicy<CommandAck>());
         _isDisposed = 0;
 
@@ -102,6 +106,7 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
         _eventRegister.Register(new ConsumerDisposed(_correlationId));
         _unAckedMessageTracker?.Dispose();
         _negativeAcknowledgeTracker.Dispose();
+        _chunkAssembler.Dispose();
 
         if (_deadLetterHandler is not null)
             await _deadLetterHandler.DisposeAsync().ConfigureAwait(false);
@@ -139,7 +144,7 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
         transactionImpl.EnsureOpen();
 
         var command = CreateTransactionalAck(CommandAck.Types.AckType.Individual, transactionImpl);
-        command.MessageId.Add(ToTransactionalMessageIdData(messageId));
+        AddIndividualMessageId(command, messageId);
         await InternalTransactionalAcknowledge(command, transactionImpl, cancellationToken).ConfigureAwait(false);
     }
 
@@ -153,7 +158,7 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
         var command = CreateTransactionalAck(CommandAck.Types.AckType.Individual, transactionImpl);
         foreach (var messageId in messageIds)
         {
-            command.MessageId.Add(ToTransactionalMessageIdData(messageId));
+            AddIndividualMessageId(command, messageId);
         }
 
         if (command.MessageId.Count == 0)
@@ -195,6 +200,8 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
         if (_deadLetterHandler is not null)
             entries = await RemoveDeadLettered(entries, cancellationToken).ConfigureAwait(false);
 
+        entries = ExpandChunks(entries);
+
         for (var offset = 0; offset < entries.Count; offset += MaxRedeliverUnacknowledged)
         {
             var command = new CommandRedeliverUnacknowledgedMessages();
@@ -232,15 +239,36 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
         return default;
     }
 
+    // Upstream: ConsumerImpl#removeExpireIncompleteChunkedMessages
+    // The chunks of the incomplete chunked messages that expired are acknowledged, once and in the background. A failure is ignored, because the broker
+    // redelivers the chunks if the consumer reconnects.
+    public async ValueTask AcknowledgeChunks(IReadOnlyList<MessageIdData> chunkMessageIds)
+    {
+        if (_isDisposed != 0 || _faultException is not null)
+            return;
+
+        var command = new CommandAck { AckType = CommandAck.Types.AckType.Individual };
+
+        foreach (var chunkMessageId in chunkMessageIds)
+        {
+            command.MessageId.Add(chunkMessageId);
+        }
+
+        using var timeout = new CancellationTokenSource(_operationTimeout > TimeSpan.Zero ? _operationTimeout : Timeout.InfiniteTimeSpan);
+        await _executor.TryExecuteOnce(() => InternalAcknowledge(command, timeout.Token), timeout.Token).ConfigureAwait(false);
+    }
+
     public async ValueTask Unsubscribe(CancellationToken cancellationToken)
     {
         var unsubscribe = new CommandUnsubscribe();
         await _executor.Execute(() => InternalUnsubscribe(unsubscribe, cancellationToken), cancellationToken).ConfigureAwait(false);
     }
 
+    // Upstream: ConsumerImpl#seekAsync(MessageId)
+    // A chunked message is seeked to by its first chunk, because the broker redelivers entries
     public async ValueTask Seek(MessageId messageId, CancellationToken cancellationToken)
     {
-        var seek = new CommandSeek { MessageId = messageId.ToMessageIdData() };
+        var seek = new CommandSeek { MessageId = (messageId.FirstChunkMessageId ?? messageId).ToMessageIdData() };
         await _executor.Execute(() => InternalSeek(seek, cancellationToken), cancellationToken).ConfigureAwait(false);
     }
 
@@ -283,6 +311,7 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
     {
         _faultException = exception;
         _unAckedMessageTracker?.Dispose();
+        _chunkAssembler.Dispose();
         await DisposeChannel().ConfigureAwait(false);
     }
 
@@ -382,7 +411,16 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
         var commandAck = _commandAckPool.Get();
         ResetPooledAck(commandAck);
         commandAck.AckType = ackType;
-        if (commandAck.MessageId.Count == 0)
+
+        // Upstream: PersistentAcknowledgmentsGroupingTracker#flushAsync
+        // An individual acknowledgment of a chunked message acknowledges every chunk, and a cumulative one only the last chunk, which acknowledges all before it.
+        // The ids of the chunks belong to the message id, so they are removed from the command again, before the next acknowledgment reuses its first id.
+        if (ackType == CommandAck.Types.AckType.Individual && ChunkMessageIdExpander.IsChunked(messageId.ChunkMessageIds))
+        {
+            commandAck.MessageId.Clear();
+            ChunkMessageIdExpander.TryExpand(messageId.ChunkMessageIds, commandAck.MessageId);
+        }
+        else if (commandAck.MessageId.Count == 0)
             commandAck.MessageId.Add(messageId.ToMessageIdData());
         else
             commandAck.MessageId[0].MapFrom(messageId);
@@ -396,6 +434,10 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
         }
         finally
         {
+            // Only an expanded command has more than one id
+            if (commandAck.MessageId.Count > 1)
+                commandAck.MessageId.Clear();
+
             _commandAckPool.Return(commandAck);
         }
     }
@@ -409,7 +451,8 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
 
         foreach (var messageId in messageIds)
         {
-            commandAck.MessageId.Add(messageId.ToMessageIdData());
+            if (!ChunkMessageIdExpander.TryExpand(messageId.ChunkMessageIds, commandAck.MessageId))
+                commandAck.MessageId.Add(messageId.ToMessageIdData());
         }
 
         try
@@ -459,6 +502,14 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
             TxnidLeastBits = transaction.Id.LeastSigBits
         };
 
+    // Upstream: ConsumerImpl#doTransactionAcknowledgeForResponse (C# deviation: the list overload expands chunked messages too)
+    // An individual acknowledgment of a chunked message acknowledges every chunk, in the same command and so in the same transaction
+    private static void AddIndividualMessageId(CommandAck command, MessageId messageId)
+    {
+        if (!ChunkMessageIdExpander.TryExpand(messageId.ChunkMessageIds, command.MessageId))
+            command.MessageId.Add(ToTransactionalMessageIdData(messageId));
+    }
+
     // The batch size is needed by the channel, if it does not know the batch of the message
     private static MessageIdData ToTransactionalMessageIdData(MessageId messageId)
     {
@@ -493,6 +544,7 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
     }
 
     // The broker redelivers entries, so the batch index of a message id is of no use. Every entry is only sent once.
+    // The chunks of a chunked message are kept, so the message can be dead lettered as a whole, and are expanded by ExpandChunks.
     // Upstream: ConsumerImpl#getRedeliveryMessageIdData
     private static List<MessageId> ToEntryLevel(IEnumerable<MessageId> messageIds)
     {
@@ -502,10 +554,40 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
         foreach (var messageId in messageIds)
         {
             if (added.Add((messageId.LedgerId, messageId.EntryId)))
-                entries.Add(new MessageId(messageId.LedgerId, messageId.EntryId, messageId.Partition, -1, messageId.Topic));
+                entries.Add(new MessageId(messageId.LedgerId, messageId.EntryId, messageId.Partition, -1, messageId.Topic, messageId.FirstChunkMessageId, messageId.ChunkMessageIds));
         }
 
         return entries;
+    }
+
+    // Every chunk of a chunked message is an entry that the broker must redeliver, so the id of a chunked message is replaced by the ids of its chunks.
+    // Upstream: UnAckedMessageTracker#addChunkedMessageIdsAndRemoveFromSequenceMap
+    private static List<MessageId> ExpandChunks(List<MessageId> entries)
+    {
+        if (!entries.Exists(entry => ChunkMessageIdExpander.IsChunked(entry.ChunkMessageIds)))
+            return entries;
+
+        var expanded = new List<MessageId>(entries.Count);
+        var added = new HashSet<(ulong LedgerId, ulong EntryId)>();
+
+        foreach (var entry in entries)
+        {
+            if (!ChunkMessageIdExpander.IsChunked(entry.ChunkMessageIds))
+            {
+                if (added.Add((entry.LedgerId, entry.EntryId)))
+                    expanded.Add(entry);
+
+                continue;
+            }
+
+            foreach (var chunkMessageId in entry.ChunkMessageIds!)
+            {
+                if (added.Add((chunkMessageId.LedgerId, chunkMessageId.EntryId)))
+                    expanded.Add(new MessageId(chunkMessageId.LedgerId, chunkMessageId.EntryId, chunkMessageId.Partition, -1, entry.Topic));
+            }
+        }
+
+        return expanded;
     }
 
     // The entries that are sent to the dead letter topic are acknowledged, and they are not redelivered. The others are redelivered.

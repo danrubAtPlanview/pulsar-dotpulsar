@@ -17,6 +17,7 @@ namespace DotPulsar.Tests.Internal;
 using DotPulsar.Internal;
 using DotPulsar.Internal.Abstractions;
 using DotPulsar.Internal.PulsarApi;
+using DotPulsar.Tests.Internal.Chunking;
 
 [Trait("Category", "Unit")]
 public sealed class ConsumerChannelFactoryTests
@@ -179,7 +180,8 @@ public sealed class ConsumerChannelFactoryTests
             false,
             consumerEpoch,
             tracker,
-            deadLetterHandler);
+            deadLetterHandler,
+            ChunkTestData.CreateAssembler());
     }
 
     private static IConnection CreateConnection(List<CommandSubscribe>? subscriptions = null, List<CommandRedeliverUnacknowledgedMessages>? redeliveries = null, Action<IChannel>? onSubscribe = null)

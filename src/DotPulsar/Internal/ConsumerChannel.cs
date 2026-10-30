@@ -17,9 +17,11 @@ namespace DotPulsar.Internal;
 using DotPulsar.Abstractions;
 using DotPulsar.Exceptions;
 using DotPulsar.Internal.Abstractions;
+using DotPulsar.Internal.Chunking;
 using DotPulsar.Internal.Extensions;
 using DotPulsar.Internal.PulsarApi;
 using Google.Protobuf.Collections;
+using System.Buffers;
 
 public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
 {
@@ -37,6 +39,9 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
     private readonly ConsumerEpoch? _consumerEpoch;
     private readonly UnAckedMessageTracker? _unAckedMessageTracker;
     private readonly DeadLetterHandler<TMessage>? _deadLetterHandler;
+    private readonly ChunkedMessageAssembler _chunkAssembler;
+    private readonly List<MessageIdData> _chunkAcks;
+    private readonly List<MessageIdData> _chunkTrack;
     private uint _sendWhenZero;
     private bool _firstFlow;
 
@@ -53,7 +58,8 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
         bool batchIndexAckEnabled,
         ConsumerEpoch? consumerEpoch,
         UnAckedMessageTracker? unAckedMessageTracker,
-        DeadLetterHandler<TMessage>? deadLetterHandler)
+        DeadLetterHandler<TMessage>? deadLetterHandler,
+        ChunkedMessageAssembler chunkAssembler)
     {
         _id = id;
         _queue = queue;
@@ -66,6 +72,9 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
         _consumerEpoch = consumerEpoch;
         _unAckedMessageTracker = unAckedMessageTracker;
         _deadLetterHandler = deadLetterHandler;
+        _chunkAssembler = chunkAssembler;
+        _chunkAcks = [];
+        _chunkTrack = [];
 
         _decompressors = new IDecompress[5];
 
@@ -123,6 +132,24 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
                     var metadataSize = messagePackage.GetMetadataSize();
                     var metadata = messagePackage.ExtractMetadata(metadataSize);
                     var data = messagePackage.ExtractData(metadataSize);
+                    var messageId = messagePackage.MessageId;
+                    MessageIdData[]? chunkMessageIds = null;
+
+                    // TODO(WP9): decrypt the payload here, for every entry and before the chunk check, because every chunk is encrypted on its own.
+                    // The assembler needs the decrypted chunk, since total_chunk_msg_size is the size of the payload before it was encrypted.
+
+                    // Upstream: ConsumerImpl#messageReceived (chunk branch)
+                    // The chunks are assembled before the message is decompressed. The metadata of the last chunk is the metadata of the message.
+                    if (metadata.IsChunkedMessage())
+                    {
+                        var assembled = ProcessChunk(messageId, metadata, data);
+
+                        if (assembled is null)
+                            continue;
+
+                        data = assembled.Value.Payload;
+                        chunkMessageIds = assembled.Value.ChunkMessageIds;
+                    }
 
                     if (metadata.Compression != CompressionType.None)
                     {
@@ -136,12 +163,16 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
                         }
                         catch
                         {
+                            // Upstream: ConsumerImpl#messageReceived (decompression failure of a chunked message)
+                            // The last chunk is rejected like any other corrupted entry. The chunks before it can never be part of a delivered message, so they are acknowledged.
+                            if (chunkMessageIds is not null)
+                                AcknowledgeChunks(chunkMessageIds, chunkMessageIds.Length - 1);
+
                             await RejectPackage(messagePackage, CommandAck.Types.ValidationError.DecompressionError, cancellationToken).ConfigureAwait(false);
                             continue;
                         }
                     }
 
-                    var messageId = messagePackage.MessageId;
                     var redeliveryCount = messagePackage.RedeliveryCount;
 
                     if (metadata.HasNumMessagesInBatch)
@@ -174,7 +205,7 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
                         return batchMessage;
                     }
 
-                    var receivedMessage = _messageFactory.Create(messageId.ToMessageId(_topic), redeliveryCount, data, metadata);
+                    var receivedMessage = _messageFactory.Create(chunkMessageIds is null ? messageId.ToMessageId(_topic) : CreateChunkedMessageId(chunkMessageIds), redeliveryCount, data, metadata);
 
                     // Upstream: ConsumerImpl#messageReceived (possibleSendToDeadLetterTopicMessages)
                     // A message that was delivered more often than allowed is not delivered. The redelivery sends it to the dead letter topic.
@@ -452,6 +483,7 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
         response.Expect(BaseCommand.Types.Type.Success);
         _batchHandler.Clear();
         _deadLetterHandler?.Clear();
+        _chunkAssembler.Clear();
     }
 
     public async Task<MessageId> Send(CommandGetLastMessageId command, CancellationToken cancellationToken)
@@ -544,6 +576,70 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
         }
 
         _sendWhenZero = _cachedCommandFlow.MessagePermits;
+    }
+
+    // Upstream: ConsumerImpl#processMessageChunk
+    // The assembler asks for acknowledgments of the chunks that will never be part of a delivered message, and it hands back the chunks that are tracked by
+    // the ack timeout (they are redelivered if the ack timeout is enabled). Returns the message if the chunk completed it.
+    // Nothing is awaited, because every local variable of Receive that is used after an await is kept in its state machine, which is allocated for every message.
+    private AssembledChunkedMessage? ProcessChunk(MessageIdData messageId, MessageMetadata metadata, ReadOnlySequence<byte> data)
+    {
+        _chunkAcks.Clear();
+        _chunkTrack.Clear();
+
+        var assembled = _chunkAssembler.Process(messageId, metadata, data, _chunkAcks, _chunkTrack);
+
+        if (_unAckedMessageTracker is not null)
+        {
+            foreach (var chunkId in _chunkTrack)
+            {
+                _unAckedMessageTracker.Add(chunkId.ToMessageId(_topic));
+            }
+        }
+
+        if (_chunkAcks.Count > 0)
+            AcknowledgeChunks(_chunkAcks, _chunkAcks.Count);
+
+        return assembled;
+    }
+
+    // Upstream: ConsumerImpl#acknowledgeChunkedMessageIds
+    // The first 'count' ids are acknowledged individually, in the background and without waiting for a receipt. Like Java, a failure is ignored,
+    // because the broker redelivers the chunks if the consumer reconnects.
+    private void AcknowledgeChunks(IReadOnlyList<MessageIdData> chunkMessageIds, int count)
+    {
+        var command = new CommandAck { AckType = CommandAck.Types.AckType.Individual };
+
+        for (var i = 0; i < count; ++i)
+        {
+            command.MessageId.Add(chunkMessageIds[i]);
+        }
+
+        RemoveAcknowledgedEntries(command);
+        command.ConsumerId = _id;
+        _ = SendIgnoringFailure(command);
+    }
+
+    private async Task SendIgnoringFailure(CommandAck command)
+    {
+        try
+        {
+            await _connection.Send(command, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch
+        {
+            // Ignore
+        }
+    }
+
+    // Upstream: ChunkMessageIdImpl
+    // The id of a chunked message is the id of its last chunk, and it knows the ids of all the chunks
+    private MessageId CreateChunkedMessageId(MessageIdData[] chunkMessageIds)
+    {
+        var first = chunkMessageIds[0];
+        var last = chunkMessageIds[chunkMessageIds.Length - 1];
+        var firstChunkMessageId = new MessageId(first.LedgerId, first.EntryId, first.Partition, -1, _topic);
+        return new MessageId(last.LedgerId, last.EntryId, last.Partition, -1, _topic, firstChunkMessageId, chunkMessageIds);
     }
 
     private async Task RejectPackage(MessagePackage messagePackage, CommandAck.Types.ValidationError validationErrorType, CancellationToken cancellationToken)

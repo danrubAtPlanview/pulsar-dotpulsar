@@ -17,6 +17,7 @@ namespace DotPulsar.Internal;
 using DotPulsar.Abstractions;
 using DotPulsar.Exceptions;
 using DotPulsar.Internal.Abstractions;
+using DotPulsar.Internal.Chunking;
 using DotPulsar.Internal.Compression;
 using DotPulsar.Internal.PulsarApi;
 
@@ -279,7 +280,7 @@ public sealed class Reader<TMessage> : IReader<TMessage>
             ConsumerName = _readerOptions.ReaderName ?? subscription,
             Durable = false,
             ReadCompacted = _readerOptions.ReadCompacted,
-            StartMessageId = _readerOptions.StartMessageId.ToMessageIdData(),
+            StartMessageId = (_readerOptions.StartMessageId.FirstChunkMessageId ?? _readerOptions.StartMessageId).ToMessageIdData(),
             Subscription = subscription,
             Topic = topic,
             SubType = CommandSubscribe.Types.SubType.Exclusive
@@ -288,11 +289,20 @@ public sealed class Reader<TMessage> : IReader<TMessage>
         var messageFactory = new MessageFactory<TMessage>(_readerOptions.Schema);
         var batchHandler = new BatchHandler<TMessage>(false, messageFactory, topic, null);
         var decompressorFactories = CompressionFactories.DecompressorFactories();
-        var factory = new ConsumerChannelFactory<TMessage>(correlationId, _processManager, _connectionPool, subscribe, messagePrefetchCount, batchHandler, messageFactory, decompressorFactories, topic, false, false, null, null, null);
+
+        // A reader has no acknowledgments, so the chunks of an expired message are only dropped
+        var chunkAssembler = new ChunkedMessageAssembler(
+            _readerOptions.MaxPendingChunkedMessage,
+            _readerOptions.AutoAckOldestChunkedMessageOnQueueFull,
+            _readerOptions.ExpireTimeOfIncompleteChunkedMessage,
+            static () => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            static _ => default);
+
+        var factory = new ConsumerChannelFactory<TMessage>(correlationId, _processManager, _connectionPool, subscribe, messagePrefetchCount, batchHandler, messageFactory, decompressorFactories, topic, false, false, null, null, null, chunkAssembler);
         var stateManager = new StateManager<ReaderState>(ReaderState.Disconnected, ReaderState.Closed, ReaderState.ReachedEndOfTopic, ReaderState.Faulted);
         var initialChannel = new NotReadyChannel<TMessage>();
         var executor = new Executor(correlationId, _processManager, _exceptionHandler);
-        var subReader = new SubReader<TMessage>(correlationId, ServiceUrl, topic, _processManager, initialChannel, executor, stateManager, factory);
+        var subReader = new SubReader<TMessage>(correlationId, ServiceUrl, topic, _processManager, initialChannel, executor, stateManager, factory, chunkAssembler);
         var process = new ReaderProcess(correlationId, stateManager, subReader);
         _processManager.Add(process);
         process.Start();
