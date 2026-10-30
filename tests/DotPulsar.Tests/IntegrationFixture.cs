@@ -23,6 +23,7 @@ using System.Text;
 using System.Text.Json;
 using Testcontainers.Pulsar;
 using Toxiproxy.Net;
+using Toxiproxy.Net.Toxics;
 
 public class IntegrationFixture : IAsyncLifetime
 {
@@ -207,6 +208,39 @@ public class IntegrationFixture : IAsyncLifetime
         _toxiProxyPulsarProxy.Enabled = false;
         await _toxiProxyPulsarProxy.UpdateAsync();
         return new Releaser(_toxiProxyPulsarProxy);
+    }
+
+    public async Task<IAsyncDisposable> DelayUpstream(TimeSpan latency)
+    {
+        var toxic = new LatencyToxic
+        {
+            Name = $"latency-{Guid.NewGuid():N}",
+            Stream = ToxicDirection.UpStream,
+            Toxicity = 1.0,
+            Attributes =
+            {
+                Latency = (int) latency.TotalMilliseconds,
+                Jitter = 0
+            }
+        };
+
+        await _toxiProxyPulsarProxy.AddAsync(toxic);
+        return new ToxicReleaser(_toxiProxyPulsarProxy, toxic.Name);
+    }
+
+    private class ToxicReleaser : IAsyncDisposable
+    {
+        private readonly Proxy _proxy;
+        private readonly string _toxicName;
+
+        public ToxicReleaser(Proxy proxy, string toxicName)
+        {
+            _proxy = proxy;
+            _toxicName = toxicName;
+        }
+
+        public async ValueTask DisposeAsync()
+            => await _proxy.RemoveToxicAsync(_toxicName);
     }
 
     private class Releaser : IAsyncDisposable

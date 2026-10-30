@@ -586,6 +586,53 @@ public sealed class ConsumerTests : IDisposable
         backlog.ShouldBe(0);
     }
 
+    // Upstream: AckReceiptOnTopicUnloadTest#testDelayedAckReceipt
+    // The broker side of the upstream test (delaying the processing of the CommandAck on the broker) is not observable
+    // from the client. Delaying the client to broker direction with Toxiproxy produces the same ordering instead.
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true, Skip = "Requires broker fix apache/pulsar#27128 (AckResponse for discarded acks), which is not in apachepulsar/pulsar:4.0.9")]
+    [InlineData(true, true, Skip = "Requires broker fix apache/pulsar#27128 (AckResponse for discarded acks), which is not in apachepulsar/pulsar:4.0.9")]
+    public async Task Acknowledge_GivenDelayedAckReceipt_ShouldCompleteOrFailWithConsumerNotFound(bool cumulative, bool unload)
+    {
+        //Arrange
+        var topicName = await _fixture.CreateTopic(_cts.Token);
+        var subscription = CreateSubscriptionName();
+        await using var client = CreateClient();
+        await using var producer = CreateProducer(client, topicName);
+        await using var consumer = CreateAckReceiptConsumer(client, topicName, subscription);
+        _ = await producer.Send("message", _cts.Token);
+        var message = await consumer.Receive(_cts.Token);
+
+        Task acknowledgeTask;
+        await using (await _fixture.DelayUpstream(TimeSpan.FromSeconds(3)))
+        {
+            //Act
+            acknowledgeTask = (cumulative ? consumer.AcknowledgeCumulative(message, _cts.Token) : consumer.Acknowledge(message, _cts.Token)).AsTask();
+            await Task.Delay(TimeSpan.FromMilliseconds(500), _cts.Token);
+            acknowledgeTask.IsCompleted.ShouldBeFalse();
+
+            if (unload)
+            {
+                using var adminClient = CreateAdminClient();
+                using var response = await adminClient.PutAsync($"/admin/v2/persistent/{topicName.Replace("persistent://", string.Empty)}/unload", null, _cts.Token);
+                response.EnsureSuccessStatusCode();
+            }
+
+            //Assert
+            if (unload)
+                await Should.ThrowAsync<ConsumerNotFoundException>(acknowledgeTask);
+            else
+                await acknowledgeTask;
+        }
+
+        // The connection must still be usable after the failed or delayed acknowledgment
+        await using var controlProducer = CreateProducer(client, topicName);
+        var messageId = await controlProducer.Send("control", _cts.Token);
+        messageId.ShouldNotBe(MessageId.Earliest);
+    }
+
     private static string CreateSubscriptionName() => $"subscription-{Guid.NewGuid():N}";
 
     private IConsumer<string> CreateAckReceiptConsumer(IPulsarClient pulsarClient, string topicName, string subscription)
