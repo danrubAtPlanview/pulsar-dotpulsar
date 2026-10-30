@@ -39,7 +39,7 @@ public abstract class TransactionFixtureBase : IAsyncLifetime
     public const string TransactionCoordinatorAssignTopic = "persistent://pulsar/system/transaction_coordinator_assign";
     private const string TransactionCoordinatorWarmUpTopic = "persistent://public/default/transaction-coordinator-warm-up";
     private const string ClusterName = "standalone";
-    private const string SuperUser = "test-user";
+    protected const string SuperUser = "test-user";
     private const int MaxStartAttempts = 3;
     private static readonly TimeSpan _startAttemptTimeout = TimeSpan.FromMinutes(4);
     private readonly bool _acknowledgmentAtBatchIndexLevelEnabled;
@@ -93,6 +93,9 @@ public abstract class TransactionFixtureBase : IAsyncLifetime
 
     // Add or change the broker settings. The common settings have already been applied.
     protected virtual PulsarBuilder ConfigureBroker(PulsarBuilder builder) => builder;
+
+    // Prepare the broker after the transaction coordinator is ready and the tenant and namespaces exist, for example with roles and permissions
+    protected virtual Task OnClusterStarted(CancellationToken cancellationToken) => Task.CompletedTask;
 
     public async ValueTask DisposeAsync()
     {
@@ -181,6 +184,7 @@ public abstract class TransactionFixtureBase : IAsyncLifetime
         await CreateTenant(Tenant, cancellationToken);
         await CreateNamespace(Namespace, 4, cancellationToken);
         await CreateNamespace(PublicTransactionNamespace, 10, cancellationToken);
+        await OnClusterStarted(cancellationToken);
 
         Current.SendDiagnosticMessage("The transaction coordinator is ready. You can connect with: " + ServiceUrl);
     }
@@ -303,6 +307,9 @@ public abstract class TransactionFixtureBase : IAsyncLifetime
     public async Task UnloadTopic(string topic, CancellationToken cancellationToken)
         => await RunAdminCommand($"topics unload {topic}", "Could not unload the topic", cancellationToken);
 
+    public async Task UnloadNamespace(string @namespace, CancellationToken cancellationToken)
+        => await RunAdminCommand($"namespaces unload {@namespace}", "Could not unload the namespace", cancellationToken);
+
     public async Task CreateTenant(string tenant, CancellationToken cancellationToken)
         => await RunAdminCommand($"tenants create {tenant} --allowed-clusters {ClusterName} --admin-roles {SuperUser}", "Could not create the tenant", cancellationToken);
 
@@ -318,6 +325,10 @@ public abstract class TransactionFixtureBase : IAsyncLifetime
         if (result.ExitCode != 0)
             throw new Exception($"{errorMessage}: {result.Stderr}");
     }
+
+    // Runs a command in the container of the broker. The container has the command line tools of Pulsar, which are the Java client.
+    public async Task<ExecResult> ExecInPulsar(string bashCommand, CancellationToken cancellationToken)
+        => await _pulsarCluster.ExecAsync(["/bin/bash", "-c", bashCommand], cancellationToken);
 
     // ---- Batched messages ----
 
