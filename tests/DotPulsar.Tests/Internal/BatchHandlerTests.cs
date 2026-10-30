@@ -15,6 +15,7 @@
 namespace DotPulsar.Tests.Internal;
 
 using DotPulsar.Internal;
+using DotPulsar.Internal.Crypto;
 using DotPulsar.Internal.PulsarApi;
 using Google.Protobuf.Collections;
 using System.Buffers;
@@ -35,6 +36,37 @@ public sealed class BatchHandlerTests
         messages.Select(message => message.MessageId.BatchIndex).ShouldBeSequence(1, 2, 4);
         messages.Select(message => message.Data.ToArray()[0]).ShouldBeSequence((byte) 1, (byte) 2, (byte) 4);
         chargedButSkipped.ShouldBe(0);
+    }
+
+    [Fact]
+    public void Add_GivenEncryptionContext_ShouldGiveTheSameContextToEveryMessageOfTheBatch()
+    {
+        //Arrange
+        var uut = CreateHandler();
+        var data = new ReadOnlySequence<byte>(BatchTestData.CreateBatchPayload(3));
+        var encryptionContext = EncryptionContextFactory.Create(new MessageMetadata { EncryptionKeys = { new EncryptionKeys { Key = "key", Value = Google.Protobuf.ByteString.CopyFrom([1, 2, 3]) } } }, false);
+
+        //Act
+        var first = uut.Add(BatchTestData.CreateEntryId(1, 2), null, 0, BatchTestData.CreateMetadata(3), data, out _, encryptionContext);
+
+        //Assert
+        first.ShouldNotBeNull().EncryptionContext.ShouldBeSameAs(encryptionContext);
+        uut.GetNext()!.EncryptionContext.ShouldBeSameAs(encryptionContext);
+        uut.GetNext()!.EncryptionContext.ShouldBeSameAs(encryptionContext);
+        uut.GetNext().ShouldBeNull();
+    }
+
+    [Fact]
+    public void Add_GivenNoEncryptionContext_ShouldDeliverMessagesWithoutOne()
+    {
+        //Arrange
+        var uut = CreateHandler();
+
+        //Act
+        var messages = BatchTestData.AddBatch(uut, 1, 2, 3);
+
+        //Assert
+        messages.ShouldAllBe(message => message.EncryptionContext == null);
     }
 
     [Fact]

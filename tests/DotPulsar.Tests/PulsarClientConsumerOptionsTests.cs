@@ -105,6 +105,24 @@ public sealed class PulsarClientConsumerOptionsTests
         exception.ShouldBeOfType<ConfigurationException>().Message.ShouldBe("ConsumerOptions.ExpireTimeOfIncompleteChunkedMessage may not be negative");
     }
 
+    [Theory]
+    [InlineData(3)]
+    [InlineData(-1)]
+    [InlineData(255)]
+    public async Task CreateConsumer_GivenCryptoFailureActionThatIsNotDefined_ShouldThrowConfigurationException(int cryptoFailureAction)
+    {
+        //Arrange
+        await using var client = PulsarClient.Builder().ServiceUrl(_serviceUrl).Build();
+        var options = CreateOptions();
+        options.CryptoFailureAction = (ConsumerCryptoFailureAction) cryptoFailureAction;
+
+        //Act
+        var exception = Record.Exception(() => client.CreateConsumer(options));
+
+        //Assert
+        exception.ShouldBeOfType<ConfigurationException>().Message.ShouldBe("ConsumerOptions.CryptoFailureAction is not a valid ConsumerCryptoFailureAction");
+    }
+
     [Fact]
     public void ConsumerOptions_GivenNoChanges_ShouldHaveTheDefaultsOfTheChunkSettings()
     {

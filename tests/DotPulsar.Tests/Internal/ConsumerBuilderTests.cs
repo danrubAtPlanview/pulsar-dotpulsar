@@ -16,7 +16,9 @@ namespace DotPulsar.Tests.Internal;
 
 using DotPulsar.Abstractions;
 using DotPulsar.Exceptions;
+using DotPulsar.Extensions;
 using DotPulsar.Internal;
+using DotPulsar.Tests.Internal.Crypto;
 
 [Trait("Category", "Unit")]
 public sealed class ConsumerBuilderTests
@@ -231,6 +233,101 @@ public sealed class ConsumerBuilderTests
         uut.AutoAckOldestChunkedMessageOnQueueFull(true).ShouldBeSameAs(uut);
         uut.ExpireTimeOfIncompleteChunkedMessage(TimeSpan.Zero).ShouldBeSameAs(uut);
     }
+
+    // Upstream: ConsumerBuilderImpl#cryptoFailureAction (the default is FAIL)
+    [Fact]
+    public void Create_GivenNoCryptoSettings_ShouldUseTheDefaults()
+    {
+        //Arrange
+        var (uut, options) = CreateBuilder();
+
+        //Act
+        uut.Create();
+
+        //Assert
+        options().CryptoKeyReader.ShouldBeNull();
+        options().CryptoFailureAction.ShouldBe(ConsumerCryptoFailureAction.Fail);
+        ConsumerOptions<string>.DefaultCryptoFailureAction.ShouldBe(ConsumerCryptoFailureAction.Fail);
+    }
+
+    // Upstream: ConsumerBuilderImpl#cryptoKeyReader, ConsumerBuilderImpl#cryptoFailureAction
+    [Theory]
+    [InlineData(ConsumerCryptoFailureAction.Fail)]
+    [InlineData(ConsumerCryptoFailureAction.Discard)]
+    [InlineData(ConsumerCryptoFailureAction.Consume)]
+    public void Create_GivenCryptoKeyReaderAndFailureAction_ShouldPassThemOnInTheOptions(ConsumerCryptoFailureAction cryptoFailureAction)
+    {
+        //Arrange
+        var (uut, options) = CreateBuilder();
+        var cryptoKeyReader = Substitute.For<ICryptoKeyReader>();
+
+        //Act
+        uut.CryptoKeyReader(cryptoKeyReader).CryptoFailureAction(cryptoFailureAction).Create();
+
+        //Assert
+        options().CryptoKeyReader.ShouldBeSameAs(cryptoKeyReader);
+        options().CryptoFailureAction.ShouldBe(cryptoFailureAction);
+    }
+
+    [Fact]
+    public void Builder_GivenCryptoSettings_ShouldReturnTheBuilder()
+    {
+        //Arrange
+        var (uut, _) = CreateBuilder();
+
+        //Act & Assert
+        uut.CryptoKeyReader(Substitute.For<ICryptoKeyReader>()).ShouldBeSameAs(uut);
+        uut.CryptoFailureAction(ConsumerCryptoFailureAction.Consume).ShouldBeSameAs(uut);
+    }
+
+    [Fact]
+    public void ConsumerOptions_GivenNoChanges_ShouldHaveTheDefaultCryptoSettings()
+    {
+        //Act
+        var uut = new ConsumerOptions<string>("subscription", "persistent://public/default/test", Schema.String);
+
+        //Assert
+        uut.CryptoKeyReader.ShouldBeNull();
+        uut.CryptoFailureAction.ShouldBe(ConsumerOptions<string>.DefaultCryptoFailureAction);
+    }
+
+    // Upstream: ConsumerBuilderImpl#defaultCryptoKeyReader(String)
+    [Fact]
+    public void Create_GivenDefaultCryptoKeyReaderWithPrivateKey_ShouldPassAReaderThatReadsItForEveryKeyName()
+    {
+        //Arrange
+        var (uut, options) = CreateBuilder();
+        var privateKey = CryptoTestKeys.Private("ClientRsa");
+
+        //Act
+        uut.DefaultCryptoKeyReader(CreateDataUri(privateKey)).Create();
+
+        //Assert
+        var cryptoKeyReader = options().CryptoKeyReader.ShouldBeOfType<DefaultCryptoKeyReader>();
+        cryptoKeyReader.GetPrivateKey("one", new Dictionary<string, string>())!.Key.ShouldBe(privateKey);
+        cryptoKeyReader.GetPrivateKey("two", new Dictionary<string, string>())!.Key.ShouldBe(privateKey);
+        cryptoKeyReader.GetPublicKey("one", new Dictionary<string, string>()).ShouldBeNull();
+    }
+
+    // Upstream: ConsumerBuilderImpl#defaultCryptoKeyReader(Map)
+    [Fact]
+    public void Create_GivenDefaultCryptoKeyReaderWithPrivateKeysByName_ShouldPassAReaderThatReadsThemByKeyName()
+    {
+        //Arrange
+        var (uut, options) = CreateBuilder();
+        var privateKey = CryptoTestKeys.Private("ClientRsa");
+
+        //Act
+        uut.DefaultCryptoKeyReader(new Dictionary<string, string> { ["one"] = CreateDataUri(privateKey) }).Create();
+
+        //Assert
+        var cryptoKeyReader = options().CryptoKeyReader.ShouldBeOfType<DefaultCryptoKeyReader>();
+        cryptoKeyReader.GetPrivateKey("one", new Dictionary<string, string>())!.Key.ShouldBe(privateKey);
+        cryptoKeyReader.GetPrivateKey("two", new Dictionary<string, string>()).ShouldBeNull();
+    }
+
+    private static string CreateDataUri(byte[] key)
+        => "data:application/x-pem-file;base64," + Convert.ToBase64String(key);
 
     private static (IConsumerBuilder<string> Builder, Func<ConsumerOptions<string>> Options) CreateBuilder()
     {

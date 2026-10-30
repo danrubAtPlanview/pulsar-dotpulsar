@@ -14,10 +14,15 @@
 
 namespace DotPulsar.Tests.Internal;
 
+using DotPulsar.Abstractions;
 using DotPulsar.Internal;
 using DotPulsar.Internal.Abstractions;
+using DotPulsar.Internal.Crypto;
 using DotPulsar.Internal.PulsarApi;
 using DotPulsar.Tests.Internal.Chunking;
+using DotPulsar.Tests.Internal.Crypto;
+using System.Buffers;
+using System.Text;
 
 [Trait("Category", "Unit")]
 public sealed class ConsumerChannelFactoryTests
@@ -181,7 +186,68 @@ public sealed class ConsumerChannelFactoryTests
         actual.MessageId.FirstChunkMessageId!.EntryId.ShouldBe(1UL);
     }
 
-    private static ConsumerChannelFactory<byte[]> CreateFactory(IConnection connection, CommandSubscribe.Types.SubType subscriptionType, ConsumerEpoch? consumerEpoch, UnAckedMessageTracker? tracker = null, DeadLetterHandler<byte[]>? deadLetterHandler = null)
+    // Upstream: ConsumerImpl#ConsumerImpl (msgCrypto)
+    // The messages of every channel of the sub-consumer are decrypted by the same MessageCrypto, which keeps the data keys that it has read
+    [Fact(Timeout = 30_000)]
+    public async Task Create_GivenMessageCryptoAndCryptoKeyReader_ShouldDecryptTheMessagesOfTheChannel()
+    {
+        //Arrange
+        using var producer = CreateProducerCrypto();
+        using var consumer = new MessageCrypto(false);
+        var channels = new List<IChannel>();
+        var uut = CreateFactory(CreateConnection(onSubscribe: channels.Add), CommandSubscribe.Types.SubType.Exclusive, null, messageCrypto: consumer, cryptoKeyReader: CreateCryptoKeyReader());
+        await using var channel = await uut.Create(Current.CancellationToken);
+        channels[0].Received(CreateEncryptedPackage(producer, 1, "Hello"));
+
+        //Act
+        var actual = await channel.Receive(Current.CancellationToken);
+
+        //Assert
+        Encoding.UTF8.GetString(actual.Data.ToArray()).ShouldBe("Hello");
+        actual.EncryptionContext.ShouldNotBeNull().IsEncrypted.ShouldBeFalse();
+    }
+
+    // Upstream: ConsumerImpl#handleCryptoFailure
+    [Fact(Timeout = 30_000)]
+    public async Task Create_GivenCryptoFailureAction_ShouldGiveItToTheChannel()
+    {
+        //Arrange
+        using var producer = CreateProducerCrypto();
+        var acks = new List<CommandAck>();
+        var channels = new List<IChannel>();
+        var connection = CreateConnection(onSubscribe: channels.Add);
+        connection.Send(Arg.Do<CommandAck>(ack => acks.Add(ack.Clone())), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
+        var uut = CreateFactory(connection, CommandSubscribe.Types.SubType.Exclusive, null, cryptoFailureAction: ConsumerCryptoFailureAction.Discard);
+        await using var channel = await uut.Create(Current.CancellationToken);
+        channels[0].Received(CreateEncryptedPackage(producer, 1, "Hello"));
+        channels[0].Received(BatchTestData.CreateSinglePackage(BatchTestData.CreateEntryId(1, 2)));
+
+        //Act
+        var actual = await channel.Receive(Current.CancellationToken);
+
+        //Assert
+        actual.MessageId.EntryId.ShouldBe(2UL);
+        acks.ShouldHaveSingleItem().ValidationError.ShouldBe(CommandAck.Types.ValidationError.DecryptionError);
+    }
+
+    private static MessageCrypto CreateProducerCrypto()
+    {
+        var producer = new MessageCrypto(true);
+        producer.AddPublicKeyCipher(["key"], new InMemoryCryptoKeyReader().WithPublicKey("key", CryptoTestKeys.Public("ClientRsa")));
+        return producer;
+    }
+
+    private static ICryptoKeyReader CreateCryptoKeyReader()
+        => new InMemoryCryptoKeyReader().WithPrivateKey("key", CryptoTestKeys.Private("ClientRsa"));
+
+    private static MessagePackage CreateEncryptedPackage(MessageCrypto producer, ulong entryId, string text)
+    {
+        var metadata = new MessageMetadata { ProducerName = "producer", SequenceId = 1, PublishTime = 1 };
+        var encrypted = producer.Encrypt(metadata, new ReadOnlySequence<byte>(Encoding.UTF8.GetBytes(text)));
+        return BatchTestData.CreatePackage(BatchTestData.CreateEntryId(1, entryId), metadata, encrypted.ToArray());
+    }
+
+    private static ConsumerChannelFactory<byte[]> CreateFactory(IConnection connection, CommandSubscribe.Types.SubType subscriptionType, ConsumerEpoch? consumerEpoch, UnAckedMessageTracker? tracker = null, DeadLetterHandler<byte[]>? deadLetterHandler = null, MessageCrypto? messageCrypto = null, ICryptoKeyReader? cryptoKeyReader = null, ConsumerCryptoFailureAction cryptoFailureAction = ConsumerCryptoFailureAction.Fail)
     {
         var connectionPool = Substitute.For<IConnectionPool>();
         connectionPool.FindConnectionForTopic(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(new ValueTask<IConnection>(connection));
@@ -204,9 +270,9 @@ public sealed class ConsumerChannelFactoryTests
             tracker,
             deadLetterHandler,
             ChunkTestData.CreateAssembler(),
-            null,
-            null,
-            ConsumerCryptoFailureAction.Fail);
+            messageCrypto,
+            cryptoKeyReader,
+            cryptoFailureAction);
     }
 
     private static IConnection CreateConnection(List<CommandSubscribe>? subscriptions = null, List<CommandRedeliverUnacknowledgedMessages>? redeliveries = null, Action<IChannel>? onSubscribe = null)

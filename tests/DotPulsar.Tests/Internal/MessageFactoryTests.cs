@@ -15,6 +15,7 @@
 namespace DotPulsar.Tests.Internal;
 
 using DotPulsar.Internal;
+using DotPulsar.Internal.Crypto;
 using DotPulsar.Internal.PulsarApi;
 using Google.Protobuf;
 using System.Buffers;
@@ -69,6 +70,51 @@ public sealed class MessageFactoryTests
         //Assert
         actual.OrderingKey.ShouldBe("message-key"u8.ToArray());
     }
+
+    [Fact]
+    public void Create_GivenNoEncryptionContext_ShouldCreateMessageWithoutOne()
+    {
+        //Arrange
+        var metadata = CreateMetadata("message-key");
+
+        //Act
+        var actual = _uut.Create(new MessageId(1, 2, 0, -1), 0, ReadOnlySequence<byte>.Empty, metadata);
+
+        //Assert
+        actual.EncryptionContext.ShouldBeNull();
+    }
+
+    [Fact]
+    public void Create_GivenEncryptionContext_ShouldGiveItToTheMessage()
+    {
+        //Arrange
+        var metadata = CreateMetadata("message-key");
+        var encryptionContext = CreateEncryptionContext();
+
+        //Act
+        var actual = _uut.Create(new MessageId(1, 2, 0, -1), 0, ReadOnlySequence<byte>.Empty, metadata, null, encryptionContext);
+
+        //Assert
+        actual.EncryptionContext.ShouldBeSameAs(encryptionContext);
+    }
+
+    [Fact]
+    public void Create_GivenBatchedMessageAndEncryptionContext_ShouldGiveItToTheMessage()
+    {
+        //Arrange
+        var metadata = CreateMetadata("batch-key");
+        var singleMetadata = new SingleMessageMetadata { PayloadSize = 0 };
+        var encryptionContext = CreateEncryptionContext();
+
+        //Act
+        var actual = _uut.Create(new MessageId(1, 2, 0, 0), 0, ReadOnlySequence<byte>.Empty, metadata, singleMetadata, encryptionContext);
+
+        //Assert
+        actual.EncryptionContext.ShouldBeSameAs(encryptionContext);
+    }
+
+    private static EncryptionContext CreateEncryptionContext()
+        => EncryptionContextFactory.Create(new MessageMetadata { EncryptionKeys = { new EncryptionKeys { Key = "key", Value = ByteString.CopyFrom([1, 2, 3]) } } }, false);
 
     private static MessageMetadata CreateMetadata(string orderingKey)
         => new()

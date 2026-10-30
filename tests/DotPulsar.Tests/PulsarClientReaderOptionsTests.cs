@@ -37,4 +37,24 @@ public sealed class PulsarClientReaderOptionsTests
         //Assert
         exception.ShouldBeOfType<ConfigurationException>().Message.ShouldBe("ReaderOptions.ExpireTimeOfIncompleteChunkedMessage may not be negative");
     }
+
+    [Theory]
+    [InlineData(3)]
+    [InlineData(-1)]
+    [InlineData(255)]
+    public async Task CreateReader_GivenCryptoFailureActionThatIsNotDefined_ShouldThrowConfigurationException(int cryptoFailureAction)
+    {
+        //Arrange
+        await using var client = PulsarClient.Builder().ServiceUrl(_serviceUrl).Build();
+        var options = new ReaderOptions<string>(MessageId.Earliest, "persistent://public/default/test", Schema.String)
+        {
+            CryptoFailureAction = (ConsumerCryptoFailureAction) cryptoFailureAction
+        };
+
+        //Act
+        var exception = Record.Exception(() => client.CreateReader(options));
+
+        //Assert
+        exception.ShouldBeOfType<ConfigurationException>().Message.ShouldBe("ReaderOptions.CryptoFailureAction is not a valid ConsumerCryptoFailureAction");
+    }
 }
