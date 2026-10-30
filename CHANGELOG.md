@@ -15,13 +15,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 - Support for batch index acknowledgment using ConsumerOptions.BatchIndexAckEnabled and IConsumerBuilder.BatchIndexAckEnabled
 - Support for ack timeout using ConsumerOptions.AckTimeout, ConsumerOptions.AckTimeoutTickTime, IConsumerBuilder.AckTimeout and IConsumerBuilder.AckTimeoutTickTime
 - Support for negative acknowledgment using IConsumer.NegativeAcknowledge, ConsumerOptions.NegativeAcknowledgeRedeliveryDelay and IConsumerBuilder.NegativeAcknowledgeRedeliveryDelay
-- Support for a dead letter topic using DeadLetterPolicy, ConsumerOptions.DeadLetterPolicy and IConsumerBuilder.DeadLetterPolicy
+- Support for a dead letter topic using DeadLetterPolicy, ConsumerOptions.DeadLetterPolicy and IConsumerBuilder.DeadLetterPolicy. A message that was received as chunks is sent to the dead letter topic as chunks
 - Support for receiving chunked messages as one message using ConsumerOptions.MaxPendingChunkedMessage, ConsumerOptions.AutoAckOldestChunkedMessageOnQueueFull, ConsumerOptions.ExpireTimeOfIncompleteChunkedMessage, ReaderOptions.MaxPendingChunkedMessage, ReaderOptions.AutoAckOldestChunkedMessageOnQueueFull, ReaderOptions.ExpireTimeOfIncompleteChunkedMessage and the matching methods of IConsumerBuilder and IReaderBuilder
 - MessageId.FirstChunkMessageId, which is the id of the first chunk of a chunked message
 - Support for decrypting end-to-end encrypted messages in consumers and readers using ConsumerOptions.CryptoKeyReader, ConsumerOptions.CryptoFailureAction, ReaderOptions.CryptoKeyReader, ReaderOptions.CryptoFailureAction and the matching methods of IConsumerBuilder and IReaderBuilder. RSA keys require .NET Standard 2.1 or later and EC keys require .NET 8 or later. On .NET Standard 2.0 a message cannot be decrypted, so the CryptoFailureAction is used
 - ICryptoKeyReader, EncryptionKeyInfo and DefaultCryptoKeyReader for reading keys, and the DefaultCryptoKeyReader extension methods of IConsumerBuilder and IReaderBuilder that read private keys from 'file:' and 'data:' URIs
 - ConsumerCryptoFailureAction, which selects what a consumer or a reader does with a message that it cannot decrypt. The messages can be failed (the default), discarded or consumed encrypted
 - IMessage.EncryptionContext, EncryptionContext and EncryptionKey, which describe how a message was encrypted
+- Support for sending messages that are larger than the maximum message size of the broker as chunks using ProducerOptions.EnableChunking, ProducerOptions.ChunkMaxMessageSize, IProducerBuilder.EnableChunking and IProducerBuilder.ChunkMaxMessageSize. Chunking is only done on persistent topics and can not be combined with batching. The MessageId that is returned for a chunked message has a FirstChunkMessageId, and acknowledging it acknowledges all the chunks
 - EnableTransaction and OperationTimeout on IPulsarClientBuilder
 - Support for batching messages using ProducerOptions.EnableBatching, BatchingMaxMessages, BatchingMaxBytes, BatchingMaxPublishDelay and BatcherType, and the corresponding methods of IProducerBuilder
 - IProducer.Flush, which sends the batched messages at once and waits for the acknowledgment of the last message
@@ -46,6 +47,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ### Fixed
 
+- A message that was larger than the maximum message size of the broker faulted the producer. Only the send of that message fails now, with a TooLargeMessageException, and the producer keeps sending
 - A command from the broker that DotPulsar has no response handler for no longer ends the connection
 - The protocol version and client version are now sent in the authentication response, so a multi-round initial authentication is no longer recorded by the broker as protocol version 0
 - A cumulative acknowledgment of a partially acknowledged batch was dropped
