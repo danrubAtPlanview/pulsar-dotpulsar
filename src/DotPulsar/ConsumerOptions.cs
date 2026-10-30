@@ -33,6 +33,11 @@ public sealed class ConsumerOptions<TMessage>
     public static readonly bool DefaultBatchIndexAckEnabled = false;
 
     /// <summary>
+    /// The default crypto failure action.
+    /// </summary>
+    public static readonly ConsumerCryptoFailureAction DefaultCryptoFailureAction = ConsumerCryptoFailureAction.Fail;
+
+    /// <summary>
     /// The default ack timeout.
     /// </summary>
     public static readonly TimeSpan DefaultAckTimeout = TimeSpan.Zero;
@@ -106,6 +111,7 @@ public sealed class ConsumerOptions<TMessage>
         AckTimeoutTickTime = DefaultAckTimeoutTickTime;
         AutoAckOldestChunkedMessageOnQueueFull = DefaultAutoAckOldestChunkedMessageOnQueueFull;
         BatchIndexAckEnabled = DefaultBatchIndexAckEnabled;
+        CryptoFailureAction = DefaultCryptoFailureAction;
         ExpireTimeOfIncompleteChunkedMessage = DefaultExpireTimeOfIncompleteChunkedMessage;
         MaxPendingChunkedMessage = DefaultMaxPendingChunkedMessage;
         InitialPosition = DefaultInitialPosition;
@@ -302,4 +308,17 @@ public sealed class ConsumerOptions<TMessage>
     /// The time after which an incomplete chunked message is dropped and its chunks are acknowledged. TimeSpan.Zero disables expiry. The default is 1 minute.
     /// </summary>
     public TimeSpan ExpireTimeOfIncompleteChunkedMessage { get; set; }
+
+    /// <summary>
+    /// Set the crypto key reader used to read the private keys that decrypt the messages. This is optional.
+    /// </summary>
+    /// <remarks>
+    /// Without a crypto key reader the messages that are encrypted cannot be decrypted, and the 'CryptoFailureAction' is taken for them.
+    /// </remarks>
+    public ICryptoKeyReader? CryptoKeyReader { get; set; }
+
+    /// <summary>
+    /// Set the action to take when a message cannot be decrypted. The default is 'Fail'.
+    /// </summary>
+    public ConsumerCryptoFailureAction CryptoFailureAction { get; set; }
 }

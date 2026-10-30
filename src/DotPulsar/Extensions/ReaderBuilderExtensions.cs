@@ -57,4 +57,20 @@ public static class ReaderBuilderExtensions
         builder.StateChangedHandler(new FuncStateChangedHandler<ReaderStateChanged>(handler, cancellationToken));
         return builder;
     }
+
+    /// <summary>
+    /// Use the DefaultCryptoKeyReader with a private key URI that is always used to decrypt.
+    /// </summary>
+    public static IReaderBuilder<TMessage> DefaultCryptoKeyReader<TMessage>(
+        this IReaderBuilder<TMessage> builder,
+        string privateKey)
+        => builder.CryptoKeyReader(new DefaultCryptoKeyReader(null, privateKey));
+
+    /// <summary>
+    /// Use the DefaultCryptoKeyReader with private key URIs by key name.
+    /// </summary>
+    public static IReaderBuilder<TMessage> DefaultCryptoKeyReader<TMessage>(
+        this IReaderBuilder<TMessage> builder,
+        IReadOnlyDictionary<string, string> privateKeys)
+        => builder.CryptoKeyReader(new DefaultCryptoKeyReader(null, null, null, privateKeys));
 }

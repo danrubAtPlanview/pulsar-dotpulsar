@@ -47,7 +47,8 @@ public sealed class BatchHandler<TMessage>
     // Upstream: ConsumerImpl#receiveIndividualMessagesFromBatch
     // Returns the first message that is to be delivered, or null if every message of the batch was skipped.
     // chargedButSkipped is the number of messages that were skipped although the broker has deducted permits for them.
-    public IMessage<TMessage>? Add(MessageIdData messageId, RepeatedField<long>? brokerAckSet, uint redeliveryCount, MessageMetadata metadata, ReadOnlySequence<byte> data, out int chargedButSkipped)
+    // The messages of the batch share the encryption context.
+    public IMessage<TMessage>? Add(MessageIdData messageId, RepeatedField<long>? brokerAckSet, uint redeliveryCount, MessageMetadata metadata, ReadOnlySequence<byte> data, out int chargedButSkipped, EncryptionContext? encryptionContext = null)
     {
         chargedButSkipped = 0;
 
@@ -84,7 +85,7 @@ public sealed class BatchHandler<TMessage>
                 }
 
                 var singleMessageId = new MessageId(messageId.LedgerId, messageId.EntryId, messageId.Partition, i, _topic, numberOfMessages);
-                messages[deliverable++] = _messageFactory.Create(singleMessageId, redeliveryCount, data.Slice(index, singleMetadata.PayloadSize), metadata, singleMetadata);
+                messages[deliverable++] = _messageFactory.Create(singleMessageId, redeliveryCount, data.Slice(index, singleMetadata.PayloadSize), metadata, singleMetadata, encryptionContext);
                 index += (uint) singleMetadata.PayloadSize;
             }
 

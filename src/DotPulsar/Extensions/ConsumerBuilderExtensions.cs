@@ -68,4 +68,20 @@ public static class ConsumerBuilderExtensions
         builder.Topics(topics);
         return builder;
     }
+
+    /// <summary>
+    /// Use the DefaultCryptoKeyReader with a private key URI that is always used to decrypt.
+    /// </summary>
+    public static IConsumerBuilder<TMessage> DefaultCryptoKeyReader<TMessage>(
+        this IConsumerBuilder<TMessage> builder,
+        string privateKey)
+        => builder.CryptoKeyReader(new DefaultCryptoKeyReader(null, privateKey));
+
+    /// <summary>
+    /// Use the DefaultCryptoKeyReader with private key URIs by key name.
+    /// </summary>
+    public static IConsumerBuilder<TMessage> DefaultCryptoKeyReader<TMessage>(
+        this IConsumerBuilder<TMessage> builder,
+        IReadOnlyDictionary<string, string> privateKeys)
+        => builder.CryptoKeyReader(new DefaultCryptoKeyReader(null, null, null, privateKeys));
 }

@@ -20,5 +20,5 @@ using System.Buffers;
 
 public interface IMessageFactory<TValue>
 {
-    IMessage<TValue> Create(MessageId messageId, uint redeliveryCount, ReadOnlySequence<byte> data, MessageMetadata metadata, SingleMessageMetadata? singleMetadata = null);
+    IMessage<TValue> Create(MessageId messageId, uint redeliveryCount, ReadOnlySequence<byte> data, MessageMetadata metadata, SingleMessageMetadata? singleMetadata = null, EncryptionContext? encryptionContext = null);
 }

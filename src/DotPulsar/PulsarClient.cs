@@ -123,6 +123,9 @@ public sealed class PulsarClient : IPulsarClient
         if (options.ExpireTimeOfIncompleteChunkedMessage < TimeSpan.Zero)
             throw new ConfigurationException("ConsumerOptions.ExpireTimeOfIncompleteChunkedMessage may not be negative");
 
+        if (!Enum.IsDefined(typeof(ConsumerCryptoFailureAction), options.CryptoFailureAction))
+            throw new ConfigurationException("ConsumerOptions.CryptoFailureAction is not a valid ConsumerCryptoFailureAction");
+
         var consumer = new Consumer<TMessage>(ServiceUrl, options, _connectionPool, _exceptionHandler, _operationTimeout);
         if (options.StateChangedHandler is not null)
             _ = StateMonitor.MonitorConsumer(consumer, options.StateChangedHandler);
@@ -141,6 +144,9 @@ public sealed class PulsarClient : IPulsarClient
 
         if (options.ExpireTimeOfIncompleteChunkedMessage < TimeSpan.Zero)
             throw new ConfigurationException("ReaderOptions.ExpireTimeOfIncompleteChunkedMessage may not be negative");
+
+        if (!Enum.IsDefined(typeof(ConsumerCryptoFailureAction), options.CryptoFailureAction))
+            throw new ConfigurationException("ReaderOptions.CryptoFailureAction is not a valid ConsumerCryptoFailureAction");
 
         var reader = new Reader<TMessage>(ServiceUrl, options, _exceptionHandler, _connectionPool);
         if (options.StateChangedHandler is not null)

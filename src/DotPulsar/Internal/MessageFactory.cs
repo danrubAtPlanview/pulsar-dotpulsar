@@ -47,19 +47,20 @@ public sealed class MessageFactory<TValue> : IMessageFactory<TValue>
     public MessageFactory(ISchema<TValue> schema)
         => _schema = schema;
 
-    public IMessage<TValue> Create(MessageId messageId, uint redeliveryCount, ReadOnlySequence<byte> data, MessageMetadata metadata, SingleMessageMetadata? singleMetadata = null)
+    public IMessage<TValue> Create(MessageId messageId, uint redeliveryCount, ReadOnlySequence<byte> data, MessageMetadata metadata, SingleMessageMetadata? singleMetadata = null, EncryptionContext? encryptionContext = null)
     {
         if (singleMetadata is null)
-            return Create(messageId, redeliveryCount, metadata, data);
+            return Create(messageId, redeliveryCount, metadata, data, encryptionContext);
 
-        return Create(messageId, redeliveryCount, metadata, singleMetadata, data);
+        return Create(messageId, redeliveryCount, metadata, singleMetadata, data, encryptionContext);
     }
 
     private Message<TValue> Create(
         MessageId messageId,
         uint redeliveryCount,
         MessageMetadata metadata,
-        ReadOnlySequence<byte> data)
+        ReadOnlySequence<byte> data,
+        EncryptionContext? encryptionContext)
     {
         return new Message<TValue>(
             messageId: messageId,
@@ -74,6 +75,7 @@ public sealed class MessageFactory<TValue> : IMessageFactory<TValue>
             key: metadata.PartitionKey,
             orderingKey: metadata.OrderingKey.IsEmpty ? null : metadata.OrderingKey.ToByteArray(),
             schemaVersion: metadata.SchemaVersion.IsEmpty ? null : metadata.SchemaVersion.ToByteArray(),
+            encryptionContext: encryptionContext,
             _schema);
     }
 
@@ -82,7 +84,8 @@ public sealed class MessageFactory<TValue> : IMessageFactory<TValue>
         uint redeliveryCount,
         MessageMetadata metadata,
         SingleMessageMetadata singleMetadata,
-        ReadOnlySequence<byte> data)
+        ReadOnlySequence<byte> data,
+        EncryptionContext? encryptionContext)
     {
         return new Message<TValue>(
             messageId: messageId,
@@ -97,6 +100,7 @@ public sealed class MessageFactory<TValue> : IMessageFactory<TValue>
             key: singleMetadata.PartitionKey,
             orderingKey: singleMetadata.OrderingKey.IsEmpty ? null : singleMetadata.OrderingKey.ToByteArray(),
             schemaVersion: metadata.SchemaVersion.IsEmpty ? null : metadata.SchemaVersion.ToByteArray(),
+            encryptionContext: encryptionContext,
             _schema);
     }
 }

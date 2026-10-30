@@ -34,6 +34,7 @@ public sealed class Message<TValue> : IMessage<TValue>
         string? key,
         byte[]? orderingKey,
         byte[]? schemaVersion,
+        EncryptionContext? encryptionContext,
         ISchema<TValue> schema)
     {
         MessageId = messageId;
@@ -48,6 +49,7 @@ public sealed class Message<TValue> : IMessage<TValue>
         Key = key;
         OrderingKey = orderingKey;
         SchemaVersion = schemaVersion;
+        EncryptionContext = encryptionContext;
         _schema = schema;
     }
 
@@ -90,6 +92,8 @@ public sealed class Message<TValue> : IMessage<TValue>
     public DateTimeOffset PublishTimeAsDateTimeOffset => DateTimeOffset.FromUnixTimeMilliseconds((long) PublishTime);
 
     public IReadOnlyDictionary<string, string> Properties { get; }
+
+    public EncryptionContext? EncryptionContext { get; }
 
     public TValue Value() => _schema.Decode(Data);
 }

@@ -142,6 +142,16 @@ public interface IConsumerBuilder<TMessage>
     IConsumerBuilder<TMessage> ExpireTimeOfIncompleteChunkedMessage(TimeSpan expireTimeOfIncompleteChunkedMessage);
 
     /// <summary>
+    /// Set the crypto key reader used to read the private keys that decrypt the messages. This is optional.
+    /// </summary>
+    IConsumerBuilder<TMessage> CryptoKeyReader(ICryptoKeyReader cryptoKeyReader);
+
+    /// <summary>
+    /// Set the action to take when a message cannot be decrypted. The default is 'Fail'.
+    /// </summary>
+    IConsumerBuilder<TMessage> CryptoFailureAction(ConsumerCryptoFailureAction cryptoFailureAction);
+
+    /// <summary>
     /// Create the consumer.
     /// </summary>
     IConsumer<TMessage> Create();

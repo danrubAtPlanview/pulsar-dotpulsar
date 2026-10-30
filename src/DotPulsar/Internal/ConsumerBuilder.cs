@@ -46,6 +46,8 @@ public sealed class ConsumerBuilder<TMessage> : IConsumerBuilder<TMessage>
     private uint _maxPendingChunkedMessage;
     private bool _autoAckOldestChunkedMessageOnQueueFull;
     private TimeSpan _expireTimeOfIncompleteChunkedMessage;
+    private ICryptoKeyReader? _cryptoKeyReader;
+    private ConsumerCryptoFailureAction _cryptoFailureAction;
 
     public ConsumerBuilder(IPulsarClient pulsarClient, ISchema<TMessage> schema)
     {
@@ -59,6 +61,7 @@ public sealed class ConsumerBuilder<TMessage> : IConsumerBuilder<TMessage>
         _maxPendingChunkedMessage = ConsumerOptions<TMessage>.DefaultMaxPendingChunkedMessage;
         _autoAckOldestChunkedMessageOnQueueFull = ConsumerOptions<TMessage>.DefaultAutoAckOldestChunkedMessageOnQueueFull;
         _expireTimeOfIncompleteChunkedMessage = ConsumerOptions<TMessage>.DefaultExpireTimeOfIncompleteChunkedMessage;
+        _cryptoFailureAction = ConsumerOptions<TMessage>.DefaultCryptoFailureAction;
         _initialPosition = ConsumerOptions<TMessage>.DefaultInitialPosition;
         _priorityLevel = ConsumerOptions<TMessage>.DefaultPriorityLevel;
         _messagePrefetchCount = ConsumerOptions<TMessage>.DefaultMessagePrefetchCount;
@@ -221,6 +224,18 @@ public sealed class ConsumerBuilder<TMessage> : IConsumerBuilder<TMessage>
         return this;
     }
 
+    public IConsumerBuilder<TMessage> CryptoKeyReader(ICryptoKeyReader cryptoKeyReader)
+    {
+        _cryptoKeyReader = cryptoKeyReader;
+        return this;
+    }
+
+    public IConsumerBuilder<TMessage> CryptoFailureAction(ConsumerCryptoFailureAction cryptoFailureAction)
+    {
+        _cryptoFailureAction = cryptoFailureAction;
+        return this;
+    }
+
     public IConsumer<TMessage> Create()
     {
         if (string.IsNullOrEmpty(_subscriptionName))
@@ -255,7 +270,9 @@ public sealed class ConsumerBuilder<TMessage> : IConsumerBuilder<TMessage>
             NegativeAcknowledgeRedeliveryDelay = _negativeAcknowledgeRedeliveryDelay,
             MaxPendingChunkedMessage = _maxPendingChunkedMessage,
             AutoAckOldestChunkedMessageOnQueueFull = _autoAckOldestChunkedMessageOnQueueFull,
-            ExpireTimeOfIncompleteChunkedMessage = _expireTimeOfIncompleteChunkedMessage
+            ExpireTimeOfIncompleteChunkedMessage = _expireTimeOfIncompleteChunkedMessage,
+            CryptoKeyReader = _cryptoKeyReader,
+            CryptoFailureAction = _cryptoFailureAction
         };
 
         return _pulsarClient.CreateConsumer(options);

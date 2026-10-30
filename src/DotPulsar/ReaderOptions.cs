@@ -27,6 +27,11 @@ public sealed class ReaderOptions<TMessage>
     public static readonly bool DefaultAutoAckOldestChunkedMessageOnQueueFull = false;
 
     /// <summary>
+    /// The default crypto failure action.
+    /// </summary>
+    public static readonly ConsumerCryptoFailureAction DefaultCryptoFailureAction = ConsumerCryptoFailureAction.Fail;
+
+    /// <summary>
     /// The default expire time of incomplete chunked messages.
     /// </summary>
     public static readonly TimeSpan DefaultExpireTimeOfIncompleteChunkedMessage = TimeSpan.FromMinutes(1);
@@ -57,6 +62,7 @@ public sealed class ReaderOptions<TMessage>
     public ReaderOptions(MessageId startMessageId, string topic, ISchema<TMessage> schema)
     {
         AutoAckOldestChunkedMessageOnQueueFull = DefaultAutoAckOldestChunkedMessageOnQueueFull;
+        CryptoFailureAction = DefaultCryptoFailureAction;
         ExpireTimeOfIncompleteChunkedMessage = DefaultExpireTimeOfIncompleteChunkedMessage;
         MaxPendingChunkedMessage = DefaultMaxPendingChunkedMessage;
         MessagePrefetchCount = DefaultMessagePrefetchCount;
@@ -126,4 +132,20 @@ public sealed class ReaderOptions<TMessage>
     /// The time after which an incomplete chunked message is dropped. TimeSpan.Zero disables expiry. The default is 1 minute.
     /// </summary>
     public TimeSpan ExpireTimeOfIncompleteChunkedMessage { get; set; }
+
+    /// <summary>
+    /// Set the crypto key reader used to read the private keys that decrypt the messages. This is optional.
+    /// </summary>
+    /// <remarks>
+    /// Without a crypto key reader the messages that are encrypted cannot be decrypted, and the 'CryptoFailureAction' is taken for them.
+    /// </remarks>
+    public ICryptoKeyReader? CryptoKeyReader { get; set; }
+
+    /// <summary>
+    /// Set the action to take when a message cannot be decrypted. The default is 'Fail'.
+    /// </summary>
+    /// <remarks>
+    /// A reader does not acknowledge messages and cannot have a message redelivered, so a message that 'Fail' does not deliver is skipped.
+    /// </remarks>
+    public ConsumerCryptoFailureAction CryptoFailureAction { get; set; }
 }
