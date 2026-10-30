@@ -414,17 +414,15 @@ public abstract class TransactionConsumerEndToEndTestsBase<TFixture> : IDisposab
         await TxnAckTest(true, 200, SubscriptionType.Failover);
     }
 
-    // TODO(WP6): Remove the skip. The test needs the producer to batch messages (see txnIndividualAckTestBatchAndSharedSub), and the consumer of the test is configured with
-    // an AckTimeout of 1 minute (WP7). When the producer can batch, call TxnCumulativeAckTest(true, 200, SubscriptionType.Failover).
     // Upstream: TransactionEndToEndTest#txnAckTestBatchAndCumulativeSub
-    [Fact(Skip = "Requires producer batching (WP6)")]
-    public Task AcknowledgeCumulative_GivenBatchAndFailoverSubscription_ShouldConflictRedeliverAfterAbortAndRemoveAfterCommit()
-        => Task.CompletedTask;
+    [Fact]
+    public async Task AcknowledgeCumulative_GivenBatchAndFailoverSubscription_ShouldConflictRedeliverAfterAbortAndRemoveAfterCommit()
+        => await TxnCumulativeAckTest(true, 200, SubscriptionType.Failover);
 
     // Upstream: TransactionEndToEndTest#txnAckTestNoBatchAndCumulativeSub
     [Fact]
     public async Task AcknowledgeCumulative_GivenNoBatchAndFailoverSubscription_ShouldConflictRedeliverAfterAbortAndRemoveAfterCommit()
-        => await TxnCumulativeAckTest(SubscriptionType.Failover);
+        => await TxnCumulativeAckTest(false, 1, SubscriptionType.Failover);
 
     // Upstream: TransactionEndToEndTest#transactionTimeoutTest
     [Fact]
@@ -563,7 +561,6 @@ public abstract class TransactionConsumerEndToEndTestsBase<TFixture> : IDisposab
 
     // Upstream: TransactionEndToEndTest#testSendTxnAckMessageToDLQ
     // The assertion of the Java test on the available permits of the consumer is dropped, it is a counter of the Java client. The dead letter consumer receiving the message covers it.
-    // TODO(WP7): The producer of the upstream test has a send timeout of 1 second, and DotPulsar has no send timeout yet.
     [Fact]
     public async Task Abort_GivenMessageExceedsMaxRedeliverCount_ShouldSendMessageToDeadLetterTopic()
     {
@@ -601,13 +598,56 @@ public abstract class TransactionConsumerEndToEndTestsBase<TFixture> : IDisposab
         Encoding.UTF8.GetString(deadLetter.Value()).ShouldBe(value);
     }
 
-    // TODO(WP6): Remove the skip. The test needs the producer to batch messages ("test1" and "test2" are sent as one batch). Use the steps of
-    // Abort_GivenMessageExceedsMaxRedeliverCount_ShouldSendMessageToDeadLetterTopic: receive "test1", acknowledge it in a transaction that is aborted, receive "test2" and then "test1"
-    // and "test2" again (redelivery count 1), acknowledge "test2" in an aborted transaction, expect no message on the consumer, and "test1" and then "test2" on the dead letter consumer.
     // Upstream: TransactionEndToEndTest#testSendTxnAckBatchMessageToDLQ
-    [Fact(Skip = "Requires producer batching (WP6)")]
-    public Task Abort_GivenBatchMessageExceedsMaxRedeliverCount_ShouldSendBatchToDeadLetterTopic()
-        => Task.CompletedTask;
+    // The two messages are sent as one batch. Java relies on the default maximum publish delay of 1 millisecond, so two sends that follow each other form a batch in practice. The test
+    // makes it certain with a batch of exactly two messages. The send timeout is 5 seconds and not the 1 second of the upstream test, so that a loaded machine does not fail the test.
+    [Fact]
+    public async Task Abort_GivenBatchMessageExceedsMaxRedeliverCount_ShouldSendBatchToDeadLetterTopic()
+    {
+        //Arrange
+        const string value1 = "test1";
+        const string value2 = "test2";
+        var topicName = TransactionFixture.CreateTopicName("testSendTxnAckBatchMessageToDLQ");
+        await Fixture.CreateTopic(topicName, _cts.Token);
+        await using var client = CreateClient();
+        await using var producer = client.NewProducer(Schema.ByteArray)
+            .Topic(topicName)
+            .EnableBatching(true)
+            .BatchingMaxMessages(2)
+            .BatchingMaxPublishDelay(TimeSpan.FromSeconds(1))
+            .SendTimeout(TimeSpan.FromSeconds(5))
+            .StateChangedHandler(_testOutputHelper.Log)
+            .Create();
+        await using var consumer = CreateDeadLetterConsumer(client, topicName);
+        await using var deadLetterConsumer = CreateDeadLetterConsumer(client, $"{topicName}-test-DLQ");
+        await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+        await deadLetterConsumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+        var receipts = new[] { await SendAsync(producer, Encoding.UTF8.GetBytes(value1)), await SendAsync(producer, Encoding.UTF8.GetBytes(value2)) };
+        await Task.WhenAll(receipts);
+
+        //Act
+        var transaction = await client.NewTransaction().Timeout(TimeSpan.FromMinutes(1)).Create(_cts.Token);
+        var message = await ReceiveMessage(consumer);
+        Encoding.UTF8.GetString(message.Value()).ShouldBe(value1);
+        await consumer.Acknowledge(message.MessageId, transaction, _cts.Token);
+        await transaction.Abort(_cts.Token);
+
+        // The second message of the first delivery, and then the two messages of the batch again
+        for (var i = 0; i < 3; i++)
+            message = await ReceiveMessage(consumer);
+
+        transaction = await client.NewTransaction().Timeout(TimeSpan.FromMinutes(5)).Create(_cts.Token);
+        Encoding.UTF8.GetString(message.Value()).ShouldBe(value2);
+        await consumer.Acknowledge(message.MessageId, transaction, _cts.Token);
+        await transaction.Abort(_cts.Token);
+
+        //Assert
+        (await TransactionFixture.ReceiveOrNull(consumer, _waitTimeForCannotReceiveMsg, _cts.Token)).ShouldBeNull();
+        var deadLetter = await ReceiveMessage(deadLetterConsumer);
+        Encoding.UTF8.GetString(deadLetter.Value()).ShouldBe(value1);
+        deadLetter = await ReceiveMessage(deadLetterConsumer);
+        Encoding.UTF8.GetString(deadLetter.Value()).ShouldBe(value2);
+    }
 
     // Upstream: TransactionEndToEndTest#testAckWithTransactionReduceUnackCountNotInPendingAcks
     // The unacknowledged messages of the consumer are read from the topic stats of the admin API.
@@ -722,8 +762,7 @@ public abstract class TransactionConsumerEndToEndTestsBase<TFixture> : IDisposab
     }
 
     // Upstream: TransactionEndToEndTest#txnCumulativeAckTest
-    // TODO(WP6): The messages are not batched, and the producer has no BatchingMaxMessages and BatchingMaxPublishDelay yet.
-    private async Task TxnCumulativeAckTest(SubscriptionType subscriptionType)
+    private async Task TxnCumulativeAckTest(bool batchEnable, uint maxBatchSize, SubscriptionType subscriptionType)
     {
         //Arrange
         const int messageCnt = 1000;
@@ -740,6 +779,9 @@ public abstract class TransactionConsumerEndToEndTestsBase<TFixture> : IDisposab
         await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
         await using var producer = client.NewProducer(Schema.ByteArray)
             .Topic(normalTopic)
+            .EnableBatching(batchEnable)
+            .BatchingMaxMessages(maxBatchSize)
+            .BatchingMaxPublishDelay(TimeSpan.FromSeconds(1))
             .StateChangedHandler(_testOutputHelper.Log)
             .Create();
 
