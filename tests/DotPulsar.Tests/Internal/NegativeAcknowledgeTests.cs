@@ -17,6 +17,7 @@ namespace DotPulsar.Tests.Internal;
 using DotPulsar.Abstractions;
 using DotPulsar.Extensions;
 using DotPulsar.Internal;
+using System.Text.Json;
 
 [Collection("Integration"), Trait("Category", "Integration")]
 public sealed class NegativeAcknowledgeTests : IDisposable
@@ -244,6 +245,58 @@ public sealed class NegativeAcknowledgeTests : IDisposable
         (await TransactionFixture.ReceiveOrNull(consumer, TimeSpan.FromMilliseconds(100), _cts.Token)).ShouldBeNull();
     }
 
+    // Upstream: NegativeAcksTest#testMultiTopicConsumerConcurrentRedeliverAndReceive
+    // The invocation count of 5 upstream is 5 rows. Upstream waits until the 10 messages are in the incoming queue of the consumer, and redelivers on the internal thread of the consumer after the messages have waited
+    // for a second, to make the race of issue #18491 likely. The queue is not visible here, and DotPulsar does not ask the broker for messages before the application starts to receive, so one message is received
+    // to start the consumer, and then the test waits until the broker has sent all the messages to the consumer, and for a second more. The redelivery brings back all 10 messages, including the one that was received.
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    public async Task RedeliverUnacknowledgedMessages_GivenMessagesInReceiveQueueOfConsumerOfPartitionedTopic_ShouldReceiveEveryMessageAgain(int invocation)
+    {
+        //Arrange
+        const int receiverQueueSize = 10;
+        const string subscription = "sub";
+        var topicName = await _fixture.CreatePartitionedTopic(2, _cts.Token);
+        await using var client = CreateClient();
+        await using var consumer = client.NewConsumer(Schema.Int32)
+            .InitialPosition(SubscriptionInitialPosition.Earliest)
+            .MessagePrefetchCount(receiverQueueSize)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .SubscriptionName(subscription)
+            .Topic(topicName)
+            .Create();
+        await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+        await using var producer = client.NewProducer(Schema.Int32)
+            .EnableBatching(false)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .Topic(topicName)
+            .Create();
+
+        for (var i = 0; i < receiverQueueSize; i++)
+        {
+            _ = await producer.Send(i, _cts.Token);
+        }
+
+        (await TransactionFixture.ReceiveOrNull(consumer, TimeSpan.FromSeconds(10), _cts.Token)).ShouldNotBeNull();
+        await WaitUntil(async () => await GetMessagesOut(topicName, subscription) == receiverQueueSize);
+        await Task.Delay(TimeSpan.FromSeconds(1), _cts.Token);
+
+        //Act
+        await consumer.RedeliverUnacknowledgedMessages(_cts.Token);
+        var receivedMessages = new HashSet<int>();
+        while (await TransactionFixture.ReceiveOrNull(consumer, TimeSpan.FromSeconds(2), _cts.Token) is { } message)
+        {
+            _ = receivedMessages.Add(message.Value());
+        }
+
+        //Assert
+        receivedMessages.Count.ShouldBe(10, $"invocation {invocation}");
+    }
+
     [Fact]
     public async Task NegativeAcknowledge_GivenMessageId_ShouldRedeliverAfterTheDelayAndNotBefore()
     {
@@ -276,6 +329,31 @@ public sealed class NegativeAcknowledgeTests : IDisposable
         redelivery.ShouldNotBeNull();
         redelivery.Value().ShouldBe("test");
         redelivery.RedeliveryCount.ShouldBe(1U);
+    }
+
+    // The number of messages that the broker has sent to the consumers of the subscription of the partitioned topic
+    private async Task<long> GetMessagesOut(string topicName, string subscription)
+    {
+        using var adminClient = _fixture.CreateAdminClient();
+        var separator = topicName.IndexOf("://", StringComparison.Ordinal);
+        using var response = await adminClient.GetAsync($"/admin/v2/{topicName[..separator]}/{topicName[(separator + 3)..]}/partitioned-stats", _cts.Token);
+        response.EnsureSuccessStatusCode();
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return document.RootElement.GetProperty("subscriptions").TryGetProperty(subscription, out var statistics) ? statistics.GetProperty("msgOutCounter").GetInt64() : 0;
+    }
+
+    // Java Awaitility.await().until(...): at most 10 seconds
+    private async Task WaitUntil(Func<Task<bool>> condition)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+
+        while (!await condition())
+        {
+            if (DateTime.UtcNow > deadline)
+                throw new TimeoutException("The condition was not met within 10 seconds");
+
+            await Task.Delay(TimeSpan.FromMilliseconds(100), _cts.Token);
+        }
     }
 
     // The Java producer.sendAsync: the message is queued in the order of the calls, and the task completes when the broker has stored the message
