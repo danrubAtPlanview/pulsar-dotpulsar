@@ -18,6 +18,7 @@ using DotPulsar;
 using DotPulsar.Abstractions;
 using DotPulsar.Internal;
 using DotPulsar.Internal.Abstractions;
+using DotPulsar.Internal.Extensions;
 using DotPulsar.Internal.PulsarApi;
 
 // A connection that accepts producers and answers every message with a receipt, so that no broker is needed.
@@ -26,11 +27,14 @@ public sealed class FakeConnection : IConnection
 {
     private readonly StateManager<ConnectionState> _state;
     private readonly bool _completeOnThreadPool;
+    private readonly bool _serializeFrames;
 
-    public FakeConnection(bool completeOnThreadPool)
+    // The frame of a message is serialized like a connection does it when serializeFrames is true. It is the work that batching saves.
+    public FakeConnection(bool completeOnThreadPool, bool serializeFrames = false)
     {
         _state = new StateManager<ConnectionState>(ConnectionState.Connected, ConnectionState.Disconnected, ConnectionState.Closed);
         _completeOnThreadPool = completeOnThreadPool;
+        _serializeFrames = serializeFrames;
     }
 
     public IState<ConnectionState> State => _state;
@@ -45,6 +49,9 @@ public sealed class FakeConnection : IConnection
 
     public Task Send(SendPackage command, TaskCompletionSource<BaseCommand> responseTcs, CancellationToken cancellationToken)
     {
+        if (_serializeFrames)
+            _ = Serializer.Serialize(command.Command!.AsBaseCommand(), command.Metadata!, command.Payload);
+
         var sequenceId = command.Command!.SequenceId;
 
         var receipt = new BaseCommand
