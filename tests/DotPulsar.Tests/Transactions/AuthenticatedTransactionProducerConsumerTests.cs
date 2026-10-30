@@ -63,7 +63,7 @@ public sealed class AuthenticatedTransactionProducerConsumerTests : IDisposable
         _ = await producer.NewMessage().Transaction(transaction).Send("message", _cts.Token);
 
         if (afterUnload)
-            await _fixture.UnloadNamespace(AuthenticatedTransactionFixture.SystemNamespace, _cts.Token);
+            await UnloadTransactionCoordinator();
 
         //Act
         var exception = await Record.ExceptionAsync(() => otherCoordinatorClient.Commit(transaction.Id, _cts.Token).AsTask());
@@ -103,7 +103,7 @@ public sealed class AuthenticatedTransactionProducerConsumerTests : IDisposable
         var transaction = await owner.NewTransaction().Timeout(TimeSpan.FromSeconds(60)).Create(_cts.Token);
 
         if (afterUnload)
-            await _fixture.UnloadNamespace(AuthenticatedTransactionFixture.SystemNamespace, _cts.Token);
+            await UnloadTransactionCoordinator();
 
         //Act
         var exception = await Record.ExceptionAsync(() => otherCoordinatorClient.AddPublishPartitionToTxn(transaction.Id, topicName, _cts.Token).AsTask());
@@ -144,7 +144,7 @@ public sealed class AuthenticatedTransactionProducerConsumerTests : IDisposable
         var transaction = await owner.NewTransaction().Timeout(TimeSpan.FromSeconds(60)).Create(_cts.Token);
 
         if (afterUnload)
-            await _fixture.UnloadNamespace(AuthenticatedTransactionFixture.SystemNamespace, _cts.Token);
+            await UnloadTransactionCoordinator();
 
         //Act
         var exception = await Record.ExceptionAsync(() => otherCoordinatorClient.AddSubscriptionToTxn(transaction.Id, topicName, Subscription, _cts.Token).AsTask());
@@ -187,6 +187,14 @@ public sealed class AuthenticatedTransactionProducerConsumerTests : IDisposable
         var coordinatorClient = ((PulsarClient) client).TransactionCoordinatorClient!;
         await coordinatorClient.EnsureStarted(_cts.Token);
         return coordinatorClient;
+    }
+
+    // Upstream: TransactionMetadataStoreService#removeTransactionMetadataStore. The unload of the system namespace removes the transaction coordinator from the broker, which loads it
+    // again when a client connects. The unload is checked, because the tests would not notice if it did nothing
+    private async Task UnloadTransactionCoordinator()
+    {
+        await _fixture.UnloadNamespace(AuthenticatedTransactionFixture.SystemNamespace, _cts.Token);
+        (await _fixture.IsTransactionCoordinatorLoaded(0, _cts.Token)).ShouldBeFalse();
     }
 
     private async Task<IPulsarClient> CreateClient(string role)

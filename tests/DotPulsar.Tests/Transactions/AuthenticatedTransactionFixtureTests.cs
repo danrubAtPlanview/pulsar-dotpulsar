@@ -15,7 +15,6 @@
 namespace DotPulsar.Tests.Transactions;
 
 using DotPulsar.Extensions;
-using System.Net;
 using System.Text;
 using System.Text.Json;
 
@@ -65,21 +64,20 @@ public sealed class AuthenticatedTransactionFixtureTests : IDisposable
     public async Task UnloadNamespace_GivenSystemNamespace_ShouldRemoveTheTransactionCoordinatorUntilAClientConnects()
     {
         //Arrange
-        const string coordinatorStats = "/admin/v3/transactions/coordinatorStats?coordinatorId=0";
         await using var client = _fixture.CreateClient();
         var transaction = await client.NewTransaction().Timeout(TimeSpan.FromMinutes(1)).Create(_cts.Token);
-        var statusBefore = await _fixture.GetStatusCode(coordinatorStats, _cts.Token);
+        var isLoadedBefore = await _fixture.IsTransactionCoordinatorLoaded(0, _cts.Token);
 
         //Act
         await _fixture.UnloadNamespace(AuthenticatedTransactionFixture.SystemNamespace, _cts.Token);
-        var statusAfterUnload = await _fixture.GetStatusCode(coordinatorStats, _cts.Token);
+        var isLoadedAfterUnload = await _fixture.IsTransactionCoordinatorLoaded(0, _cts.Token);
         await using var otherClient = _fixture.CreateClient();
         var otherTransaction = await otherClient.NewTransaction().Timeout(TimeSpan.FromMinutes(1)).Create(_cts.Token);
         var stats = await _fixture.GetCoordinatorStats(0, _cts.Token);
 
         //Assert
-        statusBefore.ShouldBe(HttpStatusCode.OK);
-        statusAfterUnload.ShouldBe(HttpStatusCode.NotFound);
+        isLoadedBefore.ShouldBeTrue();
+        isLoadedAfterUnload.ShouldBeFalse();
         stats.GetProperty("state").GetString().ShouldBe("Ready");
 
         await transaction.Abort(_cts.Token);

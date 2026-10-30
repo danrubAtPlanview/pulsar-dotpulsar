@@ -15,6 +15,7 @@
 namespace DotPulsar.Tests;
 
 using DotPulsar.Abstractions;
+using System.Net;
 using System.Text;
 using System.Text.Json;
 using Testcontainers.Pulsar;
@@ -75,6 +76,10 @@ public sealed class AuthenticatedTransactionFixture : TransactionFixtureBase
         .EnableTransaction(true)
         .ServiceUrl(ServiceUrl)
         .Build();
+
+    // GET /admin/v3/transactions/coordinatorStats: the broker answers 404 while it has not loaded the transaction coordinator
+    public async Task<bool> IsTransactionCoordinatorLoaded(int coordinatorId, CancellationToken cancellationToken)
+        => await GetStatusCode($"/admin/v3/transactions/coordinatorStats?coordinatorId={coordinatorId}", cancellationToken) == HttpStatusCode.OK;
 
     // GET /admin/v2/namespaces/{namespace}/permissions: the actions of every role
     public async Task<JsonElement> GetNamespacePermissions(string @namespace, CancellationToken cancellationToken)
