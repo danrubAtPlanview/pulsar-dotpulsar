@@ -415,7 +415,7 @@ public sealed class SubProducerChunkingTests
         await WaitFor.Until(() => channel.Entries.Count == 3, "all the chunks are written");
 
         //Act
-        _ = chunkedOp.ReceiptTcs.TrySetCanceled();
+        _ = chunkedOp.ReceiptTcs.TrySetCanceled(Current.CancellationToken);
         await sut.Send(nextOp, Current.CancellationToken);
         await WaitFor.Until(() => channel.Entries.Count == 4, "the next message is written");
         foreach (var entry in channel.Entries)

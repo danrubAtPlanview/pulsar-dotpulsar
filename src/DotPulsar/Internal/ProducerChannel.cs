@@ -88,8 +88,8 @@ public sealed class ProducerChannel : IProducerChannel
                 sendPackage.Payload = payload;
             else
             {
-                sendPackage.Metadata.Compression = _compressorFactory.CompressionType;
-                sendPackage.Metadata.UncompressedSize = (uint) payload.Length;
+                metadata.Compression = _compressorFactory.CompressionType;
+                metadata.UncompressedSize = (uint) payload.Length;
                 using var compressor = _compressorFactory.Create();
                 sendPackage.Payload = compressor.Compress(payload);
                 resetCompression = true;

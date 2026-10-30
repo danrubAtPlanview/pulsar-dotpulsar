@@ -402,7 +402,7 @@ public sealed class DeadLetterTopicTests : IDisposable
         var deadLettered = await ReceiveAll(deadLetterConsumer, sendMessages);
 
         //Assert
-        deadLettered.ShouldAllBe(message => values[message.Key] == message.Value());
+        deadLettered.ShouldAllBe(message => values[message.Key!] == message.Value());
         deadLettered.Select(message => message.Key).ToHashSet().ShouldBe(values.Keys.ToHashSet(), true);
         (await TransactionFixture.ReceiveOrNull(consumer, TimeSpan.FromSeconds(3), _cts.Token)).ShouldBeNull();
     }

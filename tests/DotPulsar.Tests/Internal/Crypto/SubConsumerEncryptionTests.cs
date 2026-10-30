@@ -69,7 +69,7 @@ public sealed class SubConsumerEncryptionTests
         exception.ShouldBeNull();
     }
 
-    public static void AssertDisposed(MessageCrypto messageCrypto)
+    internal static void AssertDisposed(MessageCrypto messageCrypto)
         => Should.Throw<ObjectDisposedException>(() => messageCrypto.TryDecrypt(new MessageMetadata(), ReadOnlySequence<byte>.Empty, Substitute.For<ICryptoKeyReader>(), out _));
 
     private static SubConsumer<byte[]> CreateUut(IConsumerChannel<byte[]> channel, MessageCrypto? messageCrypto)

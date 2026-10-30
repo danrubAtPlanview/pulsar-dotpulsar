@@ -88,7 +88,7 @@ public sealed class MessageChunkingSmallMessageSizeTests : IDisposable
         //Assert
         received.Select(message => message.Value()).ShouldBe(values);
         received.Select(message => message.MessageId).ShouldBe(messageIds);
-        messageIds.ShouldAllBe(messageId => messageId.FirstChunkMessageId != null);
+        messageIds.ShouldAllBe(messageId => (object?) messageId.FirstChunkMessageId != null);
         await WaitUntil(async () => await GetBacklog(topic, subscription) == 0);
     }
 
@@ -147,7 +147,7 @@ public sealed class MessageChunkingSmallMessageSizeTests : IDisposable
         for (var size = 1; size <= ChunkingFixture.MaxMessageSize; ++size)
         {
             var messageId = await producer.Send(CreateRandomDigits(size), _cts.Token);
-            isChunked.Add(messageId.FirstChunkMessageId is not null);
+            isChunked.Add((object?) messageId.FirstChunkMessageId != null);
         }
 
         //Assert
@@ -179,7 +179,7 @@ public sealed class MessageChunkingSmallMessageSizeTests : IDisposable
 
         //Assert
         (await large).FirstChunkMessageId.ShouldNotBeNull();
-        sent.ShouldAllBe(messageId => messageId.FirstChunkMessageId != null);
+        sent.ShouldAllBe(messageId => (object?) messageId.FirstChunkMessageId != null);
     }
 
     // Upstream: MessageChunkingTest#testLargeMessageOnNonPersistentTopicAboveBrokerLimitIsRejectedLocally

@@ -534,7 +534,7 @@ public sealed class MessageChunkingTests : IDisposable
         //Assert
         received.Select(message => message.Value()).ShouldBe(values);
         received.Select(message => message.MessageId).ShouldBe(messageIds);
-        received.Skip(1).ShouldAllBe(message => message.MessageId.FirstChunkMessageId != null);
+        received.Skip(1).ShouldAllBe(message => (object?) message.MessageId.FirstChunkMessageId != null);
         await WaitUntil(async () => await GetBacklog(topic, subscription) == 0);
     }
 
@@ -591,7 +591,7 @@ public sealed class MessageChunkingTests : IDisposable
         //Assert
         received.Select(message => message.Value()).Order().ShouldBe(values.Order());
         messageIds.Select(messageId => messageId.Partition).Distinct().Count().ShouldBe(3);
-        messageIds.ShouldAllBe(messageId => messageId.FirstChunkMessageId != null && messageId.FirstChunkMessageId.Partition == messageId.Partition);
+        messageIds.ShouldAllBe(messageId => (object?) messageId.FirstChunkMessageId != null && messageId.FirstChunkMessageId.Partition == messageId.Partition);
     }
 
     private static string CreateSubscriptionName() => $"subscription-{Guid.NewGuid():N}";
