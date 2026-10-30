@@ -107,6 +107,37 @@ public sealed class TransactionProduceTests : IDisposable
         _ = await Record.ExceptionAsync(async () => await inTransaction);
     }
 
+    // Additional coverage
+    // The unit test with the same name in ProducerTransactionTests counts the requests to the coordinator. This test asks the broker which partitions the transaction has, and ends the transaction:
+    // the messages of a partition that was not registered would stay hidden after the commit.
+    [Fact]
+    public async Task Send_GivenPartitionedTopic_ShouldRegisterEachPartitionOnce()
+    {
+        //Arrange
+        var topic = TransactionFixture.CreateTopicName("send-partitioned-topic");
+        await _fixture.CreatePartitionedTopic(topic, _numberOfPartitions, _cts.Token);
+        await using var client = _fixture.CreateClient(_testOutputHelper.Log);
+        await using var consumer = client.NewConsumer(Schema.String).SubscriptionName("sub").Topic(topic).InitialPosition(SubscriptionInitialPosition.Earliest).Create();
+        await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+        await using var producer = client.NewProducer(Schema.String).Topic(topic).SendTimeout(TimeSpan.Zero).Create();
+        await producer.StateChangedTo(ProducerState.Connected, _cts.Token);
+        var transaction = await client.NewTransaction().Timeout(TimeSpan.FromMinutes(1)).Create(_cts.Token);
+        var messages = Enumerable.Range(0, _numberOfPartitions * 2).Select(i => $"message {i}").ToList();
+
+        //Act
+        foreach (var message in messages)
+            _ = await producer.NewMessage().Transaction(transaction).Send(message, _cts.Token);
+
+        var metadata = await _fixture.GetTransactionMetadata(transaction.Id, _cts.Token);
+        await transaction.Commit(_cts.Token);
+        var received = await TransactionFixture.DrainValues(consumer, TimeSpan.FromSeconds(5), _cts.Token);
+
+        //Assert
+        var producedPartitions = metadata.GetProperty("producedPartitions").EnumerateObject().Select(partition => partition.Name).ToList();
+        producedPartitions.ShouldBe(Enumerable.Range(0, _numberOfPartitions).Select(partition => $"{topic}-partition-{partition}"), true);
+        received.ShouldBe(messages, true);
+    }
+
     public void Dispose()
         => _cts.Dispose();
 
