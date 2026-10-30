@@ -14,16 +14,41 @@
 
 namespace DotPulsar.Tests.Internal;
 
+using DotPulsar.Internal.PulsarApi;
 using System.Reflection;
 
-// The batch size of a MessageId is internal, and the library has no InternalsVisibleTo
+// The batch size and the chunk ids of a MessageId are internal, and the library has no InternalsVisibleTo
 public static class MessageIdInternals
 {
     private static readonly PropertyInfo _batchSize = typeof(MessageId).GetProperty("BatchSize", BindingFlags.Instance | BindingFlags.NonPublic)
         ?? throw new InvalidOperationException("MessageId.BatchSize was not found");
 
+    private static readonly PropertyInfo _chunkMessageIds = typeof(MessageId).GetProperty("ChunkMessageIds", BindingFlags.Instance | BindingFlags.NonPublic)
+        ?? throw new InvalidOperationException("MessageId.ChunkMessageIds was not found");
+
     public static int GetBatchSize(this MessageId messageId)
         => (int) _batchSize.GetValue(messageId)!;
+
+    public static MessageIdData[]? GetChunkMessageIds(this MessageId messageId)
+        => (MessageIdData[]?) _chunkMessageIds.GetValue(messageId);
+
+    // The id of a chunked message, like the consumer creates it: the last chunk gives the ledger, entry and partition, and the batch index is -1
+    public static MessageId CreateChunked(string topic, params MessageIdData[] chunkMessageIds)
+    {
+        var first = chunkMessageIds[0];
+        var last = chunkMessageIds[^1];
+        var firstChunkMessageId = new MessageId(first.LedgerId, first.EntryId, first.Partition, -1, topic);
+
+        return Create(last.LedgerId, last.EntryId, last.Partition, -1, topic, firstChunkMessageId, chunkMessageIds);
+    }
+
+    public static MessageId Create(ulong ledgerId, ulong entryId, int partition, int batchIndex, string topic, MessageId? firstChunkMessageId, MessageIdData[]? chunkMessageIds)
+        => (MessageId) Activator.CreateInstance(
+            typeof(MessageId),
+            BindingFlags.Instance | BindingFlags.NonPublic,
+            null,
+            [ledgerId, entryId, partition, batchIndex, topic, firstChunkMessageId, chunkMessageIds],
+            null)!;
 
     public static MessageId Create(ulong ledgerId, ulong entryId, int partition, int batchIndex, string topic, int batchSize)
         => (MessageId) Activator.CreateInstance(

@@ -127,6 +127,21 @@ public interface IConsumerBuilder<TMessage>
     IConsumerBuilder<TMessage> NegativeAcknowledgeRedeliveryDelay(TimeSpan delay);
 
     /// <summary>
+    /// Set the max number of chunked messages that are being assembled at the same time. When it is exceeded, the oldest is dropped. 0 means no limit. The default is 10.
+    /// </summary>
+    IConsumerBuilder<TMessage> MaxPendingChunkedMessage(uint maxPendingChunkedMessage);
+
+    /// <summary>
+    /// Whether to acknowledge (instead of redeliver) the chunks of the oldest pending chunked message when 'MaxPendingChunkedMessage' is exceeded. The default is 'false'.
+    /// </summary>
+    IConsumerBuilder<TMessage> AutoAckOldestChunkedMessageOnQueueFull(bool autoAckOldestChunkedMessageOnQueueFull);
+
+    /// <summary>
+    /// Set the time after which an incomplete chunked message is dropped and its chunks are acknowledged. TimeSpan.Zero disables expiry. The default is 1 minute.
+    /// </summary>
+    IConsumerBuilder<TMessage> ExpireTimeOfIncompleteChunkedMessage(TimeSpan expireTimeOfIncompleteChunkedMessage);
+
+    /// <summary>
     /// Create the consumer.
     /// </summary>
     IConsumer<TMessage> Create();

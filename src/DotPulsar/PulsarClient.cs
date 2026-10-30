@@ -114,6 +114,9 @@ public sealed class PulsarClient : IPulsarClient
         if (options.NegativeAcknowledgeRedeliveryDelay < TimeSpan.Zero)
             throw new ConfigurationException("ConsumerOptions.NegativeAcknowledgeRedeliveryDelay may not be negative");
 
+        if (options.ExpireTimeOfIncompleteChunkedMessage < TimeSpan.Zero)
+            throw new ConfigurationException("ConsumerOptions.ExpireTimeOfIncompleteChunkedMessage may not be negative");
+
         var consumer = new Consumer<TMessage>(ServiceUrl, options, _connectionPool, _exceptionHandler, _operationTimeout);
         if (options.StateChangedHandler is not null)
             _ = StateMonitor.MonitorConsumer(consumer, options.StateChangedHandler);
@@ -129,6 +132,9 @@ public sealed class PulsarClient : IPulsarClient
     public IReader<TMessage> CreateReader<TMessage>(ReaderOptions<TMessage> options)
     {
         ThrowIfDisposed();
+
+        if (options.ExpireTimeOfIncompleteChunkedMessage < TimeSpan.Zero)
+            throw new ConfigurationException("ReaderOptions.ExpireTimeOfIncompleteChunkedMessage may not be negative");
 
         var reader = new Reader<TMessage>(ServiceUrl, options, _exceptionHandler, _connectionPool);
         if (options.StateChangedHandler is not null)

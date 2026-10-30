@@ -22,6 +22,21 @@ using DotPulsar.Abstractions;
 public sealed class ReaderOptions<TMessage>
 {
     /// <summary>
+    /// The default of whether to acknowledge the oldest pending chunked message when the queue of pending chunked messages is full.
+    /// </summary>
+    public static readonly bool DefaultAutoAckOldestChunkedMessageOnQueueFull = false;
+
+    /// <summary>
+    /// The default expire time of incomplete chunked messages.
+    /// </summary>
+    public static readonly TimeSpan DefaultExpireTimeOfIncompleteChunkedMessage = TimeSpan.FromMinutes(1);
+
+    /// <summary>
+    /// The default max number of pending chunked messages.
+    /// </summary>
+    public static readonly uint DefaultMaxPendingChunkedMessage = 10;
+
+    /// <summary>
     /// The default message prefetch count.
     /// </summary>
     public static readonly uint DefaultMessagePrefetchCount = 1000;
@@ -41,6 +56,9 @@ public sealed class ReaderOptions<TMessage>
     /// </summary>
     public ReaderOptions(MessageId startMessageId, string topic, ISchema<TMessage> schema)
     {
+        AutoAckOldestChunkedMessageOnQueueFull = DefaultAutoAckOldestChunkedMessageOnQueueFull;
+        ExpireTimeOfIncompleteChunkedMessage = DefaultExpireTimeOfIncompleteChunkedMessage;
+        MaxPendingChunkedMessage = DefaultMaxPendingChunkedMessage;
         MessagePrefetchCount = DefaultMessagePrefetchCount;
         ReadCompacted = DefaultReadCompacted;
         StartMessageId = startMessageId;
@@ -93,4 +111,19 @@ public sealed class ReaderOptions<TMessage>
     /// Set the topic for this reader. This is required.
     /// </summary>
     public string Topic { get; set; }
+
+    /// <summary>
+    /// The max number of chunked messages that are being assembled at the same time. When it is exceeded, the oldest is dropped. 0 means no limit. The default is 10.
+    /// </summary>
+    public uint MaxPendingChunkedMessage { get; set; }
+
+    /// <summary>
+    /// Whether to acknowledge (instead of redeliver) the chunks of the oldest pending chunked message when 'MaxPendingChunkedMessage' is exceeded. The default is 'false'.
+    /// </summary>
+    public bool AutoAckOldestChunkedMessageOnQueueFull { get; set; }
+
+    /// <summary>
+    /// The time after which an incomplete chunked message is dropped. TimeSpan.Zero disables expiry. The default is 1 minute.
+    /// </summary>
+    public TimeSpan ExpireTimeOfIncompleteChunkedMessage { get; set; }
 }

@@ -185,6 +185,53 @@ public sealed class ConsumerBuilderTests
         uut.NegativeAcknowledgeRedeliveryDelay(TimeSpan.FromSeconds(1)).ShouldBeSameAs(uut);
     }
 
+    // Upstream: ConsumerConfigurationData#maxPendingChunkedMessage, #autoAckOldestChunkedMessageOnQueueFull, #expireTimeOfIncompleteChunkedMessageMillis
+    [Fact]
+    public void Create_GivenNoChunkSettings_ShouldUseTheDefaults()
+    {
+        //Arrange
+        var (uut, options) = CreateBuilder();
+
+        //Act
+        uut.Create();
+
+        //Assert
+        options().MaxPendingChunkedMessage.ShouldBe(10U);
+        options().AutoAckOldestChunkedMessageOnQueueFull.ShouldBeFalse();
+        options().ExpireTimeOfIncompleteChunkedMessage.ShouldBe(TimeSpan.FromMinutes(1));
+        ConsumerOptions<string>.DefaultMaxPendingChunkedMessage.ShouldBe(10U);
+        ConsumerOptions<string>.DefaultAutoAckOldestChunkedMessageOnQueueFull.ShouldBeFalse();
+        ConsumerOptions<string>.DefaultExpireTimeOfIncompleteChunkedMessage.ShouldBe(TimeSpan.FromMinutes(1));
+    }
+
+    // Upstream: MessageChunkingTest#testReaderChunkingConfiguration
+    [Fact]
+    public void Create_GivenChunkSettings_ShouldPassThemOnInTheOptions()
+    {
+        //Arrange
+        var (uut, options) = CreateBuilder();
+
+        //Act
+        uut.MaxPendingChunkedMessage(12).AutoAckOldestChunkedMessageOnQueueFull(true).ExpireTimeOfIncompleteChunkedMessage(TimeSpan.FromMilliseconds(12)).Create();
+
+        //Assert
+        options().MaxPendingChunkedMessage.ShouldBe(12U);
+        options().AutoAckOldestChunkedMessageOnQueueFull.ShouldBeTrue();
+        options().ExpireTimeOfIncompleteChunkedMessage.ShouldBe(TimeSpan.FromMilliseconds(12));
+    }
+
+    [Fact]
+    public void Builder_GivenChunkSettings_ShouldReturnTheBuilder()
+    {
+        //Arrange
+        var (uut, _) = CreateBuilder();
+
+        //Act & Assert
+        uut.MaxPendingChunkedMessage(1).ShouldBeSameAs(uut);
+        uut.AutoAckOldestChunkedMessageOnQueueFull(true).ShouldBeSameAs(uut);
+        uut.ExpireTimeOfIncompleteChunkedMessage(TimeSpan.Zero).ShouldBeSameAs(uut);
+    }
+
     private static (IConsumerBuilder<string> Builder, Func<ConsumerOptions<string>> Options) CreateBuilder()
     {
         ConsumerOptions<string>? captured = null;

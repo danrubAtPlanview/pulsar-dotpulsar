@@ -16,6 +16,7 @@
 
 namespace DotPulsar.Tests;
 
+using DotPulsar.Internal.PulsarApi;
 using DotPulsar.Tests.Internal;
 
 [Trait("Category", "Unit")]
@@ -370,4 +371,107 @@ public class MessageIdTests
         //Assert
         actual.GetBatchSize().ShouldBe(0);
     }
+
+    [Fact]
+    public void FirstChunkMessageId_GivenIdThatIsNotChunked_ShouldBeNull()
+    {
+        //Act
+        var uut = new MessageId(1, 2, 3, 4, "topic");
+
+        //Assert
+        uut.FirstChunkMessageId.ShouldBeNull();
+        uut.GetChunkMessageIds().ShouldBeNull();
+    }
+
+    [Fact]
+    public void CreateChunked_GivenChunkIds_ShouldUseTheLastChunkAndNoBatchIndex()
+    {
+        //Arrange
+        var chunkIds = new[] { CreateChunkId(1, 10), CreateChunkId(1, 11), CreateChunkId(2, 3) };
+
+        //Act
+        var uut = MessageIdInternals.CreateChunked("topic", chunkIds);
+
+        //Assert
+        uut.LedgerId.ShouldBe(2UL);
+        uut.EntryId.ShouldBe(3UL);
+        uut.Partition.ShouldBe(0);
+        uut.BatchIndex.ShouldBe(-1);
+        uut.Topic.ShouldBe("topic");
+        uut.FirstChunkMessageId.ShouldNotBeNull();
+        uut.FirstChunkMessageId.LedgerId.ShouldBe(1UL);
+        uut.FirstChunkMessageId.EntryId.ShouldBe(10UL);
+        uut.FirstChunkMessageId.BatchIndex.ShouldBe(-1);
+        uut.GetChunkMessageIds().ShouldBeSameAs(chunkIds);
+    }
+
+    // Upstream: ChunkMessageIdImplTest#compareToTest
+    [Fact]
+    public void CompareTo_GivenChunkMessageIds_ShouldCompareByLastChunk()
+    {
+        //Arrange
+        var chunkMessageId1 = MessageIdInternals.CreateChunked(string.Empty, CreateChunkId(0, 0), CreateChunkId(1, 1));
+        var chunkMessageId2 = MessageIdInternals.CreateChunked(string.Empty, CreateChunkId(2, 2), CreateChunkId(3, 3));
+        var sameLastChunk = MessageIdInternals.CreateChunked(string.Empty, CreateChunkId(0, 5), CreateChunkId(1, 1));
+
+        //Assert
+        chunkMessageId1.CompareTo(chunkMessageId2).ShouldBeNegative();
+        chunkMessageId2.CompareTo(chunkMessageId1).ShouldBePositive();
+        chunkMessageId1.CompareTo(sameLastChunk).ShouldBe(0);
+        (chunkMessageId1 < chunkMessageId2).ShouldBeTrue();
+        chunkMessageId1.CompareTo(new MessageId(1, 1, 0, -1)).ShouldBe(0);
+    }
+
+    // Upstream: ChunkMessageIdImplTest#hashCodeTest (C# deviation: equal ids have equal hash codes, so the first chunk is not part of the hash code)
+    [Fact]
+    public void GetHashCode_GivenDifferentChunkMessageIds_ShouldDiffer()
+    {
+        //Arrange
+        var chunkMessageId1 = MessageIdInternals.CreateChunked(string.Empty, CreateChunkId(0, 0), CreateChunkId(1, 1));
+        var sameAsChunkMessageId1 = MessageIdInternals.CreateChunked(string.Empty, CreateChunkId(0, 0), CreateChunkId(1, 1));
+        var chunkMessageId2 = MessageIdInternals.CreateChunked(string.Empty, CreateChunkId(2, 2), CreateChunkId(3, 3));
+
+        //Assert
+        chunkMessageId1.GetHashCode().ShouldBe(sameAsChunkMessageId1.GetHashCode());
+        chunkMessageId1.GetHashCode().ShouldNotBe(chunkMessageId2.GetHashCode());
+    }
+
+    // Upstream: ChunkMessageIdImplTest#equalsTest
+    [Fact]
+    public void Equals_GivenChunkMessageIdAndItsLastChunkId_ShouldBeEqual()
+    {
+        //Arrange
+        var chunkMessageId = MessageIdInternals.CreateChunked(string.Empty, CreateChunkId(0, 0), CreateChunkId(1, 1));
+        var otherFirstChunk = MessageIdInternals.CreateChunked(string.Empty, CreateChunkId(9, 9), CreateChunkId(1, 1));
+        var lastChunkId = new MessageId(1, 1, 0, -1);
+        var otherId = new MessageId(1, 2, 0, -1);
+
+        //Assert
+        chunkMessageId.Equals(lastChunkId).ShouldBeTrue();
+        lastChunkId.Equals(chunkMessageId).ShouldBeTrue();
+        (chunkMessageId == otherFirstChunk).ShouldBeTrue();
+        chunkMessageId.GetHashCode().ShouldBe(lastChunkId.GetHashCode());
+        chunkMessageId.Equals(otherId).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void ToString_GivenChunkMessageId_ShouldBeTheStringOfTheLastChunkAndParseToAnIdThatIsNotChunked()
+    {
+        //Arrange
+        var uut = MessageIdInternals.CreateChunked("topic", CreateChunkId(0, 0), CreateChunkId(1, 1));
+
+        //Act
+        var actual = uut.ToString();
+        var parsed = MessageId.TryParse(actual, out var result);
+
+        //Assert
+        actual.ShouldBe("1:1:0:-1:topic");
+        parsed.ShouldBeTrue();
+        result.ShouldBe(uut);
+        result.FirstChunkMessageId.ShouldBeNull();
+        result.GetChunkMessageIds().ShouldBeNull();
+    }
+
+    private static MessageIdData CreateChunkId(ulong ledgerId, ulong entryId)
+        => new() { LedgerId = ledgerId, EntryId = entryId, Partition = 0, BatchIndex = -1 };
 }

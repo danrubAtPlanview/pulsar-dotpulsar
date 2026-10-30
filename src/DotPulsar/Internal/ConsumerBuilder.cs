@@ -43,6 +43,9 @@ public sealed class ConsumerBuilder<TMessage> : IConsumerBuilder<TMessage>
     private TimeSpan _ackTimeoutTickTime;
     private DeadLetterPolicy? _deadLetterPolicy;
     private TimeSpan _negativeAcknowledgeRedeliveryDelay;
+    private uint _maxPendingChunkedMessage;
+    private bool _autoAckOldestChunkedMessageOnQueueFull;
+    private TimeSpan _expireTimeOfIncompleteChunkedMessage;
 
     public ConsumerBuilder(IPulsarClient pulsarClient, ISchema<TMessage> schema)
     {
@@ -53,6 +56,9 @@ public sealed class ConsumerBuilder<TMessage> : IConsumerBuilder<TMessage>
         _ackTimeout = ConsumerOptions<TMessage>.DefaultAckTimeout;
         _ackTimeoutTickTime = ConsumerOptions<TMessage>.DefaultAckTimeoutTickTime;
         _negativeAcknowledgeRedeliveryDelay = ConsumerOptions<TMessage>.DefaultNegativeAcknowledgeRedeliveryDelay;
+        _maxPendingChunkedMessage = ConsumerOptions<TMessage>.DefaultMaxPendingChunkedMessage;
+        _autoAckOldestChunkedMessageOnQueueFull = ConsumerOptions<TMessage>.DefaultAutoAckOldestChunkedMessageOnQueueFull;
+        _expireTimeOfIncompleteChunkedMessage = ConsumerOptions<TMessage>.DefaultExpireTimeOfIncompleteChunkedMessage;
         _initialPosition = ConsumerOptions<TMessage>.DefaultInitialPosition;
         _priorityLevel = ConsumerOptions<TMessage>.DefaultPriorityLevel;
         _messagePrefetchCount = ConsumerOptions<TMessage>.DefaultMessagePrefetchCount;
@@ -197,6 +203,24 @@ public sealed class ConsumerBuilder<TMessage> : IConsumerBuilder<TMessage>
         return this;
     }
 
+    public IConsumerBuilder<TMessage> MaxPendingChunkedMessage(uint maxPendingChunkedMessage)
+    {
+        _maxPendingChunkedMessage = maxPendingChunkedMessage;
+        return this;
+    }
+
+    public IConsumerBuilder<TMessage> AutoAckOldestChunkedMessageOnQueueFull(bool autoAckOldestChunkedMessageOnQueueFull)
+    {
+        _autoAckOldestChunkedMessageOnQueueFull = autoAckOldestChunkedMessageOnQueueFull;
+        return this;
+    }
+
+    public IConsumerBuilder<TMessage> ExpireTimeOfIncompleteChunkedMessage(TimeSpan expireTimeOfIncompleteChunkedMessage)
+    {
+        _expireTimeOfIncompleteChunkedMessage = expireTimeOfIncompleteChunkedMessage;
+        return this;
+    }
+
     public IConsumer<TMessage> Create()
     {
         if (string.IsNullOrEmpty(_subscriptionName))
@@ -228,7 +252,10 @@ public sealed class ConsumerBuilder<TMessage> : IConsumerBuilder<TMessage>
             AckTimeout = _ackTimeout,
             AckTimeoutTickTime = _ackTimeoutTickTime,
             DeadLetterPolicy = _deadLetterPolicy,
-            NegativeAcknowledgeRedeliveryDelay = _negativeAcknowledgeRedeliveryDelay
+            NegativeAcknowledgeRedeliveryDelay = _negativeAcknowledgeRedeliveryDelay,
+            MaxPendingChunkedMessage = _maxPendingChunkedMessage,
+            AutoAckOldestChunkedMessageOnQueueFull = _autoAckOldestChunkedMessageOnQueueFull,
+            ExpireTimeOfIncompleteChunkedMessage = _expireTimeOfIncompleteChunkedMessage
         };
 
         return _pulsarClient.CreateConsumer(options);

@@ -48,6 +48,21 @@ public sealed class ConsumerOptions<TMessage>
     public static readonly SubscriptionInitialPosition DefaultInitialPosition = SubscriptionInitialPosition.Latest;
 
     /// <summary>
+    /// The default of whether to acknowledge the oldest pending chunked message when the queue of pending chunked messages is full.
+    /// </summary>
+    public static readonly bool DefaultAutoAckOldestChunkedMessageOnQueueFull = false;
+
+    /// <summary>
+    /// The default expire time of incomplete chunked messages.
+    /// </summary>
+    public static readonly TimeSpan DefaultExpireTimeOfIncompleteChunkedMessage = TimeSpan.FromMinutes(1);
+
+    /// <summary>
+    /// The default max number of pending chunked messages.
+    /// </summary>
+    public static readonly uint DefaultMaxPendingChunkedMessage = 10;
+
+    /// <summary>
     /// The default message prefetch count.
     /// </summary>
     public static readonly uint DefaultMessagePrefetchCount = 1000;
@@ -89,7 +104,10 @@ public sealed class ConsumerOptions<TMessage>
         AckReceiptEnabled = DefaultAckReceiptEnabled;
         AckTimeout = DefaultAckTimeout;
         AckTimeoutTickTime = DefaultAckTimeoutTickTime;
+        AutoAckOldestChunkedMessageOnQueueFull = DefaultAutoAckOldestChunkedMessageOnQueueFull;
         BatchIndexAckEnabled = DefaultBatchIndexAckEnabled;
+        ExpireTimeOfIncompleteChunkedMessage = DefaultExpireTimeOfIncompleteChunkedMessage;
+        MaxPendingChunkedMessage = DefaultMaxPendingChunkedMessage;
         InitialPosition = DefaultInitialPosition;
         NegativeAcknowledgeRedeliveryDelay = DefaultNegativeAcknowledgeRedeliveryDelay;
         PriorityLevel = DefaultPriorityLevel;
@@ -263,4 +281,25 @@ public sealed class ConsumerOptions<TMessage>
     /// Set the delay before negatively acknowledged messages are redelivered. A delay below 100 milliseconds is raised to 100 milliseconds. The default is 1 minute.
     /// </summary>
     public TimeSpan NegativeAcknowledgeRedeliveryDelay { get; set; }
+
+    /// <summary>
+    /// The max number of chunked messages that are being assembled at the same time. When it is exceeded, the oldest is dropped. 0 means no limit. The default is 10.
+    /// </summary>
+    /// <remarks>
+    /// A chunked message is assembled by the consumer that receives all of its chunks. With a 'Shared' subscription the broker can hand some chunks of a message to another consumer
+    /// of the subscription, for example when the permits of a consumer run out in the middle of a message, which is likely when 'MessagePrefetchCount' is not much larger than the number
+    /// of chunks of a message. Neither consumer can then complete that message, and the chunks that it holds are not delivered as a message.
+    /// Use a 'MessagePrefetchCount' that is well above the largest number of chunks of a message, or an 'Exclusive' or 'Failover' subscription.
+    /// </remarks>
+    public uint MaxPendingChunkedMessage { get; set; }
+
+    /// <summary>
+    /// Whether to acknowledge (instead of redeliver) the chunks of the oldest pending chunked message when 'MaxPendingChunkedMessage' is exceeded. The default is 'false'.
+    /// </summary>
+    public bool AutoAckOldestChunkedMessageOnQueueFull { get; set; }
+
+    /// <summary>
+    /// The time after which an incomplete chunked message is dropped and its chunks are acknowledged. TimeSpan.Zero disables expiry. The default is 1 minute.
+    /// </summary>
+    public TimeSpan ExpireTimeOfIncompleteChunkedMessage { get; set; }
 }

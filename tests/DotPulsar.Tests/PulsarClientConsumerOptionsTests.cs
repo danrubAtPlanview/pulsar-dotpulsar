@@ -91,6 +91,33 @@ public sealed class PulsarClientConsumerOptionsTests
     }
 
     [Fact]
+    public async Task CreateConsumer_GivenNegativeExpireTimeOfIncompleteChunkedMessage_ShouldThrowConfigurationException()
+    {
+        //Arrange
+        await using var client = PulsarClient.Builder().ServiceUrl(_serviceUrl).Build();
+        var options = CreateOptions();
+        options.ExpireTimeOfIncompleteChunkedMessage = TimeSpan.FromMilliseconds(-1);
+
+        //Act
+        var exception = Record.Exception(() => client.CreateConsumer(options));
+
+        //Assert
+        exception.ShouldBeOfType<ConfigurationException>().Message.ShouldBe("ConsumerOptions.ExpireTimeOfIncompleteChunkedMessage may not be negative");
+    }
+
+    [Fact]
+    public void ConsumerOptions_GivenNoChanges_ShouldHaveTheDefaultsOfTheChunkSettings()
+    {
+        //Act
+        var uut = CreateOptions();
+
+        //Assert
+        uut.MaxPendingChunkedMessage.ShouldBe(10U);
+        uut.AutoAckOldestChunkedMessageOnQueueFull.ShouldBeFalse();
+        uut.ExpireTimeOfIncompleteChunkedMessage.ShouldBe(TimeSpan.FromMinutes(1));
+    }
+
+    [Fact]
     public void ConsumerOptions_GivenNoChanges_ShouldHaveTheDefaultsOfTheRedeliverySettings()
     {
         //Act

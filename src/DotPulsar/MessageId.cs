@@ -22,6 +22,9 @@ using DotPulsar.Internal.PulsarApi;
 /// </summary>
 public sealed class MessageId : IEquatable<MessageId>, IComparable<MessageId>
 {
+    // Only the id of a chunked message has chunks. They share one reference, so the id of a message that is not chunked, which is allocated for every message, is one reference larger and not two.
+    private readonly Chunks? _chunks;
+
     static MessageId()
     {
         Earliest = new MessageId(ulong.MaxValue, ulong.MaxValue, -1, -1);
@@ -42,17 +45,22 @@ public sealed class MessageId : IEquatable<MessageId>, IComparable<MessageId>
     /// Initializes a new instance using the specified ledgerId, entryId, partition, and batchIndex.
     /// </summary>
     public MessageId(ulong ledgerId, ulong entryId, int partition, int batchIndex, string topic = "")
+        : this(ledgerId, entryId, partition, batchIndex, topic, null, null) { }
+
+    internal MessageId(ulong ledgerId, ulong entryId, int partition, int batchIndex, string topic, int batchSize)
+        : this(ledgerId, entryId, partition, batchIndex, topic)
+        => BatchSize = batchSize;
+
+    // The id of a chunked message is the id of its last chunk, so the ledger, entry and partition are those of the last chunk and the batch index is -1
+    internal MessageId(ulong ledgerId, ulong entryId, int partition, int batchIndex, string topic, MessageId? firstChunkMessageId, MessageIdData[]? chunkMessageIds)
     {
         LedgerId = ledgerId;
         EntryId = entryId;
         Partition = partition;
         BatchIndex = batchIndex;
         Topic = topic;
+        _chunks = firstChunkMessageId is null && chunkMessageIds is null ? null : new Chunks(firstChunkMessageId, chunkMessageIds);
     }
-
-    internal MessageId(ulong ledgerId, ulong entryId, int partition, int batchIndex, string topic, int batchSize)
-        : this(ledgerId, entryId, partition, batchIndex, topic)
-        => BatchSize = batchSize;
 
     /// <summary>
     /// The id of the ledger.
@@ -79,8 +87,17 @@ public sealed class MessageId : IEquatable<MessageId>, IComparable<MessageId>
     /// </summary>
     public string Topic { get; }
 
+    /// <summary>
+    /// The message id of the first chunk if this is the id of a chunked message, otherwise null.
+    /// </summary>
+    public MessageId? FirstChunkMessageId => _chunks?.FirstChunkMessageId;
+
     // The number of messages in the batch of the message, or 0 if unknown or not part of a batch. It is not part of equality, hashing and ToString.
     internal int BatchSize { get; }
+
+    // The id of every chunk of a chunked message in chunk order, otherwise null. The last one is the id of the message, and the array must not be changed.
+    // It is not part of equality, hashing and ToString, like FirstChunkMessageId.
+    internal MessageIdData[]? ChunkMessageIds => _chunks?.ChunkMessageIds;
 
     public int CompareTo(MessageId? other)
     {
@@ -223,5 +240,17 @@ public sealed class MessageId : IEquatable<MessageId>, IComparable<MessageId>
         var messageIdData = new MessageIdData();
         messageIdData.MapFrom(this);
         return messageIdData;
+    }
+
+    private sealed class Chunks
+    {
+        public Chunks(MessageId? firstChunkMessageId, MessageIdData[]? chunkMessageIds)
+        {
+            FirstChunkMessageId = firstChunkMessageId;
+            ChunkMessageIds = chunkMessageIds;
+        }
+
+        public MessageId? FirstChunkMessageId { get; }
+        public MessageIdData[]? ChunkMessageIds { get; }
     }
 }

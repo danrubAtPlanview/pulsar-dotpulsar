@@ -28,6 +28,9 @@ public sealed class ReaderBuilder<TMessage> : IReaderBuilder<TMessage>
     private string? _topic;
     private string? _subscriptionName;
     private string _subscriptionRolePrefix;
+    private uint _maxPendingChunkedMessage;
+    private bool _autoAckOldestChunkedMessageOnQueueFull;
+    private TimeSpan _expireTimeOfIncompleteChunkedMessage;
 
     private IHandleStateChanged<ReaderStateChanged>? _stateChangedHandler;
 
@@ -35,6 +38,9 @@ public sealed class ReaderBuilder<TMessage> : IReaderBuilder<TMessage>
     {
         _pulsarClient = pulsarClient;
         _schema = schema;
+        _maxPendingChunkedMessage = ReaderOptions<TMessage>.DefaultMaxPendingChunkedMessage;
+        _autoAckOldestChunkedMessageOnQueueFull = ReaderOptions<TMessage>.DefaultAutoAckOldestChunkedMessageOnQueueFull;
+        _expireTimeOfIncompleteChunkedMessage = ReaderOptions<TMessage>.DefaultExpireTimeOfIncompleteChunkedMessage;
         _messagePrefetchCount = ReaderOptions<TMessage>.DefaultMessagePrefetchCount;
         _readCompacted = ReaderOptions<TMessage>.DefaultReadCompacted;
         _subscriptionRolePrefix = ReaderOptions<TMessage>.DefaultSubscriptionRolePrefix;
@@ -88,6 +94,24 @@ public sealed class ReaderBuilder<TMessage> : IReaderBuilder<TMessage>
         return this;
     }
 
+    public IReaderBuilder<TMessage> MaxPendingChunkedMessage(uint maxPendingChunkedMessage)
+    {
+        _maxPendingChunkedMessage = maxPendingChunkedMessage;
+        return this;
+    }
+
+    public IReaderBuilder<TMessage> AutoAckOldestChunkedMessageOnQueueFull(bool autoAckOldestChunkedMessageOnQueueFull)
+    {
+        _autoAckOldestChunkedMessageOnQueueFull = autoAckOldestChunkedMessageOnQueueFull;
+        return this;
+    }
+
+    public IReaderBuilder<TMessage> ExpireTimeOfIncompleteChunkedMessage(TimeSpan expireTimeOfIncompleteChunkedMessage)
+    {
+        _expireTimeOfIncompleteChunkedMessage = expireTimeOfIncompleteChunkedMessage;
+        return this;
+    }
+
     public IReader<TMessage> Create()
     {
         if (_startMessageId is null)
@@ -103,7 +127,10 @@ public sealed class ReaderBuilder<TMessage> : IReaderBuilder<TMessage>
             ReaderName = _readerName,
             StateChangedHandler = _stateChangedHandler,
             SubscriptionName = _subscriptionName,
-            SubscriptionRolePrefix = _subscriptionRolePrefix
+            SubscriptionRolePrefix = _subscriptionRolePrefix,
+            MaxPendingChunkedMessage = _maxPendingChunkedMessage,
+            AutoAckOldestChunkedMessageOnQueueFull = _autoAckOldestChunkedMessageOnQueueFull,
+            ExpireTimeOfIncompleteChunkedMessage = _expireTimeOfIncompleteChunkedMessage
         };
 
         return _pulsarClient.CreateReader(options);
