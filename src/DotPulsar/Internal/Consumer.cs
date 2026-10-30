@@ -28,6 +28,7 @@ public sealed class Consumer<TMessage> : IConsumer<TMessage>
     private readonly StateManager<ConsumerState> _state;
     private readonly ConsumerOptions<TMessage> _consumerOptions;
     private readonly CancellationTokenSource _cts;
+    private readonly TimeSpan _operationTimeout;
     private readonly IHandleException _exceptionHandler;
     private readonly Executor _executor;
     private readonly SemaphoreSlim _semaphoreSlim;
@@ -53,7 +54,8 @@ public sealed class Consumer<TMessage> : IConsumer<TMessage>
         Uri serviceUrl,
         ConsumerOptions<TMessage> consumerOptions,
         IConnectionPool connectionPool,
-        IHandleException exceptionHandler)
+        IHandleException exceptionHandler,
+        TimeSpan operationTimeout)
     {
         _lock = new AsyncLock();
         _state = CreateStateManager();
@@ -71,6 +73,7 @@ public sealed class Consumer<TMessage> : IConsumer<TMessage>
         _receiveTasks = [];
         _cts = new CancellationTokenSource();
         _exceptionHandler = exceptionHandler;
+        _operationTimeout = operationTimeout;
         _semaphoreSlim = new SemaphoreSlim(1);
         _processManager = new ProcessManager();
         _executor = new Executor(Guid.Empty, _processManager, _exceptionHandler);
@@ -462,11 +465,11 @@ public sealed class Consumer<TMessage> : IConsumer<TMessage>
         var messageFactory = new MessageFactory<TMessage>(_consumerOptions.Schema);
         var batchHandler = new BatchHandler<TMessage>(true, messageFactory);
         var decompressorFactories = CompressionFactories.DecompressorFactories();
-        var consumerChannelFactory = new ConsumerChannelFactory<TMessage>(correlationId, _processManager, _connectionPool, subscribe, messagePrefetchCount, batchHandler, messageFactory, decompressorFactories, topic);
+        var consumerChannelFactory = new ConsumerChannelFactory<TMessage>(correlationId, _processManager, _connectionPool, subscribe, messagePrefetchCount, batchHandler, messageFactory, decompressorFactories, topic, _consumerOptions.AckReceiptEnabled);
         var stateManager = CreateStateManager();
         var initialChannel = new NotReadyChannel<TMessage>();
         var executor = new Executor(correlationId, _processManager, _exceptionHandler);
-        var subConsumer = new SubConsumer<TMessage>(correlationId, ServiceUrl, _consumerOptions.SubscriptionName, _consumerOptions.SubscriptionType, topic, _processManager, initialChannel, executor, stateManager, consumerChannelFactory);
+        var subConsumer = new SubConsumer<TMessage>(correlationId, ServiceUrl, _consumerOptions.SubscriptionName, _consumerOptions.SubscriptionType, topic, _processManager, initialChannel, executor, stateManager, consumerChannelFactory, _consumerOptions.AckReceiptEnabled, _operationTimeout);
         var process = new ConsumerProcess(correlationId, stateManager, subConsumer, _consumerOptions.SubscriptionType == SubscriptionType.Failover);
         _processManager.Add(process);
         process.Start();

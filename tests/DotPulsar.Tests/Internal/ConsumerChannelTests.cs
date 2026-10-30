@@ -199,11 +199,100 @@ public sealed class ConsumerChannelTests
         return (batchHandler, messageFactory, first, second);
     }
 
+    [Fact]
+    public async Task Send_GivenAckReceiptEnabledAndProtocol19_ShouldSendWithResponseAndReturnResponse()
+    {
+        // Arrange
+        var (batchHandler, messageFactory, _, _) = CreateBatch();
+        var connection = Substitute.For<IConnection>();
+        connection.ProtocolVersion.Returns(19);
+        var response = new BaseCommand { Type = BaseCommand.Types.Type.AckResponse, AckResponse = new CommandAckResponse() };
+        connection.SendWithResponse(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>()).Returns(response);
+        await using var channel = CreateChannel(connection, batchHandler, messageFactory, true);
+
+        var command = new CommandAck { AckType = CommandAck.Types.AckType.Individual };
+        command.MessageId.Add(new MessageIdData { LedgerId = 1, EntryId = 5, Partition = 0, BatchIndex = -1 });
+
+        // Act
+        var actual = await channel.Send(command, Current.CancellationToken);
+
+        // Assert
+        actual.ShouldBeSameAs(response);
+        await connection.Received(1).SendWithResponse(Arg.Is<CommandAck>(ack => ack.ConsumerId == 1), Arg.Any<CancellationToken>());
+        await connection.DidNotReceive().Send(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Send_GivenAckReceiptEnabledAndProtocol14_ShouldSendWithoutRequestIdAndReturnNull()
+    {
+        // Arrange
+        var (batchHandler, messageFactory, _, _) = CreateBatch();
+        var connection = Substitute.For<IConnection>();
+        connection.ProtocolVersion.Returns(14);
+        connection.Send(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
+        await using var channel = CreateChannel(connection, batchHandler, messageFactory, true);
+
+        var command = new CommandAck { AckType = CommandAck.Types.AckType.Individual, RequestId = 7 };
+        command.MessageId.Add(new MessageIdData { LedgerId = 1, EntryId = 5, Partition = 0, BatchIndex = -1 });
+
+        // Act
+        var actual = await channel.Send(command, Current.CancellationToken);
+
+        // Assert
+        actual.ShouldBeNull();
+        await connection.Received(1).Send(Arg.Is<CommandAck>(ack => !ack.HasRequestId), Arg.Any<CancellationToken>());
+        await connection.DidNotReceive().SendWithResponse(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Send_GivenAckReceiptDisabled_ShouldClearRequestIdOnPooledCommand()
+    {
+        // Arrange
+        var (batchHandler, messageFactory, _, _) = CreateBatch();
+        var connection = Substitute.For<IConnection>();
+        connection.ProtocolVersion.Returns(19);
+        connection.Send(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
+        await using var channel = CreateChannel(connection, batchHandler, messageFactory, false);
+
+        var command = new CommandAck { AckType = CommandAck.Types.AckType.Individual, RequestId = 7 };
+        command.MessageId.Add(new MessageIdData { LedgerId = 1, EntryId = 5, Partition = 0, BatchIndex = -1 });
+
+        // Act
+        var actual = await channel.Send(command, Current.CancellationToken);
+
+        // Assert
+        actual.ShouldBeNull();
+        command.HasRequestId.ShouldBeFalse();
+        await connection.Received(1).Send(command, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Send_GivenAckReceiptEnabledAndPartialBatch_ShouldNotSendAndReturnNull()
+    {
+        // Arrange
+        var (batchHandler, messageFactory, first, _) = CreateBatch();
+        var connection = Substitute.For<IConnection>();
+        connection.ProtocolVersion.Returns(19);
+        await using var channel = CreateChannel(connection, batchHandler, messageFactory, true);
+
+        var command = new CommandAck { AckType = CommandAck.Types.AckType.Individual };
+        command.MessageId.Add(ToProtocolId(first.MessageId));
+
+        // Act
+        var actual = await channel.Send(command, Current.CancellationToken);
+
+        // Assert
+        actual.ShouldBeNull();
+        await connection.DidNotReceive().SendWithResponse(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>());
+        await connection.DidNotReceive().Send(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>());
+    }
+
     private static ConsumerChannel<byte[]> CreateChannel(
         IConnection connection,
         BatchHandler<byte[]> batchHandler,
-        MessageFactory<byte[]> messageFactory)
-        => new(1, 100, new AsyncQueue<MessagePackage>(), connection, batchHandler, messageFactory, [], "persistent://public/default/test");
+        MessageFactory<byte[]> messageFactory,
+        bool ackReceiptEnabled = false)
+        => new(1, 100, new AsyncQueue<MessagePackage>(), connection, batchHandler, messageFactory, [], "persistent://public/default/test", ackReceiptEnabled);
 
     private static MessageIdData ToProtocolId(MessageId messageId)
         => new()

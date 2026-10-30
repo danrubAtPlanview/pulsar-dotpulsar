@@ -20,5 +20,8 @@ using DotPulsar.Internal.Abstractions;
 public sealed class PulsarClientFactory
 {
     public static PulsarClient CreatePulsarClient(IConnectionPool connectionPool, IHandleException exceptionHandler, Uri serviceUrl)
-        => new(connectionPool, exceptionHandler, serviceUrl);
+        => CreatePulsarClient(connectionPool, exceptionHandler, serviceUrl, TimeSpan.FromSeconds(30));
+
+    public static PulsarClient CreatePulsarClient(IConnectionPool connectionPool, IHandleException exceptionHandler, Uri serviceUrl, TimeSpan operationTimeout)
+        => new(connectionPool, exceptionHandler, serviceUrl, operationTimeout);
 }

@@ -30,6 +30,7 @@ public sealed class PulsarClient : IPulsarClient
     private readonly HashSet<IAsyncDisposable> _disposables;
     private readonly IConnectionPool _connectionPool;
     private readonly IHandleException _exceptionHandler;
+    private readonly TimeSpan _operationTimeout;
     private int _isDisposed;
 
     public Uri ServiceUrl { get; }
@@ -37,11 +38,13 @@ public sealed class PulsarClient : IPulsarClient
     internal PulsarClient(
         IConnectionPool connectionPool,
         IHandleException exceptionHandler,
-        Uri serviceUrl)
+        Uri serviceUrl,
+        TimeSpan operationTimeout)
     {
         _disposables = [];
         _connectionPool = connectionPool;
         _exceptionHandler = exceptionHandler;
+        _operationTimeout = operationTimeout;
         ServiceUrl = serviceUrl;
         _isDisposed = 0;
         DotPulsarMeter.ClientCreated();
@@ -90,7 +93,7 @@ public sealed class PulsarClient : IPulsarClient
     {
         ThrowIfDisposed();
 
-        var consumer = new Consumer<TMessage>(ServiceUrl, options, _connectionPool, _exceptionHandler);
+        var consumer = new Consumer<TMessage>(ServiceUrl, options, _connectionPool, _exceptionHandler, _operationTimeout);
         if (options.StateChangedHandler is not null)
             _ = StateMonitor.MonitorConsumer(consumer, options.StateChangedHandler);
 

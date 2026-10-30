@@ -49,8 +49,37 @@ public static class CommandExtensions
     public static void Throw(this CommandPartitionedTopicMetadataResponse command)
         => Throw(command.Error, command.Message);
 
+    public static void Throw(this CommandAckResponse command)
+        => Throw(command.Error, command.Message);
+
+    public static void Throw(this CommandNewTxnResponse command)
+        => Throw(command.Error, command.Message);
+
+    public static void Throw(this CommandAddPartitionToTxnResponse command)
+        => Throw(command.Error, command.Message);
+
+    public static void Throw(this CommandAddSubscriptionToTxnResponse command)
+        => Throw(command.Error, command.Message);
+
+    public static void Throw(this CommandEndTxnResponse command)
+        => Throw(command.Error, command.Message);
+
+    public static void Throw(this CommandTcClientConnectResponse command)
+        => Throw(command.Error, command.Message);
+
+    public static void ThrowIfAckError(this BaseCommand command)
+    {
+        command.Expect(BaseCommand.Types.Type.AckResponse);
+
+        if (command.AckResponse.HasError)
+            throw ToException(command.AckResponse.Error, command.AckResponse.Message);
+    }
+
     private static void Throw(ServerError error, string message)
-        => throw (error switch
+        => throw ToException(error, message);
+
+    public static Exception ToException(ServerError error, string message)
+        => error switch
         {
             ServerError.AuthenticationError => new AuthenticationException(message),
             ServerError.AuthorizationError => new AuthorizationException(message),
@@ -75,10 +104,11 @@ public static class CommandExtensions
             ServerError.TopicTerminatedError => new TopicTerminatedException(message),
             ServerError.TransactionConflict => new TransactionConflictException(message),
             ServerError.TransactionCoordinatorNotFound => new TransactionCoordinatorNotFoundException(message),
+            ServerError.TransactionNotFound => new TransactionNotFoundException(message),
             ServerError.UnknownError => new UnknownException($"{message}. Error code: {error}"),
             ServerError.UnsupportedVersionError => new UnsupportedVersionException(message),
             _ => new UnknownException($"{message}. Error code: {error}")
-        });
+        };
 
     public static BaseCommand AsBaseCommand(this CommandAck command)
         => new()
@@ -211,5 +241,40 @@ public static class CommandExtensions
         {
             Type = BaseCommand.Types.Type.GetTopicsOfNamespace,
             GetTopicsOfNamespace = command
+        };
+
+    public static BaseCommand AsBaseCommand(this CommandTcClientConnectRequest command)
+        => new()
+        {
+            Type = BaseCommand.Types.Type.TcClientConnectRequest,
+            TcClientConnectRequest = command
+        };
+
+    public static BaseCommand AsBaseCommand(this CommandNewTxn command)
+        => new()
+        {
+            Type = BaseCommand.Types.Type.NewTxn,
+            NewTxn = command
+        };
+
+    public static BaseCommand AsBaseCommand(this CommandAddPartitionToTxn command)
+        => new()
+        {
+            Type = BaseCommand.Types.Type.AddPartitionToTxn,
+            AddPartitionToTxn = command
+        };
+
+    public static BaseCommand AsBaseCommand(this CommandAddSubscriptionToTxn command)
+        => new()
+        {
+            Type = BaseCommand.Types.Type.AddSubscriptionToTxn,
+            AddSubscriptionToTxn = command
+        };
+
+    public static BaseCommand AsBaseCommand(this CommandEndTxn command)
+        => new()
+        {
+            Type = BaseCommand.Types.Type.EndTxn,
+            EndTxn = command
         };
 }

@@ -31,7 +31,7 @@ public sealed class RequestResponseHandler : IDisposable
         _requestId = new RequestId();
         _requests = new Awaiter<IRequest, BaseCommand>();
 
-        _getResponseIdentifier = new EnumLookup<BaseCommand.Types.Type, Func<BaseCommand, IRequest>>(cmd => throw new Exception($"CommandType '{cmd.Type}' not supported as request/response type"));
+        _getResponseIdentifier = new EnumLookup<BaseCommand.Types.Type, Func<BaseCommand, IRequest>>(cmd => null!);
         _getResponseIdentifier.Set(BaseCommand.Types.Type.Connected, cmd => _connectRequest);
         _getResponseIdentifier.Set(BaseCommand.Types.Type.SendError, cmd => new SendRequest(cmd.SendError.ProducerId, cmd.SendError.SequenceId));
         _getResponseIdentifier.Set(BaseCommand.Types.Type.SendReceipt, cmd => new SendRequest(cmd.SendReceipt.ProducerId, cmd.SendReceipt.SequenceId));
@@ -44,6 +44,12 @@ public sealed class RequestResponseHandler : IDisposable
         _getResponseIdentifier.Set(BaseCommand.Types.Type.GetLastMessageIdResponse, cmd => StandardRequest.WithRequestId(cmd.GetLastMessageIdResponse.RequestId));
         _getResponseIdentifier.Set(BaseCommand.Types.Type.GetOrCreateSchemaResponse, cmd => StandardRequest.WithRequestId(cmd.GetOrCreateSchemaResponse.RequestId));
         _getResponseIdentifier.Set(BaseCommand.Types.Type.Success, cmd => StandardRequest.WithRequestId(cmd.Success.RequestId));
+        _getResponseIdentifier.Set(BaseCommand.Types.Type.AckResponse, cmd => cmd.AckResponse.HasRequestId ? StandardRequest.WithRequestId(cmd.AckResponse.RequestId) : null!);
+        _getResponseIdentifier.Set(BaseCommand.Types.Type.TcClientConnectResponse, cmd => StandardRequest.WithRequestId(cmd.TcClientConnectResponse.RequestId));
+        _getResponseIdentifier.Set(BaseCommand.Types.Type.NewTxnResponse, cmd => StandardRequest.WithRequestId(cmd.NewTxnResponse.RequestId));
+        _getResponseIdentifier.Set(BaseCommand.Types.Type.AddPartitionToTxnResponse, cmd => StandardRequest.WithRequestId(cmd.AddPartitionToTxnResponse.RequestId));
+        _getResponseIdentifier.Set(BaseCommand.Types.Type.AddSubscriptionToTxnResponse, cmd => StandardRequest.WithRequestId(cmd.AddSubscriptionToTxnResponse.RequestId));
+        _getResponseIdentifier.Set(BaseCommand.Types.Type.EndTxnResponse, cmd => StandardRequest.WithRequestId(cmd.EndTxnResponse.RequestId));
         _getResponseIdentifier.Set(BaseCommand.Types.Type.Error, cmd => _requestId.IsPastInitialId() ? StandardRequest.WithRequestId(cmd.Error.RequestId) : _connectRequest);
     }
 
@@ -136,6 +142,45 @@ public sealed class RequestResponseHandler : IDisposable
         command.RequestId = _requestId.FetchNext();
         return _requests.CreateTask(StandardRequest.WithRequestId(command.RequestId));
     }
+
+    public Task<BaseCommand> OutgoingWithResponse(CommandAck command)
+    {
+        command.RequestId = _requestId.FetchNext();
+        return _requests.CreateTask(StandardRequest.WithRequestId(command.RequestId));
+    }
+
+    public Task<BaseCommand> Outgoing(CommandTcClientConnectRequest command)
+    {
+        command.RequestId = _requestId.FetchNext();
+        return _requests.CreateTask(StandardRequest.WithRequestId(command.RequestId));
+    }
+
+    public Task<BaseCommand> Outgoing(CommandNewTxn command)
+    {
+        command.RequestId = _requestId.FetchNext();
+        return _requests.CreateTask(StandardRequest.WithRequestId(command.RequestId));
+    }
+
+    public Task<BaseCommand> Outgoing(CommandAddPartitionToTxn command)
+    {
+        command.RequestId = _requestId.FetchNext();
+        return _requests.CreateTask(StandardRequest.WithRequestId(command.RequestId));
+    }
+
+    public Task<BaseCommand> Outgoing(CommandAddSubscriptionToTxn command)
+    {
+        command.RequestId = _requestId.FetchNext();
+        return _requests.CreateTask(StandardRequest.WithRequestId(command.RequestId));
+    }
+
+    public Task<BaseCommand> Outgoing(CommandEndTxn command)
+    {
+        command.RequestId = _requestId.FetchNext();
+        return _requests.CreateTask(StandardRequest.WithRequestId(command.RequestId));
+    }
+
+    public void Cancel(ulong requestId)
+        => _requests.Cancel(StandardRequest.WithRequestId(requestId));
 
     public void Incoming(BaseCommand command)
     {

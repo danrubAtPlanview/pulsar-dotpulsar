@@ -23,6 +23,11 @@ using System.Text.RegularExpressions;
 public sealed class ConsumerOptions<TMessage>
 {
     /// <summary>
+    /// The default of whether acknowledgments wait for a receipt from the broker.
+    /// </summary>
+    public static readonly bool DefaultAckReceiptEnabled = false;
+
+    /// <summary>
     /// The default initial position.
     /// </summary>
     public static readonly SubscriptionInitialPosition DefaultInitialPosition = SubscriptionInitialPosition.Latest;
@@ -61,6 +66,7 @@ public sealed class ConsumerOptions<TMessage>
 
     private ConsumerOptions(string subscriptionName, ISchema<TMessage> schema, string topic, Regex? topicsPattern, IEnumerable<string> topics)
     {
+        AckReceiptEnabled = DefaultAckReceiptEnabled;
         InitialPosition = DefaultInitialPosition;
         PriorityLevel = DefaultPriorityLevel;
         MessagePrefetchCount = DefaultMessagePrefetchCount;
@@ -192,4 +198,9 @@ public sealed class ConsumerOptions<TMessage>
     /// https://pulsar.apache.org/docs/3.3.x/concepts-messaging/#preserving-order-of-processing
     /// </remarks>
     public bool AllowOutOfOrderDeliver { get; set; }
+
+    /// <summary>
+    /// Whether acknowledgments wait for a receipt from the broker, so that acknowledgment errors are reported to the caller. Transactional acknowledgments always wait for a receipt. The default is 'false'.
+    /// </summary>
+    public bool AckReceiptEnabled { get; set; }
 }

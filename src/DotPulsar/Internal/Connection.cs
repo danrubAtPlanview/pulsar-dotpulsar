@@ -62,6 +62,8 @@ public sealed class Connection : IConnection
 
     public int MaxMessageSize { get; set; }
 
+    public int ProtocolVersion { get; set; }
+
     public IState<ConnectionState> State => _stateManager;
 
     public async Task<ProducerResponse> Send(CommandProducer command, IChannel channel, CancellationToken cancellationToken)
@@ -98,6 +100,9 @@ public sealed class Connection : IConnection
 
     private async Task Send(CommandAuthResponse command, CancellationToken cancellationToken)
     {
+        command.ProtocolVersion = Constants.ProtocolVersion;
+        command.ClientVersion = $"{Constants.ClientName} {Constants.ClientVersion}";
+
         if (_authentication is not null)
         {
             command.Response ??= new AuthData();
@@ -311,6 +316,120 @@ public sealed class Connection : IConnection
         }
 
         return await responseTask.ConfigureAwait(false);
+    }
+
+    public async Task<BaseCommand> SendWithResponse(CommandAck command, CancellationToken cancellationToken)
+    {
+        ThrowIfDisposed();
+
+        Task<BaseCommand>? responseTask;
+
+        using (await _lock.Lock(cancellationToken).ConfigureAwait(false))
+        {
+            responseTask = _channelManager.OutgoingWithResponse(command);
+            var sequence = Serializer.Serialize(command.AsBaseCommand());
+            await _stream.Send(sequence).ConfigureAwait(false);
+        }
+
+        return await ResponseFor(responseTask, command.RequestId, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<BaseCommand> Send(CommandTcClientConnectRequest command, CancellationToken cancellationToken)
+    {
+        ThrowIfDisposed();
+
+        Task<BaseCommand>? responseTask;
+
+        using (await _lock.Lock(cancellationToken).ConfigureAwait(false))
+        {
+            responseTask = _channelManager.Outgoing(command);
+            var sequence = Serializer.Serialize(command.AsBaseCommand());
+            await _stream.Send(sequence).ConfigureAwait(false);
+        }
+
+        return await ResponseFor(responseTask, command.RequestId, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<BaseCommand> Send(CommandNewTxn command, CancellationToken cancellationToken)
+    {
+        ThrowIfDisposed();
+
+        Task<BaseCommand>? responseTask;
+
+        using (await _lock.Lock(cancellationToken).ConfigureAwait(false))
+        {
+            responseTask = _channelManager.Outgoing(command);
+            var sequence = Serializer.Serialize(command.AsBaseCommand());
+            await _stream.Send(sequence).ConfigureAwait(false);
+        }
+
+        return await ResponseFor(responseTask, command.RequestId, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<BaseCommand> Send(CommandAddPartitionToTxn command, CancellationToken cancellationToken)
+    {
+        ThrowIfDisposed();
+
+        Task<BaseCommand>? responseTask;
+
+        using (await _lock.Lock(cancellationToken).ConfigureAwait(false))
+        {
+            responseTask = _channelManager.Outgoing(command);
+            var sequence = Serializer.Serialize(command.AsBaseCommand());
+            await _stream.Send(sequence).ConfigureAwait(false);
+        }
+
+        return await ResponseFor(responseTask, command.RequestId, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<BaseCommand> Send(CommandAddSubscriptionToTxn command, CancellationToken cancellationToken)
+    {
+        ThrowIfDisposed();
+
+        Task<BaseCommand>? responseTask;
+
+        using (await _lock.Lock(cancellationToken).ConfigureAwait(false))
+        {
+            responseTask = _channelManager.Outgoing(command);
+            var sequence = Serializer.Serialize(command.AsBaseCommand());
+            await _stream.Send(sequence).ConfigureAwait(false);
+        }
+
+        return await ResponseFor(responseTask, command.RequestId, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<BaseCommand> Send(CommandEndTxn command, CancellationToken cancellationToken)
+    {
+        ThrowIfDisposed();
+
+        Task<BaseCommand>? responseTask;
+
+        using (await _lock.Lock(cancellationToken).ConfigureAwait(false))
+        {
+            responseTask = _channelManager.Outgoing(command);
+            var sequence = Serializer.Serialize(command.AsBaseCommand());
+            await _stream.Send(sequence).ConfigureAwait(false);
+        }
+
+        return await ResponseFor(responseTask, command.RequestId, cancellationToken).ConfigureAwait(false);
+    }
+
+    public ulong AddTransactionMetaStoreHandler(ITransactionMetaStoreHandler handler)
+    {
+        ThrowIfDisposed();
+        return _channelManager.AddTransactionMetaStoreHandler(handler);
+    }
+
+    public void RemoveTransactionMetaStoreHandler(ulong handlerId)
+        => _channelManager.RemoveTransactionMetaStoreHandler(handlerId);
+
+    private async Task<BaseCommand> ResponseFor(Task<BaseCommand> responseTask, ulong requestId, CancellationToken cancellationToken)
+    {
+        if (!cancellationToken.CanBeCanceled)
+            return await responseTask.ConfigureAwait(false);
+
+        using (cancellationToken.Register(() => _channelManager.CancelRequest(requestId)))
+            return await responseTask.ConfigureAwait(false);
     }
 
     private async Task Send(BaseCommand command, CancellationToken cancellationToken)

@@ -31,6 +31,8 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
     private readonly IExecute _executor;
     private readonly IState<ConsumerState> _state;
     private readonly IConsumerChannelFactory<TMessage> _factory;
+    private readonly bool _ackReceiptEnabled;
+    private readonly TimeSpan _operationTimeout;
     private int _isDisposed;
     private Exception? _faultException;
 
@@ -50,7 +52,9 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
         IConsumerChannel<TMessage> initialChannel,
         IExecute executor,
         IState<ConsumerState> state,
-        IConsumerChannelFactory<TMessage> factory)
+        IConsumerChannelFactory<TMessage> factory,
+        bool ackReceiptEnabled,
+        TimeSpan operationTimeout)
     {
         _correlationId = correlationId;
         ServiceUrl = serviceUrl;
@@ -62,6 +66,8 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
         _executor = executor;
         _state = state;
         _factory = factory;
+        _ackReceiptEnabled = ackReceiptEnabled;
+        _operationTimeout = operationTimeout;
         _commandAckPool = new DefaultObjectPool<CommandAck>(new DefaultPooledObjectPolicy<CommandAck>());
         _isDisposed = 0;
 
@@ -158,10 +164,37 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
         await DisposeChannel().ConfigureAwait(false);
     }
 
-    private async ValueTask InternalAcknowledge(CommandAck command, CancellationToken cancellationToken)
+    private async ValueTask<BaseCommand?> InternalAcknowledge(CommandAck command, CancellationToken cancellationToken)
     {
         Guard();
-        await _channel.Send(command, cancellationToken).ConfigureAwait(false);
+        return await _channel.Send(command, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask AcknowledgeAndAwaitReceipt(CommandAck command, CancellationToken cancellationToken)
+    {
+        BaseCommand? response;
+
+        if (!_ackReceiptEnabled || _operationTimeout <= TimeSpan.Zero)
+        {
+            response = await _executor.Execute(() => InternalAcknowledge(command, cancellationToken), cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(_operationTimeout);
+
+            try
+            {
+                response = await _executor.Execute(() => InternalAcknowledge(command, timeoutCts.Token), timeoutCts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && timeoutCts.IsCancellationRequested)
+            {
+                throw new OperationTimeoutException($"The acknowledgment receipt was not received within {_operationTimeout}");
+            }
+        }
+
+        // The response is evaluated outside the executor, so that a server error fails only this call and does not fault the consumer
+        response?.ThrowIfAckError();
     }
 
     private async ValueTask InternalRedeliverUnacknowledgedMessages(CommandRedeliverUnacknowledgedMessages command, CancellationToken cancellationToken)
@@ -197,6 +230,7 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
     private async ValueTask InternalAcknowledge(MessageId messageId, CommandAck.Types.AckType ackType, CancellationToken cancellationToken)
     {
         var commandAck = _commandAckPool.Get();
+        ResetPooledAck(commandAck);
         commandAck.AckType = ackType;
         if (commandAck.MessageId.Count == 0)
             commandAck.MessageId.Add(messageId.ToMessageIdData());
@@ -205,7 +239,7 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
 
         try
         {
-            await _executor.Execute(() => InternalAcknowledge(commandAck, cancellationToken), cancellationToken).ConfigureAwait(false);
+            await AcknowledgeAndAwaitReceipt(commandAck, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -216,6 +250,7 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
     private async ValueTask InternalAcknowledge(IEnumerable<MessageId> messageIds, CancellationToken cancellationToken)
     {
         var commandAck = _commandAckPool.Get();
+        ResetPooledAck(commandAck);
         commandAck.AckType = CommandAck.Types.AckType.Individual;
         commandAck.MessageId.Clear();
 
@@ -226,13 +261,22 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
 
         try
         {
-            await _executor.Execute(() => InternalAcknowledge(commandAck, cancellationToken), cancellationToken).ConfigureAwait(false);
+            await AcknowledgeAndAwaitReceipt(commandAck, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
             commandAck.MessageId.Clear();
             _commandAckPool.Return(commandAck);
         }
+    }
+
+    private static void ResetPooledAck(CommandAck command)
+    {
+        command.ClearRequestId();
+        command.ClearTxnidMostBits();
+        command.ClearTxnidLeastBits();
+        command.ClearValidationError();
+        command.Properties.Clear();
     }
 
     public ValueTask<IEnumerable<MessageId>> GetLastMessageIds(CancellationToken cancellationToken = default) =>

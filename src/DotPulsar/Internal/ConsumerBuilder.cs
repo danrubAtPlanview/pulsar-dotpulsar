@@ -37,11 +37,13 @@ public sealed class ConsumerBuilder<TMessage> : IConsumerBuilder<TMessage>
     private Regex? _topicsPattern;
     private IHandleStateChanged<ConsumerStateChanged>? _stateChangedHandler;
     private bool _allowOutOfOrderDeliver;
+    private bool _ackReceiptEnabled;
 
     public ConsumerBuilder(IPulsarClient pulsarClient, ISchema<TMessage> schema)
     {
         _schema = schema;
         _pulsarClient = pulsarClient;
+        _ackReceiptEnabled = ConsumerOptions<TMessage>.DefaultAckReceiptEnabled;
         _initialPosition = ConsumerOptions<TMessage>.DefaultInitialPosition;
         _priorityLevel = ConsumerOptions<TMessage>.DefaultPriorityLevel;
         _messagePrefetchCount = ConsumerOptions<TMessage>.DefaultMessagePrefetchCount;
@@ -150,6 +152,12 @@ public sealed class ConsumerBuilder<TMessage> : IConsumerBuilder<TMessage>
         return this;
     }
 
+    public IConsumerBuilder<TMessage> AckReceiptEnabled(bool ackReceiptEnabled)
+    {
+        _ackReceiptEnabled = ackReceiptEnabled;
+        return this;
+    }
+
     public IConsumer<TMessage> Create()
     {
         if (string.IsNullOrEmpty(_subscriptionName))
@@ -172,7 +180,8 @@ public sealed class ConsumerBuilder<TMessage> : IConsumerBuilder<TMessage>
             SubscriptionType = _subscriptionType,
             Topics = _topics,
             TopicsPattern = _topicsPattern,
-            AllowOutOfOrderDeliver = _allowOutOfOrderDeliver
+            AllowOutOfOrderDeliver = _allowOutOfOrderDeliver,
+            AckReceiptEnabled = _ackReceiptEnabled
         };
 
         return _pulsarClient.CreateConsumer(options);

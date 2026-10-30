@@ -20,6 +20,7 @@ using DotPulsar.Internal.PulsarApi;
 public interface IConnection : IStateHolder<ConnectionState>, IAsyncDisposable
 {
     public int MaxMessageSize { get; }
+    public int ProtocolVersion { get; }
 
     Task<ProducerResponse> Send(CommandProducer command, IChannel channel, CancellationToken cancellationToken);
     Task<SubscribeResponse> Send(CommandSubscribe command, IChannel channel, CancellationToken cancellationToken);
@@ -41,4 +42,13 @@ public interface IConnection : IStateHolder<ConnectionState>, IAsyncDisposable
     Task<BaseCommand> Send(CommandGetOrCreateSchema command, CancellationToken cancellationToken);
     Task<BaseCommand> Send(CommandPartitionedTopicMetadata command, CancellationToken cancellationToken);
     Task<BaseCommand> Send(CommandGetTopicsOfNamespace command, CancellationToken cancellationToken);
+    Task<BaseCommand> SendWithResponse(CommandAck command, CancellationToken cancellationToken);
+    Task<BaseCommand> Send(CommandTcClientConnectRequest command, CancellationToken cancellationToken);
+    Task<BaseCommand> Send(CommandNewTxn command, CancellationToken cancellationToken);
+    Task<BaseCommand> Send(CommandAddPartitionToTxn command, CancellationToken cancellationToken);
+    Task<BaseCommand> Send(CommandAddSubscriptionToTxn command, CancellationToken cancellationToken);
+    Task<BaseCommand> Send(CommandEndTxn command, CancellationToken cancellationToken);
+
+    ulong AddTransactionMetaStoreHandler(ITransactionMetaStoreHandler handler);
+    void RemoveTransactionMetaStoreHandler(ulong handlerId);
 }

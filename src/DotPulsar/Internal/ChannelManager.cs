@@ -26,6 +26,7 @@ public sealed class ChannelManager : IStateHolder<ChannelManagerState>, IDisposa
     private readonly RequestResponseHandler _requestResponseHandler;
     private readonly IdLookup<IChannel> _consumerChannels;
     private readonly IdLookup<IChannel> _producerChannels;
+    private readonly IdLookup<ITransactionMetaStoreHandler> _transactionMetaStoreHandlers;
     private readonly EnumLookup<BaseCommand.Types.Type, Action<BaseCommand>> _incoming;
 
     public IState<ChannelManagerState> State => _stateManager;
@@ -36,6 +37,7 @@ public sealed class ChannelManager : IStateHolder<ChannelManagerState>, IDisposa
         _requestResponseHandler = new RequestResponseHandler();
         _consumerChannels = new IdLookup<IChannel>();
         _producerChannels = new IdLookup<IChannel>();
+        _transactionMetaStoreHandlers = new IdLookup<ITransactionMetaStoreHandler>();
         _incoming = new EnumLookup<BaseCommand.Types.Type, Action<BaseCommand>>(cmd => _requestResponseHandler.Incoming(cmd));
         _incoming.Set(BaseCommand.Types.Type.CloseConsumer, cmd => Incoming(cmd.CloseConsumer));
         _incoming.Set(BaseCommand.Types.Type.CloseProducer, cmd => Incoming(cmd.CloseProducer));
@@ -190,6 +192,38 @@ public sealed class ChannelManager : IStateHolder<ChannelManagerState>, IDisposa
         }
     }
 
+    public Task<BaseCommand> OutgoingWithResponse(CommandAck command)
+    {
+        using (TakeConsumerSenderLock(command.ConsumerId))
+        {
+            return _requestResponseHandler.OutgoingWithResponse(command);
+        }
+    }
+
+    public Task<BaseCommand> Outgoing(CommandTcClientConnectRequest command)
+        => _requestResponseHandler.Outgoing(command);
+
+    public Task<BaseCommand> Outgoing(CommandNewTxn command)
+        => _requestResponseHandler.Outgoing(command);
+
+    public Task<BaseCommand> Outgoing(CommandAddPartitionToTxn command)
+        => _requestResponseHandler.Outgoing(command);
+
+    public Task<BaseCommand> Outgoing(CommandAddSubscriptionToTxn command)
+        => _requestResponseHandler.Outgoing(command);
+
+    public Task<BaseCommand> Outgoing(CommandEndTxn command)
+        => _requestResponseHandler.Outgoing(command);
+
+    public void CancelRequest(ulong requestId)
+        => _requestResponseHandler.Cancel(requestId);
+
+    public ulong AddTransactionMetaStoreHandler(ITransactionMetaStoreHandler handler)
+        => AddChannel(_transactionMetaStoreHandlers, handler);
+
+    public void RemoveTransactionMetaStoreHandler(ulong handlerId)
+        => _ = RemoveChannel(_transactionMetaStoreHandlers, handlerId);
+
     public void Incoming(BaseCommand command)
         => _incoming.Get(command.Type)(command);
 
@@ -206,6 +240,9 @@ public sealed class ChannelManager : IStateHolder<ChannelManagerState>, IDisposa
 
         foreach (var channel in _producerChannels.RemoveAll())
             channel.Disconnected();
+
+        foreach (var handler in _transactionMetaStoreHandlers.RemoveAll())
+            handler.ConnectionClosed();
     }
 
     private void Incoming(CommandReachedEndOfTopic command)
@@ -284,7 +321,7 @@ public sealed class ChannelManager : IStateHolder<ChannelManagerState>, IDisposa
 
     private ulong AddConsumerChannel(IChannel channel) => AddChannel(_consumerChannels, channel);
 
-    private ulong AddChannel(IdLookup<IChannel> lookup, IChannel channel)
+    private ulong AddChannel<T>(IdLookup<T> lookup, T channel) where T : class
     {
         var id = lookup.Add(channel);
         _stateManager.SetState(ChannelManagerState.Active);
@@ -295,7 +332,7 @@ public sealed class ChannelManager : IStateHolder<ChannelManagerState>, IDisposa
 
     private IChannel? RemoveConsumerChannel(ulong consumerId) => RemoveChannel(_consumerChannels, consumerId);
 
-    private IChannel? RemoveChannel(IdLookup<IChannel> lookup, ulong id)
+    private T? RemoveChannel<T>(IdLookup<T> lookup, ulong id) where T : class
     {
         var channel = lookup.Remove(id);
         ChannelRemoved();
@@ -304,7 +341,7 @@ public sealed class ChannelManager : IStateHolder<ChannelManagerState>, IDisposa
 
     private void ChannelRemoved()
     {
-        if (_consumerChannels.IsEmpty() && _producerChannels.IsEmpty())
+        if (_consumerChannels.IsEmpty() && _producerChannels.IsEmpty() && _transactionMetaStoreHandlers.IsEmpty())
             _stateManager.SetState(ChannelManagerState.Inactive);
     }
 }

@@ -97,6 +97,11 @@ public interface IConsumerBuilder<TMessage>
     IConsumerBuilder<TMessage> AllowOutOfOrderDeliver(bool allowOutOfOrderDeliver);
 
     /// <summary>
+    /// Whether acknowledgments wait for a receipt from the broker. The default is 'false'.
+    /// </summary>
+    IConsumerBuilder<TMessage> AckReceiptEnabled(bool ackReceiptEnabled);
+
+    /// <summary>
     /// Create the consumer.
     /// </summary>
     IConsumer<TMessage> Create();

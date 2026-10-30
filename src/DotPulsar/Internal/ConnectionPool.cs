@@ -179,6 +179,7 @@ public sealed class ConnectionPool : IConnectionPool
         response.Expect(BaseCommand.Types.Type.Connected);
         _connections[url] = connection;
         connection.MaxMessageSize = response.Connected.MaxMessageSize;
+        connection.ProtocolVersion = response.Connected.ProtocolVersion;
         return connection;
     }
 

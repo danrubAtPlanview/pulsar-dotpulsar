@@ -99,6 +99,27 @@ public sealed class ConnectionPoolTests : IDisposable
         }
     }
 
+    [Fact]
+    public async Task FindConnectionForTopic_GivenBrokerSupportsVersion19_ShouldNegotiateProtocolVersion19()
+    {
+        //Arrange
+        var topicName = await _fixture.CreateTopic(_cts.Token);
+        var commandConnect = new DotPulsar.Internal.PulsarApi.CommandConnect
+        {
+            ProtocolVersion = DotPulsar.Internal.Constants.ProtocolVersion,
+            ClientVersion = $"{DotPulsar.Internal.Constants.ClientName} {DotPulsar.Internal.Constants.ClientVersion}",
+            FeatureFlags = new DotPulsar.Internal.PulsarApi.FeatureFlags { SupportsAuthRefresh = true }
+        };
+        var connector = new DotPulsar.Internal.Connector(new DotPulsar.Internal.DefaultRemoteCertificateValidator(null, true, false), [], true);
+        await using var uut = new DotPulsar.Internal.ConnectionPool(commandConnect, _fixture.ServiceUrl, connector, EncryptionPolicy.EnforceUnencrypted, TimeSpan.FromSeconds(60), null, TimeSpan.FromSeconds(30), _fixture.Authentication);
+
+        //Act
+        var connection = await uut.FindConnectionForTopic(topicName, _cts.Token);
+
+        //Assert
+        connection.ProtocolVersion.ShouldBe(19);
+    }
+
     private static async ValueTask<int> GetUniqueProducerConnectionCount(HttpClient httpClient, string topicName, CancellationToken cancellationToken)
     {
         var topic = topicName.Replace("persistent://", string.Empty);

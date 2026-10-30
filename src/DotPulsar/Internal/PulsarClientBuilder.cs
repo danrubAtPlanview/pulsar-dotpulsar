@@ -34,6 +34,7 @@ public sealed class PulsarClientBuilder : IPulsarClientBuilder
     private bool _verifyCertificateAuthority;
     private bool _verifyCertificateName;
     private TimeSpan _closeInactiveConnectionsInterval;
+    private TimeSpan _operationTimeout;
     private IAuthentication? _authentication;
     private IValidateRemoteCertificate? _remoteCertificateValidator;
 
@@ -58,6 +59,7 @@ public sealed class PulsarClientBuilder : IPulsarClientBuilder
         _verifyCertificateAuthority = true;
         _verifyCertificateName = false;
         _closeInactiveConnectionsInterval = TimeSpan.FromSeconds(60);
+        _operationTimeout = TimeSpan.FromSeconds(30);
     }
 
     public IPulsarClientBuilder AuthenticateUsingClientCertificate(X509Certificate2 clientCertificate)
@@ -145,8 +147,17 @@ public sealed class PulsarClientBuilder : IPulsarClientBuilder
         return this;
     }
 
+    public IPulsarClientBuilder OperationTimeout(TimeSpan operationTimeout)
+    {
+        _operationTimeout = operationTimeout;
+        return this;
+    }
+
     public IPulsarClient Build()
     {
+        if (_operationTimeout <= TimeSpan.Zero)
+            throw new ConfigurationException("OperationTimeout must be greater than zero");
+
         var scheme = _serviceUrl.Scheme;
 
         if (scheme == Constants.PulsarScheme)
@@ -175,6 +186,6 @@ public sealed class PulsarClientBuilder : IPulsarClientBuilder
         var exceptionHandlerPipeline = new ExceptionHandlerPipeline(_retryInterval, exceptionHandlers);
         var connectionPool = new ConnectionPool(_commandConnect, _serviceUrl, connector, _encryptionPolicy.Value, _closeInactiveConnectionsInterval, _listenerName, _keepAliveInterval, _authentication);
 
-        return new PulsarClient(connectionPool, exceptionHandlerPipeline, _serviceUrl);
+        return new PulsarClient(connectionPool, exceptionHandlerPipeline, _serviceUrl, _operationTimeout);
     }
 }

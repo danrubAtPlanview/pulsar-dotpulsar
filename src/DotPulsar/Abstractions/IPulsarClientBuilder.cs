@@ -92,6 +92,11 @@ public interface IPulsarClientBuilder
     IPulsarClientBuilder CloseInactiveConnectionsInterval(TimeSpan interval);
 
     /// <summary>
+    /// The time to wait for the broker to respond to a request, such as an acknowledgment receipt. The default is 30 seconds.
+    /// </summary>
+    IPulsarClientBuilder OperationTimeout(TimeSpan operationTimeout);
+
+    /// <summary>
     /// Create the client.
     /// </summary>
     IPulsarClient Build();

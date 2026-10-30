@@ -31,6 +31,7 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
     private readonly IDecompress?[] _decompressors;
     private readonly AsyncLock _lock;
     private readonly string _topic;
+    private readonly bool _ackReceiptEnabled;
     private uint _sendWhenZero;
     private bool _firstFlow;
 
@@ -42,7 +43,8 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
         BatchHandler<TMessage> batchHandler,
         IMessageFactory<TMessage> messageFactory,
         IEnumerable<IDecompressorFactory> decompressorFactories,
-        string topic)
+        string topic,
+        bool ackReceiptEnabled)
     {
         _id = id;
         _queue = queue;
@@ -50,6 +52,7 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
         _batchHandler = batchHandler;
         _messageFactory = messageFactory;
         _topic = topic;
+        _ackReceiptEnabled = ackReceiptEnabled;
 
         _decompressors = new IDecompress[5];
 
@@ -144,10 +147,25 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
         }
     }
 
-    public async Task Send(CommandAck command, CancellationToken cancellationToken)
+    public async Task<BaseCommand?> Send(CommandAck command, CancellationToken cancellationToken)
+    {
+        if (!PrepareAck(command))
+            return null;
+
+        command.ConsumerId = _id;
+
+        if (_ackReceiptEnabled && _connection.ProtocolVersion >= Constants.ProtocolVersionAckReceipt)
+            return await _connection.SendWithResponse(command, cancellationToken).ConfigureAwait(false);
+
+        command.ClearRequestId();
+        await _connection.Send(command, cancellationToken).ConfigureAwait(false);
+        return null;
+    }
+
+    private bool PrepareAck(CommandAck command)
     {
         if (command.MessageId.Count == 0)
-            return;
+            return false;
 
         if (command.AckType == CommandAck.Types.AckType.Individual && command.MessageId.Count > 1)
         {
@@ -168,7 +186,7 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
             }
 
             if (readyCount == 0)
-                return;
+                return false;
 
             while (command.MessageId.Count > readyCount)
                 command.MessageId.RemoveAt(command.MessageId.Count - 1);
@@ -180,14 +198,13 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
             {
                 var batchMessageId = _batchHandler.Acknowledge(messageId);
                 if (batchMessageId is null)
-                    return;
+                    return false;
 
                 command.MessageId[0] = batchMessageId;
             }
         }
 
-        command.ConsumerId = _id;
-        await _connection.Send(command, cancellationToken).ConfigureAwait(false);
+        return true;
     }
 
     public async Task Send(CommandRedeliverUnacknowledgedMessages command, CancellationToken cancellationToken)
@@ -260,7 +277,11 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
 
         ack.MessageId.Add(messagePackage.MessageId);
 
-        await Send(ack, cancellationToken).ConfigureAwait(false);
+        if (!PrepareAck(ack))
+            return;
+
+        ack.ConsumerId = _id;
+        await _connection.Send(ack, cancellationToken).ConfigureAwait(false);
     }
 
     public async ValueTask ClosedByClient(CancellationToken cancellationToken)

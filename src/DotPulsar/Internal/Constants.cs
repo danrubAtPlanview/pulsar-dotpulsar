@@ -31,7 +31,8 @@ public static class Constants
 
         ClientName = assemblyName.Name;
         ClientVersion = assemblyVersion.ToString(3);
-        ProtocolVersion = 14;
+        ProtocolVersion = 19; // Do not exceed 19 until CommandTopicMigrated is handled
+        ProtocolVersionAckReceipt = 17;
         PulsarScheme = "pulsar";
         PulsarSslScheme = "pulsar+ssl";
         DefaultPulsarPort = 6650;
@@ -43,11 +44,13 @@ public static class Constants
         TraceParent = "messaging.trace_parent";
         TraceState = "messaging.trace_state";
         TimestampToTicks = TimeSpan.TicksPerSecond / (double) Stopwatch.Frequency;
+        TransactionCoordinatorAssignTopic = "persistent://pulsar/system/transaction_coordinator_assign";
     }
 
     public static string ClientName { get; }
     public static string ClientVersion { get; }
     public static int ProtocolVersion { get; }
+    public static int ProtocolVersionAckReceipt { get; }
     public static string PulsarScheme { get; }
     public static string PulsarSslScheme { get; }
     public static int DefaultPulsarPort { get; }
@@ -59,4 +62,5 @@ public static class Constants
     public static string TraceParent { get; }
     public static string TraceState { get; }
     public static double TimestampToTicks { get; }
+    public static string TransactionCoordinatorAssignTopic { get; }
 }

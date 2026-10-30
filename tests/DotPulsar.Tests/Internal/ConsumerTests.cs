@@ -532,7 +532,80 @@ public sealed class ConsumerTests : IDisposable
         return messageIds;
     }
 
+    [Fact]
+    public async Task Acknowledge_GivenAckReceiptEnabled_ShouldCompleteAndAdvanceSubscription()
+    {
+        //Arrange
+        const int numberOfMessages = 10;
+        var topicName = await _fixture.CreateTopic(_cts.Token);
+        var subscription = CreateSubscriptionName();
+        await using var client = CreateClient();
+        await using var producer = CreateProducer(client, topicName);
+        await using var consumer = CreateAckReceiptConsumer(client, topicName, subscription);
+
+        for (var i = 0; i < numberOfMessages; i++)
+            _ = await producer.Send($"message-{i}", _cts.Token);
+
+        //Act
+        for (var i = 0; i < numberOfMessages; i++)
+        {
+            var message = await consumer.Receive(_cts.Token);
+            await consumer.Acknowledge(message, _cts.Token);
+        }
+
+        //Assert
+        using var adminClient = CreateAdminClient();
+        var backlog = await GetBacklog(adminClient, topicName, subscription, _cts.Token);
+        backlog.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task AcknowledgeCumulative_GivenAckReceiptEnabled_ShouldCompleteAndAdvanceSubscription()
+    {
+        //Arrange
+        const int numberOfMessages = 10;
+        var topicName = await _fixture.CreateTopic(_cts.Token);
+        var subscription = CreateSubscriptionName();
+        await using var client = CreateClient();
+        await using var producer = CreateProducer(client, topicName);
+        await using var consumer = CreateAckReceiptConsumer(client, topicName, subscription);
+
+        for (var i = 0; i < numberOfMessages; i++)
+            _ = await producer.Send($"message-{i}", _cts.Token);
+
+        IMessage<string>? last = null;
+        for (var i = 0; i < numberOfMessages; i++)
+            last = await consumer.Receive(_cts.Token);
+
+        //Act
+        await consumer.AcknowledgeCumulative(last!, _cts.Token);
+
+        //Assert
+        using var adminClient = CreateAdminClient();
+        var backlog = await GetBacklog(adminClient, topicName, subscription, _cts.Token);
+        backlog.ShouldBe(0);
+    }
+
     private static string CreateSubscriptionName() => $"subscription-{Guid.NewGuid():N}";
+
+    private IConsumer<string> CreateAckReceiptConsumer(IPulsarClient pulsarClient, string topicName, string subscription)
+        => pulsarClient.NewConsumer(Schema.String)
+        .InitialPosition(SubscriptionInitialPosition.Earliest)
+        .SubscriptionName(subscription)
+        .Topic(topicName)
+        .AckReceiptEnabled(true)
+        .StateChangedHandler(_testOutputHelper.Log)
+        .Create();
+
+    private static async ValueTask<long> GetBacklog(HttpClient httpClient, string topic, string subscription, CancellationToken cancellationToken)
+    {
+        topic = topic.Replace("persistent://", string.Empty);
+        using var response = await httpClient.GetAsync($"/admin/v2/persistent/{topic}/stats", cancellationToken).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        var json = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
+        return json.RootElement.GetProperty("subscriptions").GetProperty(subscription).GetProperty("msgBacklog").GetInt64();
+    }
 
     private IProducer<T> CreateProducer<T>(
         IPulsarClient pulsarClient,
