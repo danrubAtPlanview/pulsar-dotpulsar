@@ -349,6 +349,36 @@ public sealed class ConsumerChannelEncryptionTests
         CountFlows(uut).ShouldBe(2);
     }
 
+    // The prefetch count of 20 is halved by the first flow, so the second flow is due after 10 messages. The batch counts as 5 of them.
+    [Theory(Timeout = 30_000)]
+    [InlineData(ConsumerCryptoFailureAction.Fail)]
+    [InlineData(ConsumerCryptoFailureAction.Discard)]
+    public async Task Receive_GivenUndecryptableBatchOfFiveMessages_ShouldNotCountMoreThanTheMessagesOfTheBatchAsReceived(ConsumerCryptoFailureAction action)
+    {
+        //Arrange
+        using var producer = CreateProducerCrypto();
+        await using var uut = CreateUut(null, action, prefetchCount: 20);
+        uut.Enqueue(CreateEncryptedBatchPackage(producer, 1, 5));
+
+        for (ulong entryId = 2; entryId <= 7; ++entryId)
+        {
+            uut.Enqueue(BatchTestData.CreateSinglePackage(BatchTestData.CreateEntryId(Ledger, entryId)));
+        }
+
+        //Act
+        for (var i = 0; i < 5; ++i)
+        {
+            await uut.Channel.Receive(Current.CancellationToken);
+        }
+
+        var flowsBefore = CountFlows(uut);
+        await uut.Channel.Receive(Current.CancellationToken);
+
+        //Assert
+        flowsBefore.ShouldBe(1);
+        CountFlows(uut).ShouldBe(2);
+    }
+
     [Fact(Timeout = 30_000)]
     public async Task Receive_GivenUndecryptableMessageThatIsNotABatch_ShouldCountItAsOneMessageReceived()
     {
