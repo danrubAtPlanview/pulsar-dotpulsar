@@ -134,6 +134,8 @@ public sealed class AsyncQueueWithCursor<T> : IAsyncDisposable where T : IDispos
 
             if (_queue.Count == 0)
                 NotifyQueueEmptyAwaiters();
+
+            ReleasePendingLockGrant();
         }
     }
 

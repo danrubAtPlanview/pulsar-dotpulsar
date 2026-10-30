@@ -14,6 +14,7 @@
 
 namespace DotPulsar;
 
+using DotPulsar.Abstractions;
 using DotPulsar.Internal.Extensions;
 using DotPulsar.Internal.PulsarApi;
 using Google.Protobuf;
@@ -23,11 +24,16 @@ using Google.Protobuf;
 /// </summary>
 public sealed class MessageMetadata
 {
+    private ITransaction? _transaction;
+
     /// <summary>
     /// Initializes a new instance of the message metadata builder.
     /// </summary>
     public MessageMetadata()
-        => Metadata = new Internal.PulsarApi.MessageMetadata();
+    {
+        Metadata = new Internal.PulsarApi.MessageMetadata();
+        _transaction = null;
+    }
 
     internal Internal.PulsarApi.MessageMetadata Metadata { get; }
 
@@ -178,5 +184,28 @@ public sealed class MessageMetadata
     {
         get => Metadata.SequenceId;
         set => Metadata.SequenceId = value;
+    }
+
+    /// <summary>
+    /// The transaction the message is produced as part of. The default is null (no transaction).
+    /// </summary>
+    public ITransaction? Transaction
+    {
+        get => _transaction;
+        set
+        {
+            _transaction = value;
+
+            if (value is null)
+            {
+                Metadata.ClearTxnidMostBits();
+                Metadata.ClearTxnidLeastBits();
+                return;
+            }
+
+            var id = value.Id;
+            Metadata.TxnidMostBits = id.MostSigBits;
+            Metadata.TxnidLeastBits = id.LeastSigBits;
+        }
     }
 }

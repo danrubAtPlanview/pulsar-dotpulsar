@@ -121,6 +121,10 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
                 continue;
             }
 
+            // The message is not written before its topic is registered with its transaction. The message is the next one to be written, so the messages behind it wait too, and the order is kept.
+            if (sendOp.RegistrationGate is not null && !await TryAwaitRegistrationGate(sendOp, cancellationToken).ConfigureAwait(false))
+                continue;
+
             var tcs = new TaskCompletionSource<BaseCommand>();
             _ = tcs.Task.ContinueWith(task =>
             {
@@ -148,6 +152,43 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
         await responseProcessorTask.ConfigureAwait(false);
     }
 
+    // Returns true if the message can be written. Returns false if it was removed from the queue, because the registration failed or the message was cancelled.
+    private async ValueTask<bool> TryAwaitRegistrationGate(SendOp sendOp, CancellationToken cancellationToken)
+    {
+        var registrationGate = sendOp.RegistrationGate!;
+
+        try
+        {
+            if (registrationGate.IsCompleted)
+                await registrationGate.ConfigureAwait(false);
+            else
+            {
+                // The registration is not cancelled, because it is shared with the other messages of the transaction. Only the waiting is.
+                using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, sendOp.CancellationToken);
+                await registrationGate.WaitAsync(linkedCts.Token).ConfigureAwait(false);
+            }
+
+            return true;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // The dispatcher is stopped. The message stays in the queue, so the next dispatcher will wait for the registration again.
+            throw;
+        }
+        catch (OperationCanceledException) when (sendOp.CancellationToken.IsCancellationRequested)
+        {
+            _sendQueue.RemoveCurrentItem();
+            return false;
+        }
+        catch (Exception exception)
+        {
+            // The message was never written, so no receipt will come. Only this message fails, and the messages behind it are written.
+            _sendQueue.RemoveCurrentItem();
+            _ = sendOp.ReceiptTcs.TrySetException(exception);
+            return false;
+        }
+    }
+
     private async ValueTask ResponseProcessor(IDequeue<Task<BaseCommand>> responseQueue, CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
@@ -159,8 +200,18 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
                 if (responseTask.IsFaulted)
                     throw responseTask.Exception!;
 
-                responseTask.Result.Expect(BaseCommand.Types.Type.SendReceipt);
-                ProcessReceipt(responseTask.Result.SendReceipt);
+                var response = responseTask.Result;
+
+                // Upstream: ClientCnx#handleSendError, ProducerImpl#recoverNotAllowedError
+                // A message that is not allowed fails on its own. The other send errors still fault the producer, because they are thrown by Expect.
+                if (response.Type == BaseCommand.Types.Type.SendError && response.SendError.Error == ServerError.NotAllowedError)
+                {
+                    ProcessNotAllowedSendError(response.SendError);
+                    return;
+                }
+
+                response.Expect(BaseCommand.Types.Type.SendReceipt);
+                ProcessReceipt(response.SendReceipt);
             }, CancellationToken.None).ConfigureAwait(false); // Use CancellationToken.None here because otherwise it will throw exceptions on all fault actions even retry.
 
             if (success)
@@ -188,6 +239,23 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
         var srMsgId = sendReceipt.MessageId;
         var messageId = new MessageId(srMsgId.LedgerId, srMsgId.EntryId, _partition, srMsgId.BatchIndex, Topic);
         sendOp.ReceiptTcs.TrySetResult(messageId);
+    }
+
+    // Upstream: ProducerImpl#recoverNotAllowedError
+    private void ProcessNotAllowedSendError(CommandSendError sendError)
+    {
+        var sequenceId = sendError.SequenceId;
+
+        if (!_sendQueue.TryPeek(out var sendOp) || sendOp is null)
+            throw new ProducerSendReceiptOrderingException($"Received send error for sequenceId {sequenceId} but send queue is empty");
+
+        var expectedSequenceId = sendOp.Metadata.SequenceId;
+
+        if (sequenceId != expectedSequenceId)
+            throw new ProducerSendReceiptOrderingException($"Received send error for sequenceId {sequenceId}. Expected {expectedSequenceId}");
+
+        _sendQueue.Dequeue();
+        _ = sendOp.ReceiptTcs.TrySetException(new NotAllowedException(sendError.Message));
     }
 
     public async Task EstablishNewChannel(CancellationToken cancellationToken)

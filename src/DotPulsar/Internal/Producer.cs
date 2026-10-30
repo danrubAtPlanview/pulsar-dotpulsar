@@ -18,6 +18,7 @@ using DotPulsar.Abstractions;
 using DotPulsar.Exceptions;
 using DotPulsar.Internal.Abstractions;
 using DotPulsar.Internal.Extensions;
+using DotPulsar.Internal.Transactions;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 
@@ -27,6 +28,7 @@ public sealed class Producer<TMessage> : IProducer<TMessage>, IRegisterEvent
     private readonly KeyValuePair<string, object?>[] _activityTags;
     private readonly KeyValuePair<string, object?>[] _meterTags;
     private readonly bool _attachTraceInfoToMessages;
+    private readonly bool _transactionsEnabled;
     private readonly SequenceId _sequenceId;
     private readonly StateManager<ProducerState> _state;
     private readonly IConnectionPool _connectionPool;
@@ -52,7 +54,8 @@ public sealed class Producer<TMessage> : IProducer<TMessage>, IRegisterEvent
         ProducerOptions<TMessage> options,
         IHandleException exceptionHandler,
         IConnectionPool connectionPool,
-        ICompressorFactory? compressorFactory)
+        ICompressorFactory? compressorFactory,
+        bool transactionsEnabled)
     {
         _operationName = $"{options.Topic} send";
         _activityTags =
@@ -67,6 +70,7 @@ public sealed class Producer<TMessage> : IProducer<TMessage>, IRegisterEvent
             new("topic", options.Topic)
         ];
         _attachTraceInfoToMessages = options.AttachTraceInfoToMessages;
+        _transactionsEnabled = transactionsEnabled;
         _sequenceId = new SequenceId(options.InitialSequenceId);
         _state = CreateStateManager();
         ServiceUrl = serviceUrl;
@@ -160,7 +164,7 @@ public sealed class Producer<TMessage> : IProducer<TMessage>, IRegisterEvent
         var schema = _options.Schema;
         var producerAccessMode = (PulsarApi.ProducerAccessMode) _options.ProducerAccessMode;
         var producerProperties = _options.ProducerProperties;
-        var factory = new ProducerChannelFactory(correlationId, _processManager, _connectionPool, topic, producerName, producerAccessMode, schema.SchemaInfo, _compressorFactory, producerProperties);
+        var factory = new ProducerChannelFactory(correlationId, _processManager, _connectionPool, topic, producerName, producerAccessMode, schema.SchemaInfo, _compressorFactory, producerProperties, _transactionsEnabled);
         var stateManager = CreateStateManager();
         var initialChannel = new NotReadyChannel<TMessage>();
         var executor = new Executor(correlationId, _processManager, _exceptionHandler);
@@ -241,6 +245,9 @@ public sealed class Producer<TMessage> : IProducer<TMessage>, IRegisterEvent
     {
         ThrowIfDisposed();
 
+        var transaction = metadata.Transaction is null ? null : Transaction.From(metadata.Transaction);
+        transaction?.EnsureOpen();
+
         var autoAssignSequenceId = metadata.SequenceId == 0;
         if (autoAssignSequenceId)
             metadata.SequenceId = _sequenceId.FetchNext();
@@ -255,14 +262,34 @@ public sealed class Producer<TMessage> : IProducer<TMessage>, IRegisterEvent
 
         var startTimestamp = DotPulsarMeter.MessageSentEnabled ? Stopwatch.GetTimestamp() : 0;
 
+        var isRegisteredWithTransaction = false;
+
         try
         {
+            var data = _options.Schema.Encode(message);
+            tcs ??= new TaskCompletionSource<MessageId>();
+
+            // Upstream: TypedMessageBuilderImpl#sendAsync
+            // The send is registered before anything is awaited, so a commit that is started after this call has been made waits for the send.
+            if (transaction is not null)
+            {
+                transaction.RegisterSendOp(tcs.Task);
+                isRegisteredWithTransaction = true;
+            }
+
             var partition = await ChoosePartitions(metadata, cancellationToken).ConfigureAwait(false);
             var subProducer = _producers[partition];
-            var data = _options.Schema.Encode(message);
 
-            tcs ??= new TaskCompletionSource<MessageId>();
-            var sendOp = new SendOp(metadata.Metadata, data, tcs, sendOpCancelable ? cancellationToken : CancellationToken.None);
+            // Upstream: ProducerImpl#internalSendWithTxnAsync
+            // The registration of the partition is not awaited here. The sub producer waits for it before the message is written, to keep the order of the messages.
+            Task? registrationGate = null;
+            if (transaction is not null)
+            {
+                var registration = transaction.RegisterProducedTopic(subProducer.Topic, CancellationToken.None);
+                registrationGate = registration.IsCompletedSuccessfully ? null : registration.AsTask();
+            }
+
+            var sendOp = new SendOp(metadata.Metadata, data, tcs, sendOpCancelable ? cancellationToken : CancellationToken.None, registrationGate);
             await subProducer.Send(sendOp, cancellationToken).ConfigureAwait(false);
 
             _ = tcs.Task.ContinueWith(async task =>
@@ -309,6 +336,10 @@ public sealed class Producer<TMessage> : IProducer<TMessage>, IRegisterEvent
 
             if (autoAssignSequenceId)
                 metadata.SequenceId = 0;
+
+            // The send never reached the send queue, so nothing else will complete it and the transaction would wait for it forever
+            if (isRegisteredWithTransaction)
+                _ = exception is OperationCanceledException ? tcs!.TrySetCanceled() : tcs!.TrySetException(exception);
 
             throw;
         }

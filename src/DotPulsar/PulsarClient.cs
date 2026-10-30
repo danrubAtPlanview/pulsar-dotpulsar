@@ -85,7 +85,7 @@ public sealed class PulsarClient : IPulsarClient
                 throw new CompressionException($"Support for {compressionType} compression was not found");
         }
 
-        var producer = new Producer<TMessage>(ServiceUrl, options, _exceptionHandler, _connectionPool, compressorFactory);
+        var producer = new Producer<TMessage>(ServiceUrl, options, _exceptionHandler, _connectionPool, compressorFactory, _transactionCoordinatorClient is not null);
 
         if (options.StateChangedHandler is not null)
             _ = StateMonitor.MonitorProducer(producer, options.StateChangedHandler);

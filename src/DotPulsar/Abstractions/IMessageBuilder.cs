@@ -81,6 +81,11 @@ public interface IMessageBuilder<TMessage>
     IMessageBuilder<TMessage> SequenceId(ulong sequenceId);
 
     /// <summary>
+    /// Set the transaction the message is produced as part of. This is optional.
+    /// </summary>
+    IMessageBuilder<TMessage> Transaction(ITransaction transaction);
+
+    /// <summary>
     /// Sends a message.
     /// </summary>
     ValueTask<MessageId> Send(TMessage message, CancellationToken cancellationToken = default);

@@ -19,18 +19,22 @@ using System.Buffers;
 
 public sealed class SendOp : IDisposable
 {
-    public SendOp(MessageMetadata metadata, ReadOnlySequence<byte> data, TaskCompletionSource<MessageId> receiptTcs, CancellationToken cancellationToken)
+    public SendOp(MessageMetadata metadata, ReadOnlySequence<byte> data, TaskCompletionSource<MessageId> receiptTcs, CancellationToken cancellationToken, Task? registrationGate = null)
     {
         Metadata = metadata;
         Data = data;
         ReceiptTcs = receiptTcs;
         CancellationToken = cancellationToken;
+        RegistrationGate = registrationGate;
     }
 
     public MessageMetadata Metadata { get; }
     public ReadOnlySequence<byte> Data { get; }
     public TaskCompletionSource<MessageId> ReceiptTcs { get; }
     public CancellationToken CancellationToken { get; }
+
+    // The task that completes when the topic of a transactional message is registered with its transaction. Null when there is nothing to wait for before the message is written.
+    public Task? RegistrationGate { get; }
 
     public void Dispose()
     {

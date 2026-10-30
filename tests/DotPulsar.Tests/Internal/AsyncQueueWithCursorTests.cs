@@ -356,6 +356,27 @@ public class AsyncQueueWithCursorTests
     }
 
     [Fact]
+    public async Task RemoveCurrentItem_GivenQueueIsFullAndEnqueuePending_ShouldEnqueue()
+    {
+        //Arrange
+        var sut = new AsyncQueueWithCursor<IDisposable>(1);
+        await sut.Enqueue(Substitute.For<IDisposable>(), CancellationToken.None);
+        await sut.NextItem(CancellationToken.None);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var pendingEnqueue = sut.Enqueue(Substitute.For<IDisposable>(), cts.Token);
+
+        //Act
+        sut.RemoveCurrentItem();
+        await pendingEnqueue;
+
+        //Assert
+        sut.TryPeek(out _).ShouldBeTrue();
+
+        //Annihilate
+        await sut.DisposeAsync();
+    }
+
+    [Fact]
     public async Task Dispose_GivenEnqueueWaiting_ShouldCancelTask()
     {
         //Arrange

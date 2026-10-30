@@ -80,6 +80,20 @@ public sealed class ProducerChannel : IProducerChannel
             sendPackage.Command ??= new CommandSend { ProducerId = _id, NumMessages = 1 };
 
             sendPackage.Command.SequenceId = metadata.SequenceId;
+
+            // The command is pooled, and the broker handles a message as transactional if both of the ids are set, even if they are zero.
+            // Both ids are therefore always either copied from the metadata or cleared, so the ids of an earlier message can never leak into this one.
+            if (metadata.HasTxnidMostBits && metadata.HasTxnidLeastBits)
+            {
+                sendPackage.Command.TxnidMostBits = metadata.TxnidMostBits;
+                sendPackage.Command.TxnidLeastBits = metadata.TxnidLeastBits;
+            }
+            else
+            {
+                sendPackage.Command.ClearTxnidMostBits();
+                sendPackage.Command.ClearTxnidLeastBits();
+            }
+
             sendPackage.Metadata = metadata;
 
             if (_compressorFactory is null || metadata.Compression != CompressionType.None)

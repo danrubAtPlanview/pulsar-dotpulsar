@@ -34,6 +34,7 @@ public static class MessageMetadataObjectPool
     public static void Return(MessageMetadata metadata)
     {
         metadata.SequenceId = 0;
+        metadata.Transaction = null;
         metadata.Metadata.Properties.Clear();
         _messageMetadataPool.Return(metadata);
     }

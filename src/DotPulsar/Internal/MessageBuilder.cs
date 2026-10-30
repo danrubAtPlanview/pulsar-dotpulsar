@@ -101,6 +101,12 @@ public sealed class MessageBuilder<TMessage> : IMessageBuilder<TMessage>
         return this;
     }
 
+    public IMessageBuilder<TMessage> Transaction(ITransaction transaction)
+    {
+        _metadata.Transaction = transaction;
+        return this;
+    }
+
     public async ValueTask<MessageId> Send(TMessage message, CancellationToken cancellationToken)
         => await _producer.Send(_metadata, message, cancellationToken).ConfigureAwait(false);
 }

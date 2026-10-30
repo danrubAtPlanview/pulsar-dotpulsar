@@ -37,7 +37,8 @@ public sealed class ProducerChannelFactory : IProducerChannelFactory
         ProducerAccessMode producerAccessMode,
         SchemaInfo schemaInfo,
         ICompressorFactory? compressorFactory,
-        Dictionary<string, string>? properties)
+        Dictionary<string, string>? properties,
+        bool transactionsEnabled)
     {
         _correlationId = correlationId;
         _eventRegister = eventRegister;
@@ -58,6 +59,10 @@ public sealed class ProducerChannelFactory : IProducerChannelFactory
 
         if (properties is not null)
             _commandProducer.Metadata.AddRange(properties.Select(x => new KeyValue { Key = x.Key, Value = x.Value }));
+
+        // Upstream: ProducerImpl#connectionOpened (CommandProducer txn_enabled). It is only set when transactions are enabled, so that the bytes sent by clients without transactions do not change.
+        if (transactionsEnabled)
+            _commandProducer.TxnEnabled = true;
 
         _compressorFactory = compressorFactory;
     }
