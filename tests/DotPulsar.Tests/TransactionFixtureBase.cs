@@ -39,6 +39,8 @@ public abstract class TransactionFixtureBase : IAsyncLifetime
     private const string TransactionCoordinatorWarmUpTopic = "persistent://public/default/transaction-coordinator-warm-up";
     private const string ClusterName = "standalone";
     private const string SuperUser = "test-user";
+    private const int MaxStartAttempts = 3;
+    private static readonly TimeSpan _startAttemptTimeout = TimeSpan.FromMinutes(4);
     private readonly bool _acknowledgmentAtBatchIndexLevelEnabled;
     private readonly CancellationTokenSource _cts;
     private PulsarContainer _pulsarCluster;
@@ -47,7 +49,7 @@ public abstract class TransactionFixtureBase : IAsyncLifetime
     protected TransactionFixtureBase(bool acknowledgmentAtBatchIndexLevelEnabled)
     {
         _acknowledgmentAtBatchIndexLevelEnabled = acknowledgmentAtBatchIndexLevelEnabled;
-        _cts = new CancellationTokenSource(TimeSpan.FromMinutes(10));
+        _cts = new CancellationTokenSource(TimeSpan.FromMinutes(15));
         _pulsarCluster = null!; // This will be set in `InitializeAsync`
     }
 
@@ -100,7 +102,57 @@ public abstract class TransactionFixtureBase : IAsyncLifetime
         GC.SuppressFinalize(this);
     }
 
+    // Under memory pressure the container sometimes fails to start ("Failed to create token") or hangs. A bounded attempt that is
+    // repeated with a new container fails in minutes with a clear message instead of after the 10 minutes of the fixture.
     public async ValueTask InitializeAsync()
+    {
+        for (var attempt = 1; ; ++attempt)
+        {
+            using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+            attemptCts.CancelAfter(_startAttemptTimeout);
+
+            try
+            {
+                await StartCluster(attemptCts.Token);
+                return;
+            }
+            catch (Exception exception)
+            {
+                var hasTimedOut = exception is OperationCanceledException && attemptCts.IsCancellationRequested && !_cts.IsCancellationRequested;
+                var reason = hasTimedOut ? $"it was not ready within {_startAttemptTimeout}" : exception.Message;
+
+                if (attempt == MaxStartAttempts || _cts.IsCancellationRequested)
+                {
+                    if (hasTimedOut)
+                        throw new TimeoutException($"The Pulsar broker was not ready within {_startAttemptTimeout} in {attempt} attempts", exception);
+
+                    throw;
+                }
+
+                Current.SendDiagnosticMessage($"Attempt {attempt} of {MaxStartAttempts} to start the Pulsar broker failed ({reason}). Trying again with a new container.");
+                await DisposeCluster();
+            }
+        }
+    }
+
+    private async ValueTask DisposeCluster()
+    {
+        if (_pulsarCluster is null)
+            return;
+
+        try
+        {
+            await _pulsarCluster.DisposeAsync();
+        }
+        catch (Exception exception)
+        {
+            Current.SendDiagnosticMessage($"Could not dispose the Pulsar broker: {exception.Message}");
+        }
+
+        _pulsarCluster = null!;
+    }
+
+    private async Task StartCluster(CancellationToken cancellationToken)
     {
         var builder = new PulsarBuilder("apachepulsar/pulsar:4.0.9")
             .WithAuthentication()
@@ -118,16 +170,16 @@ public abstract class TransactionFixtureBase : IAsyncLifetime
 
         SubscribeToContainerEvents(_pulsarCluster, "Pulsar cluster");
         Current.SendDiagnosticMessage("Starting Pulsar Cluster with transactions enabled");
-        await _pulsarCluster.StartAsync(_cts.Token);
+        await _pulsarCluster.StartAsync(cancellationToken);
 
         ServiceUrl = new Uri(_pulsarCluster.GetBrokerAddress());
         AdminUrl = new Uri(_pulsarCluster.GetServiceAddress());
-        _token = (await _pulsarCluster.CreateAuthenticationTokenAsync(Timeout.InfiniteTimeSpan, _cts.Token)).TrimEnd();
+        _token = (await _pulsarCluster.CreateAuthenticationTokenAsync(Timeout.InfiniteTimeSpan, cancellationToken)).TrimEnd();
 
-        await WaitForTransactionCoordinator(_cts.Token);
-        await CreateTenant(Tenant, _cts.Token);
-        await CreateNamespace(Namespace, 4, _cts.Token);
-        await CreateNamespace(PublicTransactionNamespace, 10, _cts.Token);
+        await WaitForTransactionCoordinator(cancellationToken);
+        await CreateTenant(Tenant, cancellationToken);
+        await CreateNamespace(Namespace, 4, cancellationToken);
+        await CreateNamespace(PublicTransactionNamespace, 10, cancellationToken);
 
         Current.SendDiagnosticMessage("The transaction coordinator is ready. You can connect with: " + ServiceUrl);
     }
