@@ -17,6 +17,7 @@ namespace DotPulsar.Internal;
 using DotPulsar.Abstractions;
 using DotPulsar.Exceptions;
 using DotPulsar.Internal.PulsarApi;
+using DotPulsar.Internal.Transactions;
 using System.Security.Cryptography.X509Certificates;
 
 public sealed class PulsarClientBuilder : IPulsarClientBuilder
@@ -35,6 +36,7 @@ public sealed class PulsarClientBuilder : IPulsarClientBuilder
     private bool _verifyCertificateName;
     private TimeSpan _closeInactiveConnectionsInterval;
     private TimeSpan _operationTimeout;
+    private bool _enableTransaction;
     private IAuthentication? _authentication;
     private IValidateRemoteCertificate? _remoteCertificateValidator;
 
@@ -60,6 +62,7 @@ public sealed class PulsarClientBuilder : IPulsarClientBuilder
         _verifyCertificateName = false;
         _closeInactiveConnectionsInterval = TimeSpan.FromSeconds(60);
         _operationTimeout = TimeSpan.FromSeconds(30);
+        _enableTransaction = false;
     }
 
     public IPulsarClientBuilder AuthenticateUsingClientCertificate(X509Certificate2 clientCertificate)
@@ -153,6 +156,12 @@ public sealed class PulsarClientBuilder : IPulsarClientBuilder
         return this;
     }
 
+    public IPulsarClientBuilder EnableTransaction(bool enableTransaction)
+    {
+        _enableTransaction = enableTransaction;
+        return this;
+    }
+
     public IPulsarClient Build()
     {
         if (_operationTimeout <= TimeSpan.Zero)
@@ -186,6 +195,9 @@ public sealed class PulsarClientBuilder : IPulsarClientBuilder
         var exceptionHandlerPipeline = new ExceptionHandlerPipeline(_retryInterval, exceptionHandlers);
         var connectionPool = new ConnectionPool(_commandConnect, _serviceUrl, connector, _encryptionPolicy.Value, _closeInactiveConnectionsInterval, _listenerName, _keepAliveInterval, _authentication);
 
-        return new PulsarClient(connectionPool, exceptionHandlerPipeline, _serviceUrl, _operationTimeout);
+        // The transaction coordinator client is started when the first transaction is created, so building the client does not connect to the broker
+        var transactionCoordinatorClient = _enableTransaction ? new TransactionCoordinatorClient(connectionPool, _operationTimeout) : null;
+
+        return new PulsarClient(connectionPool, exceptionHandlerPipeline, _serviceUrl, _operationTimeout, transactionCoordinatorClient);
     }
 }

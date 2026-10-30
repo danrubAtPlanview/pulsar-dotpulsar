@@ -58,4 +58,10 @@ public static class PulsarClientExtensions
     /// </summary>
     public static IReaderBuilder<TMessage> NewReader<TMessage>(this IPulsarClient pulsarClient, ISchema<TMessage> schema)
         => new ReaderBuilder<TMessage>(pulsarClient, schema);
+
+    /// <summary>
+    /// Get a builder that can be used to configure and build a transaction.
+    /// </summary>
+    public static ITransactionBuilder NewTransaction(this IPulsarClient pulsarClient)
+        => new TransactionBuilder(pulsarClient);
 }

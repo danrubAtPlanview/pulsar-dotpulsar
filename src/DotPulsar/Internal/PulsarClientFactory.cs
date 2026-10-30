@@ -23,5 +23,11 @@ public sealed class PulsarClientFactory
         => CreatePulsarClient(connectionPool, exceptionHandler, serviceUrl, TimeSpan.FromSeconds(30));
 
     public static PulsarClient CreatePulsarClient(IConnectionPool connectionPool, IHandleException exceptionHandler, Uri serviceUrl, TimeSpan operationTimeout)
-        => new(connectionPool, exceptionHandler, serviceUrl, operationTimeout);
+        => CreatePulsarClient(connectionPool, exceptionHandler, serviceUrl, operationTimeout, null);
+
+    public static PulsarClient CreatePulsarClient(IConnectionPool connectionPool, IHandleException exceptionHandler, Uri serviceUrl, ITransactionCoordinatorClient? transactionCoordinatorClient)
+        => CreatePulsarClient(connectionPool, exceptionHandler, serviceUrl, TimeSpan.FromSeconds(30), transactionCoordinatorClient);
+
+    public static PulsarClient CreatePulsarClient(IConnectionPool connectionPool, IHandleException exceptionHandler, Uri serviceUrl, TimeSpan operationTimeout, ITransactionCoordinatorClient? transactionCoordinatorClient)
+        => new(connectionPool, exceptionHandler, serviceUrl, operationTimeout, transactionCoordinatorClient);
 }

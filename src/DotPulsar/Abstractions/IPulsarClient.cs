@@ -35,6 +35,11 @@ public interface IPulsarClient : IAsyncDisposable
     IReader<TMessage> CreateReader<TMessage>(ReaderOptions<TMessage> options);
 
     /// <summary>
+    /// Create a transaction.
+    /// </summary>
+    ValueTask<ITransaction> CreateTransaction(TransactionOptions options, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// The client's service url.
     /// </summary>
     Uri ServiceUrl { get; }

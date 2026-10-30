@@ -19,6 +19,7 @@ using DotPulsar.Abstractions;
 using DotPulsar.Extensions;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Text;
 using System.Text.Json;
 using Testcontainers.Pulsar;
 
@@ -80,12 +81,11 @@ public abstract class TransactionFixtureBase : IAsyncLifetime
     public IPulsarClient CreateClient(Action<ExceptionContext> exceptionHandler, bool enableTransaction = true)
         => CreateClientBuilder(enableTransaction).ExceptionHandler(exceptionHandler).Build();
 
-    // The 'enableTransaction' argument is not used until IPulsarClientBuilder.EnableTransaction exists
     private IPulsarClientBuilder CreateClientBuilder(bool enableTransaction)
         => PulsarClient
         .Builder()
         .Authentication(Authentication)
-        // TODO(WP3): .EnableTransaction(enableTransaction) once IPulsarClientBuilder.EnableTransaction exists
+        .EnableTransaction(enableTransaction)
         .ServiceUrl(ServiceUrl);
 
     // Add or change the broker settings. The common settings have already been applied.
@@ -240,6 +240,9 @@ public abstract class TransactionFixtureBase : IAsyncLifetime
     public async Task DeletePartitionedTopic(string topic, bool force, CancellationToken cancellationToken)
         => await RunAdminCommand($"topics delete-partitioned-topic {topic}{(force ? " -f" : string.Empty)}", "Could not delete the partitioned topic", cancellationToken);
 
+    public async Task UnloadTopic(string topic, CancellationToken cancellationToken)
+        => await RunAdminCommand($"topics unload {topic}", "Could not unload the topic", cancellationToken);
+
     public async Task CreateTenant(string tenant, CancellationToken cancellationToken)
         => await RunAdminCommand($"tenants create {tenant} --allowed-clusters {ClusterName} --admin-roles {SuperUser}", "Could not create the tenant", cancellationToken);
 
@@ -292,15 +295,27 @@ public abstract class TransactionFixtureBase : IAsyncLifetime
     public Task<JsonElement> GetCoordinatorInternalStats(int coordinatorId, bool metadata, CancellationToken cancellationToken)
         => GetJson($"/admin/v3/transactions/coordinatorInternalStats/{coordinatorId}?metadata={(metadata ? "true" : "false")}", cancellationToken);
 
-    // TODO(WP3): add the overloads taking a TransactionId once it exists, and make them call these ones
     public Task<JsonElement> GetTransactionMetadata(long mostSigBits, long leastSigBits, CancellationToken cancellationToken)
         => GetJson($"/admin/v3/transactions/transactionMetadata/{ToPath(mostSigBits, leastSigBits)}", cancellationToken);
+
+    public Task<JsonElement> GetTransactionMetadata(TransactionId transactionId, CancellationToken cancellationToken)
+        => GetTransactionMetadata(ToSigned(transactionId.MostSigBits), ToSigned(transactionId.LeastSigBits), cancellationToken);
+
+    // The broker removes a transaction from its metadata store when the transaction has been committed or aborted
+    public Task<HttpStatusCode> GetTransactionMetadataStatusCode(TransactionId transactionId, CancellationToken cancellationToken)
+        => GetStatusCode($"/admin/v3/transactions/transactionMetadata/{ToPath(ToSigned(transactionId.MostSigBits), ToSigned(transactionId.LeastSigBits))}", cancellationToken);
 
     public Task<JsonElement> GetTransactionInBufferStats(long mostSigBits, long leastSigBits, string topic, CancellationToken cancellationToken)
         => GetJson($"/admin/v3/transactions/transactionInBufferStats/{ToRestPath(topic, false)}/{ToPath(mostSigBits, leastSigBits)}", cancellationToken);
 
+    public Task<JsonElement> GetTransactionInBufferStats(TransactionId transactionId, string topic, CancellationToken cancellationToken)
+        => GetTransactionInBufferStats(ToSigned(transactionId.MostSigBits), ToSigned(transactionId.LeastSigBits), topic, cancellationToken);
+
     public Task<JsonElement> GetTransactionInPendingAckStats(long mostSigBits, long leastSigBits, string topic, string subscription, CancellationToken cancellationToken)
         => GetJson($"/admin/v3/transactions/transactionInPendingAckStats/{ToRestPath(topic, false)}/{Uri.EscapeDataString(subscription)}/{ToPath(mostSigBits, leastSigBits)}", cancellationToken);
+
+    public Task<JsonElement> GetTransactionInPendingAckStats(TransactionId transactionId, string topic, string subscription, CancellationToken cancellationToken)
+        => GetTransactionInPendingAckStats(ToSigned(transactionId.MostSigBits), ToSigned(transactionId.LeastSigBits), topic, subscription, cancellationToken);
 
     public Task<JsonElement> GetTransactionBufferStats(string topic, bool lowWaterMarks, bool segmentStats, CancellationToken cancellationToken)
         => GetJson($"/admin/v3/transactions/transactionBufferStats/{ToRestPath(topic, false)}?lowWaterMarks={(lowWaterMarks ? "true" : "false")}&segmentStats={(segmentStats ? "true" : "false")}", cancellationToken);
@@ -323,12 +338,15 @@ public abstract class TransactionFixtureBase : IAsyncLifetime
     public async Task AbortTransaction(long mostSigBits, long leastSigBits, CancellationToken cancellationToken)
     {
         using var httpClient = CreateAdminClient();
-        using var content = new StringContent(string.Empty);
+        using var content = new StringContent(string.Empty, Encoding.UTF8, "application/json");
         using var response = await httpClient.PostAsync($"/admin/v3/transactions/abortTransaction/{ToPath(mostSigBits, leastSigBits)}", content, cancellationToken);
 
         if (!response.IsSuccessStatusCode)
             throw new Exception($"Could not abort the transaction ({mostSigBits},{leastSigBits}): {response.StatusCode} {await response.Content.ReadAsStringAsync(cancellationToken)}");
     }
+
+    public Task AbortTransaction(TransactionId transactionId, CancellationToken cancellationToken)
+        => AbortTransaction(ToSigned(transactionId.MostSigBits), ToSigned(transactionId.LeastSigBits), cancellationToken);
 
     public async Task<HttpStatusCode> GetStatusCode(string path, CancellationToken cancellationToken)
     {
@@ -367,6 +385,8 @@ public abstract class TransactionFixtureBase : IAsyncLifetime
 
     // Java formats the transaction id bits as signed longs (TransactionsImpl: txnID.getMostSigBits() + "")
     private static string ToPath(long mostSigBits, long leastSigBits) => $"{mostSigBits}/{leastSigBits}";
+
+    private static long ToSigned(ulong bits) => unchecked((long) bits);
 
     // ---- Receive helper (Java consumer.receive(timeout) returning null) ----
 

@@ -20,9 +20,10 @@ using DotPulsar.Extensions;
 using DotPulsar.Internal;
 using DotPulsar.Internal.Abstractions;
 using DotPulsar.Internal.Compression;
+using DotPulsar.Internal.Transactions;
 
 /// <summary>
-/// Pulsar client for creating producers, consumers and readers.
+/// Pulsar client for creating producers, consumers, readers and transactions.
 /// </summary>
 public sealed class PulsarClient : IPulsarClient
 {
@@ -31,20 +32,28 @@ public sealed class PulsarClient : IPulsarClient
     private readonly IConnectionPool _connectionPool;
     private readonly IHandleException _exceptionHandler;
     private readonly TimeSpan _operationTimeout;
+    private readonly ITransactionCoordinatorClient? _transactionCoordinatorClient;
     private int _isDisposed;
 
     public Uri ServiceUrl { get; }
+
+    /// <summary>
+    /// The transaction coordinator client. It is null if transactions are not enabled, and it is started when the first transaction is created.
+    /// </summary>
+    public ITransactionCoordinatorClient? TransactionCoordinatorClient => _transactionCoordinatorClient;
 
     internal PulsarClient(
         IConnectionPool connectionPool,
         IHandleException exceptionHandler,
         Uri serviceUrl,
-        TimeSpan operationTimeout)
+        TimeSpan operationTimeout,
+        ITransactionCoordinatorClient? transactionCoordinatorClient)
     {
         _disposables = [];
         _connectionPool = connectionPool;
         _exceptionHandler = exceptionHandler;
         _operationTimeout = operationTimeout;
+        _transactionCoordinatorClient = transactionCoordinatorClient;
         ServiceUrl = serviceUrl;
         _isDisposed = 0;
         DotPulsarMeter.ClientCreated();
@@ -118,8 +127,22 @@ public sealed class PulsarClient : IPulsarClient
         return reader;
     }
 
+    // Upstream: TransactionBuilderImpl#build (C# deviation: the transaction coordinator client is started by the first transaction, because building the client does not connect to the broker)
     /// <summary>
-    /// Dispose the client and all its producers, consumers and readers.
+    /// Create a transaction.
+    /// </summary>
+    public async ValueTask<ITransaction> CreateTransaction(TransactionOptions options, CancellationToken cancellationToken = default)
+    {
+        if (_transactionCoordinatorClient is null)
+            throw new ConfigurationException("Transactions are not enabled");
+
+        await _transactionCoordinatorClient.EnsureStarted(cancellationToken).ConfigureAwait(false);
+        var id = await _transactionCoordinatorClient.NewTransaction(options.Timeout, cancellationToken).ConfigureAwait(false);
+        return new Transaction(_transactionCoordinatorClient, id, options.Timeout);
+    }
+
+    /// <summary>
+    /// Dispose the client and all its producers, consumers, readers and the transaction coordinator client.
     /// </summary>
     public async ValueTask DisposeAsync()
     {
@@ -136,6 +159,19 @@ public sealed class PulsarClient : IPulsarClient
 
         foreach (var item in disposables)
             await item.DisposeAsync().ConfigureAwait(false);
+
+        // Upstream: PulsarClientImpl#shutdown
+        if (_transactionCoordinatorClient is not null)
+        {
+            try
+            {
+                await _transactionCoordinatorClient.DisposeAsync().ConfigureAwait(false);
+            }
+            catch
+            {
+                // ignored
+            }
+        }
 
         await _connectionPool.DisposeAsync().ConfigureAwait(false);
 

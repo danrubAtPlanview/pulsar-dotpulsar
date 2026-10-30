@@ -15,12 +15,8 @@
 namespace DotPulsar.Tests.Transactions;
 
 using DotPulsar.Exceptions;
-using DotPulsar.Internal;
-using DotPulsar.Internal.PulsarApi;
 using DotPulsar.Internal.Transactions;
 using System.Net;
-using System.Security.Cryptography.X509Certificates;
-using System.Text.Json;
 
 [Collection("Transaction"), Trait("Category", "Integration")]
 public sealed class TransactionCoordinatorClientTests : IDisposable
@@ -45,8 +41,8 @@ public sealed class TransactionCoordinatorClientTests : IDisposable
         //Arrange
         var topic = TransactionFixture.CreateTopicName("transaction-coordinator-client");
         await _fixture.CreateTopic(topic, _cts.Token);
-        await using var pool = CreateConnectionPool();
-        await using var uut = new TransactionCoordinatorClient(pool, TimeSpan.FromSeconds(30));
+        await using var client = _fixture.CreateClient();
+        var uut = (TransactionCoordinatorClient) ((PulsarClient) client).TransactionCoordinatorClient!;
 
         //Act
         await uut.EnsureStarted(_cts.Token);
@@ -55,12 +51,14 @@ public sealed class TransactionCoordinatorClientTests : IDisposable
         var transactionToAbort = await uut.NewTransaction(TimeSpan.FromMinutes(1), _cts.Token);
         await uut.AddPublishPartitionToTxn(transactionToCommit, topic, _cts.Token);
         await uut.AddPublishPartitionToTxn(transactionToAbort, topic, _cts.Token);
-        var metadataToCommit = await GetTransactionMetadata(transactionToCommit);
-        var metadataToAbort = await GetTransactionMetadata(transactionToAbort);
+        var metadataToCommit = await _fixture.GetTransactionMetadata(transactionToCommit, _cts.Token);
+        var metadataToAbort = await _fixture.GetTransactionMetadata(transactionToAbort, _cts.Token);
+        _testOutputHelper.WriteLine($"The metadata of the transaction {transactionToCommit} is {metadataToCommit}");
+        _testOutputHelper.WriteLine($"The metadata of the transaction {transactionToAbort} is {metadataToAbort}");
         await uut.Commit(transactionToCommit, _cts.Token);
         await uut.Abort(transactionToAbort, _cts.Token);
-        var statusOfCommitted = await GetTransactionMetadataStatusCode(transactionToCommit);
-        var statusOfAborted = await GetTransactionMetadataStatusCode(transactionToAbort);
+        var statusOfCommitted = await _fixture.GetTransactionMetadataStatusCode(transactionToCommit, _cts.Token);
+        var statusOfAborted = await _fixture.GetTransactionMetadataStatusCode(transactionToAbort, _cts.Token);
         var abortAfterCommit = await Record.ExceptionAsync(() => uut.Abort(transactionToCommit, _cts.Token).AsTask());
         var commitAfterAbort = await Record.ExceptionAsync(() => uut.Commit(transactionToAbort, _cts.Token).AsTask());
 
@@ -90,27 +88,4 @@ public sealed class TransactionCoordinatorClientTests : IDisposable
 
     public void Dispose()
         => _cts.Dispose();
-
-    private async Task<JsonElement> GetTransactionMetadata(TransactionId transactionId)
-    {
-        var metadata = await _fixture.GetTransactionMetadata((long) transactionId.MostSigBits, (long) transactionId.LeastSigBits, _cts.Token);
-        _testOutputHelper.WriteLine($"The metadata of the transaction {transactionId} is {metadata}");
-        return metadata;
-    }
-
-    private Task<HttpStatusCode> GetTransactionMetadataStatusCode(TransactionId transactionId)
-        => _fixture.GetStatusCode($"/admin/v3/transactions/transactionMetadata/{transactionId.MostSigBits}/{transactionId.LeastSigBits}", _cts.Token);
-
-    private ConnectionPool CreateConnectionPool()
-    {
-        var commandConnect = new CommandConnect
-        {
-            ProtocolVersion = Constants.ProtocolVersion,
-            ClientVersion = $"{Constants.ClientName} {Constants.ClientVersion}",
-            FeatureFlags = new FeatureFlags { SupportsAuthRefresh = true }
-        };
-
-        var connector = new Connector(new DefaultRemoteCertificateValidator(null, true, false), new X509Certificate2Collection(), true);
-        return new ConnectionPool(commandConnect, _fixture.ServiceUrl, connector, EncryptionPolicy.EnforceUnencrypted, TimeSpan.FromSeconds(60), null, TimeSpan.FromSeconds(30), _fixture.Authentication);
-    }
 }
