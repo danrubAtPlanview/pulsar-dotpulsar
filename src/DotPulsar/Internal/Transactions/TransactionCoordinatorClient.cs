@@ -84,8 +84,9 @@ public sealed class TransactionCoordinatorClient : ITransactionCoordinatorClient
 
         lock (_startLock)
         {
-            // The start is not tied to the cancellation token of one caller, because other callers wait for the same start
-            if (_startTask is null || _startTask.IsFaulted)
+            // The start is not tied to the cancellation token of one caller, because other callers wait for the same start.
+            // A start that failed has reset the state before its task is faulted, and a caller that comes in between must not wait for the start that failed.
+            if (_startTask is null || _startTask.IsFaulted || State == TransactionCoordinatorClientState.None)
                 _startTask = Start(CancellationToken.None).AsTask();
 
             startTask = _startTask;

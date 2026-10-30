@@ -19,6 +19,7 @@ using DotPulsar.Internal.Abstractions;
 using DotPulsar.Internal.PulsarApi;
 using DotPulsar.Internal.Transactions;
 using NSubstitute.ReceivedExtensions;
+using System.Diagnostics;
 
 [Trait("Category", "Unit")]
 public sealed class TransactionCoordinatorClientTests
@@ -203,7 +204,8 @@ public sealed class TransactionCoordinatorClientTests
 
         //Act
         start.SetException(new TransactionCoordinatorClientException("not available"));
-        await WaitFor.Until(() => uut.State == TransactionCoordinatorClientState.None, "the failed start has been reset");
+        var stopwatch = Stopwatch.StartNew();
+        while (uut.State != TransactionCoordinatorClientState.None && stopwatch.Elapsed < _timeout) { } // The next call comes as soon as the state is reset, which is before the task of the failed start is faulted
         await uut.EnsureStarted(Current.CancellationToken);
 
         //Assert
