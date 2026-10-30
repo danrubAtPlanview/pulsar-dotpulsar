@@ -47,17 +47,26 @@ public sealed class SubProducerSendTimeoutBatchTests
         PreparedBatch? batch = null;
         gate!.Arm(() => batch = sendOps[0].Batch);
 
-        foreach (var sendOp in sendOps)
-            await sut.Send(sendOp, Current.CancellationToken);
+        bool returnedBeforeTheWrite;
 
-        await gate.Entered.WaitAsync(_timeout, Current.CancellationToken);
+        try
+        {
+            foreach (var sendOp in sendOps)
+                await sut.Send(sendOp, Current.CancellationToken);
 
-        //Act
-        foreach (var sendOp in sendOps)
-            await Should.ThrowAsync<OperationTimeoutException>(sendOp.ReceiptTcs.Task.WaitAsync(_timeout, Current.CancellationToken));
+            await gate.Entered.WaitAsync(_timeout, Current.CancellationToken);
 
-        var returnedBeforeTheWrite = batch!.IsReturned;
-        gate.Release();
+            //Act
+            foreach (var sendOp in sendOps)
+                await Should.ThrowAsync<OperationTimeoutException>(sendOp.ReceiptTcs.Task.WaitAsync(_timeout, Current.CancellationToken));
+
+            returnedBeforeTheWrite = batch!.IsReturned;
+        }
+        finally
+        {
+            gate.Release(); // The dispatcher is waiting for it, and the producer is not disposed before it is done
+        }
+
         await WaitFor.Until(() => batch.IsReturned, "the batch is returned when the write is done");
 
         //Assert
@@ -66,14 +75,61 @@ public sealed class SubProducerSendTimeoutBatchTests
         registerEvent.ReceivedCalls().Select(call => call.GetArguments()[0]).ShouldNotContain(argument => argument is ExecutorFaulted || argument is ChannelDisconnected);
     }
 
+    [Fact]
+    public async Task SendTimeout_GivenFrozenBatch_ShouldFailAllMessagesOfTheBatchAndReturnBuffer()
+    {
+        //Arrange
+        var channel = new FakeProducerChannel { Respond = _ => null };
+        await using var sut = await CreateSubProducer(channel);
+        var sendOps = new[] { CreateSendOp(1), CreateSendOp(2), CreateSendOp(3) };
+
+        //Act
+        foreach (var sendOp in sendOps)
+            await sut.Send(sendOp, Current.CancellationToken);
+
+        //Assert
+        foreach (var sendOp in sendOps)
+            await Should.ThrowAsync<OperationTimeoutException>(sendOp.ReceiptTcs.Task.WaitAsync(_timeout, Current.CancellationToken));
+
+        channel.Entries.ShouldHaveSingleItem().NumberOfMessages.ShouldBe(3);
+        await WaitFor.Until(() => !channel.LastGivenMetadata!.HasNumMessagesInBatch, "the metadata of the batch is reset when the batch is returned"); // The dispatcher returns it if the timeout fired while it was writing
+        sendOps.ShouldAllBe(sendOp => sendOp.Batch == null);
+    }
+
+    [Fact]
+    public async Task SendTimeout_GivenTimeoutWhileBatchIsBeingWritten_ShouldReturnBufferOnlyAfterTheWrite()
+    {
+        //Arrange
+        var writeGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var channel = new FakeProducerChannel { Respond = _ => null, WriteGate = writeGate.Task };
+        await using var sut = await CreateSubProducer(channel);
+        var sendOps = new[] { CreateSendOp(1), CreateSendOp(2), CreateSendOp(3) };
+        foreach (var sendOp in sendOps)
+            await sut.Send(sendOp, Current.CancellationToken);
+
+        await WaitFor.Until(() => channel.LastGivenMetadata is not null, "the batch is being written");
+
+        //Act
+        foreach (var sendOp in sendOps)
+            await Should.ThrowAsync<OperationTimeoutException>(sendOp.ReceiptTcs.Task.WaitAsync(_timeout, Current.CancellationToken));
+
+        var returnedWhileWriting = !channel.LastGivenMetadata!.HasNumMessagesInBatch;
+        writeGate.SetResult();
+        await WaitFor.Until(() => !channel.LastGivenMetadata.HasNumMessagesInBatch, "the batch is returned when the write is done");
+
+        //Assert
+        returnedWhileWriting.ShouldBeFalse("the frame of the batch is written from its buffer");
+    }
+
     private static SendOp CreateSendOp(ulong sequenceId)
         => new(
             new MessageMetadata { SequenceId = sequenceId },
             new ReadOnlySequence<byte>(Encoding.UTF8.GetBytes($"payload-{sequenceId}")),
             new TaskCompletionSource<MessageId>(TaskCreationOptions.RunContinuationsAsynchronously));
 
-    private static async Task<SubProducer> CreateSubProducer(FakeProducerChannel channel, IRegisterEvent registerEvent, Func<IExecute, IExecute>? decorateExecutor = null)
+    private static async Task<SubProducer> CreateSubProducer(FakeProducerChannel channel, IRegisterEvent? registerEvent = null, Func<IExecute, IExecute>? decorateExecutor = null)
     {
+        registerEvent ??= Substitute.For<IRegisterEvent>();
         var correlationId = Guid.NewGuid();
         var factory = Substitute.For<IProducerChannelFactory>();
         factory.Create(Arg.Any<CancellationToken>()).Returns(_ => Task.FromResult<IProducerChannel>(channel));

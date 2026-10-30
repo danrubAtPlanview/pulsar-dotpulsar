@@ -173,27 +173,6 @@ public sealed class SubProducerSendTimeoutTests
     }
 
     [Fact]
-    public async Task SendTimeout_GivenFrozenBatch_ShouldFailAllMessagesOfTheBatchAndReturnBuffer()
-    {
-        //Arrange
-        var channel = new FakeProducerChannel { Respond = _ => null };
-        await using var sut = await CreateSubProducer(channel, enableBatching: true, batchingMaxMessages: 3);
-        var sendOps = new[] { CreateSendOp(1), CreateSendOp(2), CreateSendOp(3) };
-
-        //Act
-        foreach (var sendOp in sendOps)
-            await sut.Send(sendOp, Current.CancellationToken);
-
-        //Assert
-        foreach (var sendOp in sendOps)
-            await Should.ThrowAsync<OperationTimeoutException>(sendOp.ReceiptTcs.Task.WaitAsync(_timeout, Current.CancellationToken));
-
-        channel.Entries.ShouldHaveSingleItem().NumberOfMessages.ShouldBe(3);
-        channel.LastGivenMetadata!.HasNumMessagesInBatch.ShouldBeFalse("the metadata of the batch is reset when the batch is returned");
-        sendOps.ShouldAllBe(sendOp => sendOp.Batch == null);
-    }
-
-    [Fact]
     public async Task SendTimeout_GivenTimeoutWhileDispatcherWaitsForRegistration_ShouldAbandonGroupAndContinue()
     {
         //Arrange
@@ -215,29 +194,6 @@ public sealed class SubProducerSendTimeoutTests
 
         //Assert
         channel.Entries.ShouldHaveSingleItem().MessageSequenceIds.ShouldBe([3UL]);
-    }
-
-    [Fact]
-    public async Task SendTimeout_GivenTimeoutWhileBatchIsBeingWritten_ShouldReturnBufferOnlyAfterTheWrite()
-    {
-        //Arrange
-        var writeGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var channel = new FakeProducerChannel { Respond = _ => null, WriteGate = writeGate.Task };
-        await using var sut = await CreateSubProducer(channel, enableBatching: true, batchingMaxMessages: 3);
-        var sendOps = new[] { CreateSendOp(1), CreateSendOp(2), CreateSendOp(3) };
-        foreach (var sendOp in sendOps)
-            await sut.Send(sendOp, Current.CancellationToken);
-
-        //Act
-        foreach (var sendOp in sendOps)
-            await Should.ThrowAsync<OperationTimeoutException>(sendOp.ReceiptTcs.Task.WaitAsync(_timeout, Current.CancellationToken));
-
-        var returnedWhileWriting = !channel.LastGivenMetadata!.HasNumMessagesInBatch;
-        writeGate.SetResult();
-        await WaitFor.Until(() => !channel.LastGivenMetadata.HasNumMessagesInBatch, "the batch is returned when the write is done");
-
-        //Assert
-        returnedWhileWriting.ShouldBeFalse("the frame of the batch is written from its buffer");
     }
 
     [Fact]
@@ -338,7 +294,6 @@ public sealed class SubProducerSendTimeoutTests
         FakeProducerChannel channel,
         IRegisterEvent? registerEvent = null,
         bool enableBatching = false,
-        uint batchingMaxMessages = 1000,
         TimeSpan? batchingMaxPublishDelay = null,
         TimeSpan? sendTimeout = null,
         uint maxPendingMessages = 1000)
@@ -360,7 +315,7 @@ public sealed class SubProducerSendTimeoutTests
             _topic,
             enableBatching,
             BatcherType.Default,
-            batchingMaxMessages,
+            1000,
             128 * 1024,
             batchingMaxPublishDelay ?? TimeSpan.FromHours(1),
             1,
