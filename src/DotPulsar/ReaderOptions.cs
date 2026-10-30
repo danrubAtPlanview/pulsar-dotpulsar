@@ -145,7 +145,7 @@ public sealed class ReaderOptions<TMessage>
     /// Set the action to take when a message cannot be decrypted. The default is 'Fail'.
     /// </summary>
     /// <remarks>
-    /// A reader does not acknowledge messages and cannot have a message redelivered, so a message that 'Fail' does not deliver is skipped.
+    /// A reader has no ack timeout and does not redeliver messages, so a message that is not delivered because of 'Fail' is skipped.
     /// </remarks>
     public ConsumerCryptoFailureAction CryptoFailureAction { get; set; }
 }
