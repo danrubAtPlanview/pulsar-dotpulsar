@@ -113,6 +113,26 @@ await using var producer = client.NewProducer(Schema.ByteArray)
     .Create();
 ```
 
+## End-to-end encryption
+
+A producer can encrypt its messages, so that the broker never sees them in clear text, and a consumer or a reader decrypts them. The producer encrypts every message (a batch, or every chunk of a chunked message) with a data key that it wraps with the public key of each encryption key. The consumer unwraps the data key with the private key of the same name. RSA keys need .NET Standard 2.1 or later and EC keys need .NET 8 or later.
+
+```csharp
+await using var producer = client.NewProducer(Schema.String)
+    .Topic("persistent://public/default/mytopic")
+    .DefaultCryptoKeyReader(new Dictionary<string, string> { ["my-app-key"] = "file:/keys/my-app-key.public.pem" })
+    .EncryptionKey("my-app-key")
+    .Create();
+
+await using var consumer = client.NewConsumer(Schema.String)
+    .Topic("persistent://public/default/mytopic")
+    .SubscriptionName("my-subscription")
+    .DefaultCryptoKeyReader(new Dictionary<string, string> { ["my-app-key"] = "file:/keys/my-app-key.private.pem" })
+    .Create();
+```
+
+You can implement `ICryptoKeyReader` to get the keys from somewhere else. `CryptoFailureAction` selects what happens when a message can not be encrypted (the producer fails the send, or sends the message unencrypted) or decrypted (the consumer fails the message, discards it, or delivers it encrypted). A consumer that has no key for an encrypted message fails the message by default, it used to deliver the encrypted payload.
+
 ## Supported features
 
 - Service discovery
@@ -137,6 +157,7 @@ await using var producer = client.NewProducer(Schema.ByteArray)
 - Producer - batching of messages and flush
 - Producer - send timeout
 - Producer/Consumer/Reader - chunking of messages that are larger than the maximum message size of the broker
+- Producer/Consumer/Reader - end-to-end message encryption with RSA and ECDSA keys
 - Transactions - produce and acknowledge (single and cumulative) in a transaction
 - Telemetry
     - [Tracing](https://github.com/apache/pulsar-dotpulsar/wiki/Tracing)

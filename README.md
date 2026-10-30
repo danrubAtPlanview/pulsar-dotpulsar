@@ -73,6 +73,7 @@ For a more in-depth tour of the API, please visit the [Wiki](https://github.com/
 - [X] Producer - batching of messages and flush
 - [X] Producer - send timeout
 - [X] Producer/Consumer/Reader - chunking of messages that are larger than the maximum message size of the broker
+- [X] Producer/Consumer/Reader - end-to-end message encryption with RSA and ECDSA keys
 - [X] Transactions - produce and acknowledge (single and cumulative) in a transaction
 - [X] Telemetry
     - [Tracing](https://github.com/apache/pulsar-dotpulsar/wiki/Tracing)
