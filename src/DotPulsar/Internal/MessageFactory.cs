@@ -95,7 +95,7 @@ public sealed class MessageFactory<TValue> : IMessageFactory<TValue>
             properties: FromKeyValueList(singleMetadata.Properties),
             hasBase64EncodedKey: singleMetadata.PartitionKeyB64Encoded,
             key: singleMetadata.PartitionKey,
-            orderingKey: singleMetadata.OrderingKey.IsEmpty ? null : metadata.OrderingKey.ToByteArray(),
+            orderingKey: singleMetadata.OrderingKey.IsEmpty ? null : singleMetadata.OrderingKey.ToByteArray(),
             schemaVersion: metadata.SchemaVersion.IsEmpty ? null : metadata.SchemaVersion.ToByteArray(),
             _schema);
     }
