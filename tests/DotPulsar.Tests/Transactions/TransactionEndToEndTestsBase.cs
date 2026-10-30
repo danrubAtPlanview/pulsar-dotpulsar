@@ -255,12 +255,13 @@ public abstract class TransactionEndToEndTestsBase<TFixture> : IDisposable where
 
         //Act
         var sendException = await Record.ExceptionAsync(async () => await producer.NewMessage().Transaction(transaction).Send(string.Empty, _cts.Token));
+        var message = await TransactionFixture.ReceiveOrNull(consumer, _waitTimeForCanReceiveMsg, _cts.Token);
+        message.ShouldNotBeNull();
+        var acknowledgeException = await Record.ExceptionAsync(async () => await consumer.Acknowledge(message.MessageId, transaction, _cts.Token));
 
         //Assert
         sendException.ShouldBeOfType<InvalidTransactionStatusException>();
-        var message = await TransactionFixture.ReceiveOrNull(consumer, _waitTimeForCanReceiveMsg, _cts.Token);
-        message.ShouldNotBeNull();
-        // TODO(WP5): assert that consumer.Acknowledge(message.MessageId, transaction, ct) throws InvalidTransactionStatusException
+        acknowledgeException.ShouldBeOfType<InvalidTransactionStatusException>();
     }
 
     // Upstream: TransactionEndToEndTest#testDelayedTransactionMessages (upstream group: flaky)

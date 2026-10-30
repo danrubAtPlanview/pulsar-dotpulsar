@@ -503,9 +503,12 @@ public abstract class TransactionConsumerEndToEndTestsBase<TFixture> : IDisposab
     }
 
     // Upstream: TransactionEndToEndTest#testCumulativeAckRedeliverMessages
-    // The Java producer batches the 5 messages (TODO(WP6)). The conflict is also tested without redelivery, in TransactionConsumerTests.
-    [Fact]
-    public async Task AcknowledgeCumulative_GivenConflictingTransactionThenAbort_ShouldRedeliverMessages()
+    // The Java producer has batching enabled, but it sends each message with a blocking send, so each message is a batch of its own. The row with batching sends the 5 messages as one batch, so the
+    // cumulative acknowledgment of the third message is an acknowledgment of a batch index. The conflict is also tested without redelivery, in TransactionConsumerTests.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AcknowledgeCumulative_GivenConflictingTransactionThenAbort_ShouldRedeliverMessages(bool batching)
     {
         //Arrange
         const int count = 5;
@@ -520,15 +523,23 @@ public abstract class TransactionConsumerEndToEndTestsBase<TFixture> : IDisposab
             .Create();
         await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
         await using var producer = client.NewProducer(Schema.ByteArray)
-            .Topic(topicName)
+            .BatchingMaxMessages(count)
+            .BatchingMaxPublishDelay(TimeSpan.FromSeconds(5))
+            .EnableBatching(batching)
+            .SendTimeout(TimeSpan.Zero)
             .StateChangedHandler(_testOutputHelper.Log)
+            .Topic(topicName)
             .Create();
 
+        // Send 5 messages
+        var receipts = new List<Task<MessageId>>();
         for (var i = 0; i < count; i++)
         {
-            await producer.Send(Encoding.UTF8.GetBytes(i.ToString()), _cts.Token);
+            receipts.Add(await SendAsync(producer, Encoding.UTF8.GetBytes(i.ToString())));
         }
 
+        var sentIds = await Task.WhenAll(receipts).WaitAsync(TimeSpan.FromSeconds(30), _cts.Token);
+        sentIds.Select(messageId => messageId.BatchIndex >= 0).Distinct().ShouldBe([batching]);
         var transaction = await GetTxn(client);
         var invalidTransaction = await GetTxn(client);
         IMessage<byte[]>? message = null;
@@ -537,11 +548,17 @@ public abstract class TransactionConsumerEndToEndTestsBase<TFixture> : IDisposab
             message = await ReceiveMessage(consumer);
         }
 
+        // Receive the messages in order
         Encoding.UTF8.GetString(message!.Value()).ShouldBe("2");
+
+        // Acknowledge the last message
         await consumer.AcknowledgeCumulative(message.MessageId, transaction, _cts.Token);
+
+        // Another acknowledgment throws TransactionConflictException
         await Should.ThrowAsync<TransactionConflictException>(async () => await consumer.AcknowledgeCumulative(message.MessageId, invalidTransaction, _cts.Token));
 
         //Act
+        // Abort the transaction, and then redeliver the messages
         await transaction.Abort(_cts.Token);
         await consumer.RedeliverUnacknowledgedMessages(_cts.Token);
 
@@ -556,6 +573,8 @@ public abstract class TransactionConsumerEndToEndTestsBase<TFixture> : IDisposab
         var commitTransaction = await GetTxn(client);
         await consumer.AcknowledgeCumulative(message.MessageId, commitTransaction, _cts.Token);
         await commitTransaction.Commit(_cts.Token);
+
+        // Then the redelivery does not receive any message
         (await TransactionFixture.ReceiveOrNull(consumer, _waitTimeForCannotReceiveMsg, _cts.Token)).ShouldBeNull();
     }
 
