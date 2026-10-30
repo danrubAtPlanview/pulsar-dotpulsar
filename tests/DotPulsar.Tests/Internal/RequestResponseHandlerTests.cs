@@ -21,6 +21,7 @@ using DotPulsar.Tests.Internal.Transactions;
 [Trait("Category", "Unit")]
 public sealed class RequestResponseHandlerTests
 {
+    // Additional coverage
     [Fact]
     public void OutgoingWithResponse_GivenCommandAck_ShouldAssignIncreasingRequestIds()
     {
@@ -37,6 +38,7 @@ public sealed class RequestResponseHandlerTests
         second.RequestId.ShouldBeGreaterThan(first.RequestId);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Incoming_GivenAckResponseWithMatchingRequestId_ShouldCompleteRequestWithMatchingRequestId()
     {
@@ -55,6 +57,7 @@ public sealed class RequestResponseHandlerTests
         other.IsCompleted.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void Incoming_GivenAckResponseWithUnknownRequestId_ShouldNotThrow()
     {
@@ -70,6 +73,7 @@ public sealed class RequestResponseHandlerTests
         task.IsCompleted.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void Incoming_GivenAckResponseWithoutRequestId_ShouldNotThrow()
     {
@@ -86,6 +90,7 @@ public sealed class RequestResponseHandlerTests
         task.IsCompleted.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void Incoming_GivenCloseConsumer_ShouldNotCancelPendingAckRequests()
     {
@@ -100,6 +105,7 @@ public sealed class RequestResponseHandlerTests
         task.IsCompleted.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Incoming_GivenAckResponseWithConsumerNotFoundAfterCloseConsumer_ShouldCompleteTaskWithErrorResponse()
     {
@@ -119,6 +125,7 @@ public sealed class RequestResponseHandlerTests
         actual.AckResponse.Error.ShouldBe(ServerError.ConsumerNotFound);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Incoming_GivenNewTxnResponse_ShouldCompleteRequestWithMatchingRequestId()
     {
@@ -135,6 +142,7 @@ public sealed class RequestResponseHandlerTests
         (await task).ShouldBeSameAs(response);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Incoming_GivenAddPartitionToTxnResponse_ShouldCompleteRequestWithMatchingRequestId()
     {
@@ -151,6 +159,7 @@ public sealed class RequestResponseHandlerTests
         (await task).ShouldBeSameAs(response);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Incoming_GivenAddSubscriptionToTxnResponse_ShouldCompleteRequestWithMatchingRequestId()
     {
@@ -167,6 +176,7 @@ public sealed class RequestResponseHandlerTests
         (await task).ShouldBeSameAs(response);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Incoming_GivenEndTxnResponse_ShouldCompleteRequestWithMatchingRequestId()
     {
@@ -183,6 +193,7 @@ public sealed class RequestResponseHandlerTests
         (await task).ShouldBeSameAs(response);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Incoming_GivenTcClientConnectResponse_ShouldCompleteRequestWithMatchingRequestId()
     {
@@ -199,6 +210,7 @@ public sealed class RequestResponseHandlerTests
         (await task).ShouldBeSameAs(response);
     }
 
+    // Additional coverage
     [Fact]
     public void Incoming_GivenUnregisteredCommandType_ShouldIgnoreIt()
     {
@@ -215,6 +227,7 @@ public sealed class RequestResponseHandlerTests
         task.IsCompleted.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void Cancel_GivenPendingRequest_ShouldCancelOnlyThatRequest()
     {
@@ -232,6 +245,7 @@ public sealed class RequestResponseHandlerTests
         other.IsCompleted.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Outgoing_GivenBatchCommandSend_ShouldCompleteOnSendErrorWithHighestSequenceId()
     {
@@ -248,6 +262,7 @@ public sealed class RequestResponseHandlerTests
         (await tcs.Task.WaitAsync(TimeSpan.FromSeconds(10), Current.CancellationToken)).ShouldBeSameAs(response);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Outgoing_GivenBatchCommandSend_ShouldCompleteOnReceiptWithSequenceId()
     {
@@ -264,6 +279,7 @@ public sealed class RequestResponseHandlerTests
         (await tcs.Task.WaitAsync(TimeSpan.FromSeconds(10), Current.CancellationToken)).ShouldBeSameAs(response);
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
@@ -284,6 +300,7 @@ public sealed class RequestResponseHandlerTests
         await WaitFor.Until(() => GetNumberOfRequests(uut) == 0, "both requests are removed");
     }
 
+    // Additional coverage
     [Fact]
     public async Task Outgoing_GivenBatchCommandSendThatIsCancelled_ShouldRemoveBothRequests()
     {
@@ -299,6 +316,7 @@ public sealed class RequestResponseHandlerTests
         await WaitFor.Until(() => GetNumberOfRequests(uut) == 0, "both requests are removed");
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(false, 0UL)]
     [InlineData(true, 5UL)]
@@ -345,6 +363,7 @@ public sealed class RequestResponseHandlerTests
         }
     }
 
+    // Additional coverage
     [Fact]
     public void Outgoing_GivenSecondChunkWithTheSameSequenceId_ShouldNotCancelTheFirstChunk()
     {
@@ -361,6 +380,7 @@ public sealed class RequestResponseHandlerTests
         GetNumberOfRequests(uut).ShouldBe(0, "the chunks are not registered with the requests that are replaced by a request with the same key");
     }
 
+    // Additional coverage
     [Fact]
     public async Task Incoming_GivenSendErrorForChunk_ShouldCompleteTheOldestChunk()
     {
@@ -380,6 +400,7 @@ public sealed class RequestResponseHandlerTests
         second.Task.IsCompleted.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Incoming_GivenReceiptForAnotherSequenceIdOrProducer_ShouldNotCompleteTheChunks()
     {
@@ -399,6 +420,7 @@ public sealed class RequestResponseHandlerTests
         chunk.Task.IsCompleted.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Incoming_GivenMoreReceiptsThanChunks_ShouldIgnoreTheOthers()
     {
@@ -416,6 +438,7 @@ public sealed class RequestResponseHandlerTests
         exception.ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Incoming_GivenCloseProducer_ShouldCancelTheChunksOfThatProducerOnly()
     {
@@ -436,6 +459,7 @@ public sealed class RequestResponseHandlerTests
         await other.Task.WaitAsync(TimeSpan.FromSeconds(10), Current.CancellationToken);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Dispose_GivenPendingChunks_ShouldCancelThem()
     {

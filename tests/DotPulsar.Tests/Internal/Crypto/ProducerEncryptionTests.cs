@@ -50,6 +50,7 @@ public sealed class ProducerEncryptionTests
         command.Encrypted.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Connect_GivenNoEncryptionKeys_ShouldNotSetEncryptedOnTheCommandProducer()
     {
@@ -63,6 +64,7 @@ public sealed class ProducerEncryptionTests
         connection.CommandProducers.Single().HasEncrypted.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Connect_GivenCryptoKeyReaderWithoutEncryptionKeys_ShouldNotSetEncryptedOrEncryptTheMessages()
     {
@@ -100,6 +102,7 @@ public sealed class ProducerEncryptionTests
         connection.CommandProducers.ShouldBeEmpty();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Create_GivenKeyReaderThatThrows_ShouldThrowCryptoExceptionWithTheInnerException()
     {
@@ -119,6 +122,7 @@ public sealed class ProducerEncryptionTests
         await connection.Pool.DidNotReceive().GetNumberOfPartitions(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
+    // Additional coverage
     [Fact]
     public async Task Create_GivenEncryptionKeys_ShouldReadThePublicKeysOnceAndNotWhenMessagesAreSent()
     {
@@ -159,6 +163,7 @@ public sealed class ProducerEncryptionTests
         Decrypt(sent).ShouldBe(payload);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenEncryptionKeysAndCompression_ShouldCompressBeforeItEncrypts()
     {
@@ -271,6 +276,7 @@ public sealed class ProducerEncryptionTests
         sent.Select(message => message.Metadata.EncryptionKeys[0].Value.ToBase64()).Distinct().Count().ShouldBe(2, "the data keys are wrapped separately");
     }
 
+    // Additional coverage
     [Fact]
     public async Task Connect_GivenPartitionedTopicAndKeyReaderThatFailsForTheSecondPartition_ShouldFaultTheProducer()
     {
@@ -289,6 +295,7 @@ public sealed class ProducerEncryptionTests
         exception.ShouldBeOfType<ProducerFaultedException>().InnerException.ShouldBeOfType<CryptoException>();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenNoEncryptionKeys_ShouldWriteTheMessageAsItIs()
     {

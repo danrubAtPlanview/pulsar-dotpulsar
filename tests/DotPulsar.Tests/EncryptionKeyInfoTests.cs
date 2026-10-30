@@ -17,6 +17,7 @@ namespace DotPulsar.Tests;
 [Trait("Category", "Unit")]
 public sealed class EncryptionKeyInfoTests
 {
+    // Additional coverage
     [Fact]
     public void Constructor_GivenKeyOnly_ShouldHaveEmptyMetadata()
     {
@@ -31,6 +32,7 @@ public sealed class EncryptionKeyInfoTests
         actual.Metadata.ShouldBeEmpty();
     }
 
+    // Additional coverage
     [Fact]
     public void Constructor_GivenKeyAndMetadata_ShouldHaveBoth()
     {
@@ -46,6 +48,7 @@ public sealed class EncryptionKeyInfoTests
         actual.Metadata.ShouldBeSameAs(metadata);
     }
 
+    // Additional coverage
     [Fact]
     public void Constructor_GivenNullKey_ShouldThrowArgumentNullException()
     {

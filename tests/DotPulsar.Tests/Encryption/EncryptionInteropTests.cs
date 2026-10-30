@@ -41,6 +41,7 @@ public sealed class EncryptionInteropTests : IDisposable
 
     public void Dispose() => _cts.Dispose();
 
+    // Additional coverage
     [Fact]
     public async Task Receive_GivenJavaProducedRsaEncryptedMessage_ShouldDecrypt()
     {
@@ -60,6 +61,7 @@ public sealed class EncryptionInteropTests : IDisposable
         actual.EncryptionContext.Keys.Keys.ShouldBe(["client-rsa.pem"]);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Receive_GivenJavaProducedEcdsaEncryptedMessage_ShouldDecrypt()
     {
@@ -128,6 +130,7 @@ public sealed class EncryptionInteropTests : IDisposable
     }
 
     // The messages of a batch that the Java client has encrypted as a whole
+    // Additional coverage
     [Fact]
     public async Task Receive_GivenJavaProducedEncryptedBatch_ShouldUnpackItAfterDecryptingIt()
     {
@@ -157,6 +160,7 @@ public sealed class EncryptionInteropTests : IDisposable
     }
 
     // The key name of the Java client is a name, and the public key of it is the one of the file
+    // Additional coverage
     [Fact]
     public async Task Consume_GivenDotPulsarProducedRsaEncryptedMessage_ShouldBeDecryptedByJavaCli()
     {
@@ -176,6 +180,7 @@ public sealed class EncryptionInteropTests : IDisposable
     }
 
     // Proves the byte format of the wrapped data key (ECIES) against the BouncyCastle of the Java client
+    // Additional coverage
     [Fact]
     public async Task Consume_GivenDotPulsarProducedEcdsaEncryptedMessage_ShouldBeDecryptedByJavaCli()
     {
@@ -196,6 +201,7 @@ public sealed class EncryptionInteropTests : IDisposable
     }
 
     // The payload is compressed before it is encrypted, so the Java client decrypts it before it decompresses it
+    // Additional coverage
     [Fact]
     public async Task Consume_GivenDotPulsarProducedEncryptedLz4Message_ShouldBeDecryptedByJavaCli()
     {
@@ -216,6 +222,7 @@ public sealed class EncryptionInteropTests : IDisposable
     }
 
     // A batch is encrypted as a whole, so the Java client decrypts it before it parses the batch
+    // Additional coverage
     [Fact]
     public async Task Consume_GivenDotPulsarProducedEncryptedBatch_ShouldBeDecryptedByJavaCli()
     {
@@ -242,6 +249,7 @@ public sealed class EncryptionInteropTests : IDisposable
     }
 
     // Every chunk is encrypted on its own, and the Java client decrypts the chunks before it assembles them
+    // Additional coverage
     [Fact]
     public async Task Consume_GivenDotPulsarProducedEncryptedChunkedMessage_ShouldBeAssembledAndDecryptedByJavaCli()
     {
@@ -263,6 +271,7 @@ public sealed class EncryptionInteropTests : IDisposable
     }
 
     // The Java client does not read the message without a key, discards it and acknowledges it
+    // Additional coverage
     [Fact]
     public async Task Consume_GivenDotPulsarProducedEncryptedMessageWithoutKey_ShouldNotBeDelivered()
     {

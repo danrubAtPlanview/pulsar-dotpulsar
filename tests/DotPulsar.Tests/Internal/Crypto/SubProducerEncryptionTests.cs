@@ -56,6 +56,7 @@ public sealed class SubProducerEncryptionTests
         registerEvent.ReceivedCalls().Select(call => call.GetArguments()[0]).ShouldNotContain(argument => argument is ExecutorFaulted || argument is ChannelDisconnected);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenCryptoExceptionForAMessage_ShouldAcceptTheNextMessage()
     {
@@ -133,6 +134,7 @@ public sealed class SubProducerEncryptionTests
     }
 
     // The answer of the broker to the chunk that was written before the message failed is not the answer to the message that is written after it
+    // Additional coverage
     [Fact]
     public async Task Dispatcher_GivenCryptoExceptionForAChunkAndTheAnswerToAnEarlierChunkAfterwards_ShouldIgnoreItAndNotCompleteTheNextMessageWithIt()
     {
@@ -165,6 +167,7 @@ public sealed class SubProducerEncryptionTests
         registerEvent.ReceivedCalls().Select(call => call.GetArguments()[0]).ShouldNotContain(argument => argument is ExecutorFaulted || argument is SendReceiptWrongOrdering || argument is ChannelDisconnected);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Dispatcher_GivenExceptionThatIsNotACryptoException_ShouldStillFaultTheProducer()
     {
@@ -195,6 +198,7 @@ public sealed class SubProducerEncryptionTests
         AssertDisposed(messageCrypto);
     }
 
+    // Additional coverage
     [Fact]
     public async Task ChannelFaulted_GivenMessageCrypto_ShouldDisposeIt()
     {
@@ -209,6 +213,7 @@ public sealed class SubProducerEncryptionTests
         AssertDisposed(messageCrypto);
     }
 
+    // Additional coverage
     [Fact]
     public async Task DisposeAsync_GivenMessageCryptoAndAMessageThatIsBeingSent_ShouldNotDisposeItBeforeTheDispatcherIsDone()
     {
@@ -232,6 +237,7 @@ public sealed class SubProducerEncryptionTests
         AssertDisposed(messageCrypto);
     }
 
+    // Additional coverage
     [Fact]
     public async Task DisposeAsync_GivenNoMessageCrypto_ShouldNotThrow()
     {

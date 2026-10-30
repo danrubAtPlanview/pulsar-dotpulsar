@@ -19,6 +19,7 @@ using DotPulsar.Exceptions;
 [Trait("Category", "Unit")]
 public sealed class MetaStoreHandlerNotExistsExceptionTests
 {
+    // Additional coverage
     [Fact]
     public void Constructor_GivenTcId_ShouldInterpolateTcIdInMessage()
     {
@@ -30,6 +31,7 @@ public sealed class MetaStoreHandlerNotExistsExceptionTests
         uut.ShouldBeAssignableTo<DotPulsarException>();
     }
 
+    // Additional coverage
     [Fact]
     public void Constructor_GivenMessage_ShouldUseMessage()
     {
@@ -40,6 +42,7 @@ public sealed class MetaStoreHandlerNotExistsExceptionTests
         uut.Message.ShouldBe("message");
     }
 
+    // Additional coverage
     [Fact]
     public void Constructor_GivenMessageAndInnerException_ShouldUseBoth()
     {

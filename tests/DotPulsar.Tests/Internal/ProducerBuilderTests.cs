@@ -62,6 +62,7 @@ public sealed class ProducerBuilderTests
         exception.Message.ShouldBe("ProducerOptions.BatchingMaxPublishDelay must be at least 1 millisecond");
     }
 
+    // Additional coverage
     [Fact]
     public async Task Create_GivenBatchingMaxPublishDelayOfOneMillisecond_ShouldNotThrow()
     {
@@ -79,6 +80,7 @@ public sealed class ProducerBuilderTests
         await using var producer = act.ShouldNotThrow();
     }
 
+    // Additional coverage
     [Fact]
     public void Create_GivenBatchingOptions_ShouldCopyThemToProducerOptions()
     {
@@ -107,6 +109,7 @@ public sealed class ProducerBuilderTests
         actual.BatcherType.ShouldBe(BatcherType.KeyBased);
     }
 
+    // Additional coverage
     [Fact]
     public void Create_GivenDefaults_ShouldNotEnableBatching()
     {
@@ -149,6 +152,7 @@ public sealed class ProducerBuilderTests
         exception.Message.ShouldBe("ProducerOptions.SendTimeout may not be negative");
     }
 
+    // Additional coverage
     [Fact]
     public void Create_GivenSendTimeout_ShouldCopyItToProducerOptions()
     {
@@ -166,6 +170,7 @@ public sealed class ProducerBuilderTests
         actual.SendTimeout.ShouldBe(TimeSpan.FromSeconds(30));
     }
 
+    // Additional coverage
     [Fact]
     public void Create_GivenDefaultOptions_ShouldHaveZeroSendTimeout()
     {
@@ -203,6 +208,7 @@ public sealed class ProducerBuilderTests
         exception.Message.ShouldBe("Batching and chunking of messages can't be enabled together");
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(true, false)]
     [InlineData(false, true)]
@@ -225,6 +231,7 @@ public sealed class ProducerBuilderTests
         _ = act.ShouldNotThrow();
     }
 
+    // Additional coverage
     [Fact]
     public void Create_GivenChunkingOptions_ShouldCopyThemToProducerOptions()
     {
@@ -247,6 +254,7 @@ public sealed class ProducerBuilderTests
         actual.ChunkMaxMessageSize.ShouldBe(1000);
     }
 
+    // Additional coverage
     [Fact]
     public void Create_GivenDefaults_ShouldNotEnableChunking()
     {
@@ -301,6 +309,7 @@ public sealed class ProducerBuilderTests
         options().CryptoFailureAction.ShouldBe(cryptoFailureAction);
     }
 
+    // Additional coverage
     [Fact]
     public void Builder_GivenCryptoSettings_ShouldReturnTheBuilder()
     {
@@ -347,6 +356,7 @@ public sealed class ProducerBuilderTests
         exception.Message.ShouldStartWith("Encryption key cannot be blank");
     }
 
+    // Additional coverage
     [Fact]
     public void Create_GivenEncryptionKeyWithoutCryptoKeyReader_ShouldThrowConfigurationException()
     {
@@ -361,6 +371,7 @@ public sealed class ProducerBuilderTests
         exception.Message.ShouldBe("ProducerOptions.CryptoKeyReader must be set when ProducerOptions.EncryptionKeys is not empty");
     }
 
+    // Additional coverage
     [Fact]
     public void Create_GivenCryptoKeyReaderWithoutEncryptionKey_ShouldNotThrow()
     {
@@ -375,6 +386,7 @@ public sealed class ProducerBuilderTests
         options().EncryptionKeys.ShouldBeEmpty();
     }
 
+    // Additional coverage
     [Fact]
     public void Create_GivenBuilderUsedForTwoProducers_ShouldNotShareTheEncryptionKeys()
     {
@@ -427,6 +439,7 @@ public sealed class ProducerBuilderTests
         cryptoKeyReader.GetPublicKey("two", new Dictionary<string, string>()).ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public void ProducerOptions_GivenNoChanges_ShouldHaveTheDefaultCryptoSettings()
     {
@@ -439,6 +452,7 @@ public sealed class ProducerBuilderTests
         uut.CryptoFailureAction.ShouldBe(ProducerOptions<string>.DefaultCryptoFailureAction);
     }
 
+    // Additional coverage
     [Fact]
     public void ProducerOptions_GivenEncryptionKeysSetTwice_ShouldKeepOnlyTheLastOnesSortedByOrdinalOrder()
     {

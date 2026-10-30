@@ -111,6 +111,7 @@ public sealed class UnAckedMessageTrackerTests
         uut.Count.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void Tick_GivenAckTimeoutTwiceTickTime_ShouldExpireOnThirdTick()
     {
@@ -131,6 +132,7 @@ public sealed class UnAckedMessageTrackerTests
         uut.Count.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void Tick_GivenAckTimeoutNotAMultipleOfTickTime_ShouldRoundTheNumberOfTicksUp()
     {
@@ -149,6 +151,7 @@ public sealed class UnAckedMessageTrackerTests
         ticks[3].ShouldBe([messageId]);
     }
 
+    // Additional coverage
     [Fact]
     public void Tick_GivenMessagesInSeveralBuckets_ShouldExpireEachBucketInItsOwnTurn()
     {
@@ -179,6 +182,7 @@ public sealed class UnAckedMessageTrackerTests
         fifthTick.ShouldBe([fourth]);
     }
 
+    // Additional coverage
     [Fact]
     public void Tick_GivenNothingTracked_ShouldReturnNull()
     {
@@ -192,6 +196,7 @@ public sealed class UnAckedMessageTrackerTests
         actual.ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public void Constructor_GivenTickTimeGreaterThanAckTimeout_ShouldUseAckTimeoutAsTick()
     {
@@ -212,6 +217,7 @@ public sealed class UnAckedMessageTrackerTests
         second.ShouldBe([messageId]);
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(0, 1000)]
     [InlineData(1000, 0)]
@@ -231,6 +237,7 @@ public sealed class UnAckedMessageTrackerTests
         exception.ShouldBeOfType<ArgumentOutOfRangeException>();
     }
 
+    // Additional coverage
     [Fact]
     public void Add_GivenBatchMessageIdsOfSameEntry_ShouldTrackEntryOnce()
     {
@@ -249,6 +256,7 @@ public sealed class UnAckedMessageTrackerTests
         uut.Count.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void Add_GivenAlreadyTrackedMessageId_ShouldNotMoveItToNewestBucket()
     {
@@ -269,6 +277,7 @@ public sealed class UnAckedMessageTrackerTests
         third.ShouldBe([messageId]);
     }
 
+    // Additional coverage
     [Fact]
     public void Add_GivenExpiredMessageReAdded_ShouldTrackInNewestBucket()
     {
@@ -293,6 +302,7 @@ public sealed class UnAckedMessageTrackerTests
         third.ShouldBe([messageId]);
     }
 
+    // Additional coverage
     [Fact]
     public void Remove_GivenMessageIdInOlderBucket_ShouldNotExpireIt()
     {
@@ -314,6 +324,7 @@ public sealed class UnAckedMessageTrackerTests
         uut.IsEmpty.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void Remove_GivenLedgerIdAndEntryId_ShouldRemoveEntry()
     {
@@ -331,6 +342,7 @@ public sealed class UnAckedMessageTrackerTests
         uut.IsEmpty.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void Remove_GivenUntrackedMessageId_ShouldReturnFalse()
     {
@@ -346,6 +358,7 @@ public sealed class UnAckedMessageTrackerTests
         uut.Count.ShouldBe(1);
     }
 
+    // Additional coverage
     [Fact]
     public void RemoveMessagesTill_GivenBatchMessageId_ShouldRemoveEntriesUpToAndIncludingItsEntry()
     {
@@ -365,6 +378,7 @@ public sealed class UnAckedMessageTrackerTests
         uut.Remove(2, 0).ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void RemoveMessagesTill_GivenEntriesInSeveralBuckets_ShouldNotExpireTheRemovedEntries()
     {
@@ -387,6 +401,7 @@ public sealed class UnAckedMessageTrackerTests
         ticks[2].ShouldBe([kept]);
     }
 
+    // Additional coverage
     [Fact]
     public void RemoveMessagesTill_GivenNothingTracked_ShouldReturnZero()
     {
@@ -400,6 +415,7 @@ public sealed class UnAckedMessageTrackerTests
         removed.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void Clear_GivenTrackedMessages_ShouldBeEmpty()
     {
@@ -420,6 +436,7 @@ public sealed class UnAckedMessageTrackerTests
         uut.Tick().ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public void Start_GivenNewTracker_ShouldNotCreateTimerBeforeStart()
     {
@@ -433,6 +450,7 @@ public sealed class UnAckedMessageTrackerTests
         timers.Created.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void Start_GivenNewTracker_ShouldScheduleTheFirstTickOneTickAhead()
     {
@@ -447,6 +465,7 @@ public sealed class UnAckedMessageTrackerTests
         timers.Timer.Scheduled.ShouldBe([TimeSpan.FromMilliseconds(500)]);
     }
 
+    // Additional coverage
     [Fact]
     public void Start_GivenCalledTwice_ShouldCreateOneTimer()
     {
@@ -497,6 +516,7 @@ public sealed class UnAckedMessageTrackerTests
         timers.Timer.Scheduled.ShouldAllBe(dueTime => dueTime == TimeSpan.FromMilliseconds(100));
     }
 
+    // Additional coverage
     [Fact]
     public void Start_GivenAcknowledgedMessage_ShouldNotInvokeRedeliver()
     {
@@ -525,6 +545,7 @@ public sealed class UnAckedMessageTrackerTests
         redeliveries.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void Start_GivenExpiredMessages_ShouldRescheduleTimerBeforeRedelivering()
     {
@@ -551,6 +572,7 @@ public sealed class UnAckedMessageTrackerTests
         pendingDuringRedelivery.ShouldBe(TimeSpan.FromSeconds(1));
     }
 
+    // Additional coverage
     [Fact]
     public void Start_GivenRedeliverThrows_ShouldKeepTicking()
     {
@@ -581,6 +603,7 @@ public sealed class UnAckedMessageTrackerTests
         timers.Timer.Pending.ShouldBe(TimeSpan.FromSeconds(1));
     }
 
+    // Additional coverage
     [Fact]
     public void Start_GivenRedeliverFaults_ShouldKeepTicking()
     {
@@ -611,6 +634,7 @@ public sealed class UnAckedMessageTrackerTests
         timers.Timer.Pending.ShouldBe(TimeSpan.FromSeconds(1));
     }
 
+    // Additional coverage
     [Fact]
     public void Start_GivenSlowRedeliver_ShouldNotDelayTheNextTick()
     {
@@ -642,6 +666,7 @@ public sealed class UnAckedMessageTrackerTests
         timers.Timer.Pending.ShouldBe(TimeSpan.FromSeconds(1));
     }
 
+    // Additional coverage
     [Fact]
     public void Dispose_GivenStartedTracker_ShouldNotRedeliver()
     {
@@ -673,6 +698,7 @@ public sealed class UnAckedMessageTrackerTests
         timers.Timer.Scheduled.Length.ShouldBe(2);
     }
 
+    // Additional coverage
     [Fact]
     public void Dispose_GivenTrackedMessages_ShouldClearTheTracker()
     {
@@ -687,6 +713,7 @@ public sealed class UnAckedMessageTrackerTests
         uut.IsEmpty.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void Dispose_GivenCalledTwice_ShouldNotThrow()
     {
@@ -706,6 +733,7 @@ public sealed class UnAckedMessageTrackerTests
         exception.ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public void Dispose_GivenRedeliverInFlight_ShouldCancelTheToken()
     {
@@ -736,6 +764,7 @@ public sealed class UnAckedMessageTrackerTests
         token.IsCancellationRequested.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void Start_GivenDisposedTracker_ShouldNotCreateTimer()
     {
@@ -751,6 +780,7 @@ public sealed class UnAckedMessageTrackerTests
         timers.Created.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Start_GivenRealTimer_ShouldInvokeRedeliverAfterTimeout()
     {
@@ -776,6 +806,7 @@ public sealed class UnAckedMessageTrackerTests
         uut.Count.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public async Task AddRemoveAndTick_GivenConcurrentUse_ShouldAccountForEveryMessageExactlyOnce()
     {
@@ -841,6 +872,7 @@ public sealed class UnAckedMessageTrackerTests
         (removed + removedTill + expired.Count + uut.Count).ShouldBe(added);
     }
 
+    // Additional coverage
     [Fact]
     public async Task AddAndClear_GivenConcurrentUse_ShouldKeepTheTrackerConsistent()
     {
@@ -874,6 +906,7 @@ public sealed class UnAckedMessageTrackerTests
         uut.Tick().ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public async Task AddRemoveAndDispose_GivenConcurrentUse_ShouldNotThrow()
     {
@@ -900,6 +933,7 @@ public sealed class UnAckedMessageTrackerTests
         uut.IsEmpty.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void AddAndRemove_GivenSteadyState_ShouldNotAllocate()
     {
@@ -920,6 +954,7 @@ public sealed class UnAckedMessageTrackerTests
         allocated.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void RemoveMessagesTill_GivenSteadyState_ShouldNotAllocate()
     {
@@ -940,6 +975,7 @@ public sealed class UnAckedMessageTrackerTests
         allocated.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void Tick_GivenNothingExpired_ShouldNotAllocate()
     {
@@ -959,6 +995,7 @@ public sealed class UnAckedMessageTrackerTests
         allocated.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void Tick_GivenExpiredMessages_ShouldOnlyAllocateTheResult()
     {

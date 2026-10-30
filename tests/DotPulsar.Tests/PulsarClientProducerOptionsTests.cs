@@ -40,6 +40,7 @@ public sealed class PulsarClientProducerOptionsTests
         exception.ShouldBeOfType<ConfigurationException>().Message.ShouldBe("Batching and chunking of messages can't be enabled together");
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(true, false)]
     [InlineData(false, true)]
@@ -59,6 +60,7 @@ public sealed class PulsarClientProducerOptionsTests
         exception.ShouldBeNull();
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(2)]
     [InlineData(-1)]
@@ -130,6 +132,7 @@ public sealed class PulsarClientProducerOptionsTests
         exception.ShouldBeOfType<CryptoException>().Message.ShouldStartWith("Failed to load public key my-key.");
     }
 
+    // Additional coverage
     [Fact]
     public async Task CreateProducer_GivenEncryptionKeysAndCryptoKeyReader_ShouldNotThrow()
     {
@@ -146,6 +149,7 @@ public sealed class PulsarClientProducerOptionsTests
         exception.ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public async Task CreateProducer_GivenCryptoKeyReaderWithoutEncryptionKeys_ShouldNotThrow()
     {
@@ -161,6 +165,7 @@ public sealed class PulsarClientProducerOptionsTests
         exception.ShouldBeNull();
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(ProducerCryptoFailureAction.Fail)]
     [InlineData(ProducerCryptoFailureAction.Send)]

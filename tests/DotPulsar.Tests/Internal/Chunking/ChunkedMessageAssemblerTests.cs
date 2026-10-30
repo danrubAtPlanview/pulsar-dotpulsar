@@ -38,6 +38,7 @@ public sealed class ChunkedMessageAssemblerTests
         _now = 5_000_000;
     }
 
+    // Additional coverage
     [Fact]
     public void Process_GivenChunksInOrder_ShouldReturnNullUntilTheLastChunkAndThenTheMessage()
     {
@@ -58,6 +59,7 @@ public sealed class ChunkedMessageAssemblerTests
         _track.ShouldBeEmpty();
     }
 
+    // Additional coverage
     [Fact]
     public void Process_GivenChunksInOrder_ShouldReturnTheIdOfEveryChunkInChunkOrder()
     {
@@ -76,6 +78,7 @@ public sealed class ChunkedMessageAssemblerTests
         actual.Value.LastChunkMessageId.EntryId.ShouldBe(15UL);
     }
 
+    // Additional coverage
     [Fact]
     public void Process_GivenChunksInOrder_ShouldNotCopyTheChunksButLinkThem()
     {
@@ -100,6 +103,7 @@ public sealed class ChunkedMessageAssemblerTests
         segments[1].Span.Overlaps(second, out _).ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void Process_GivenChunkPayloadsInSeveralSegments_ShouldConcatenateAllSegmentsInOrder()
     {
@@ -117,6 +121,7 @@ public sealed class ChunkedMessageAssemblerTests
         actual.Value.Payload.ToArray().ShouldBe(payload);
     }
 
+    // Additional coverage
     [Fact]
     public void Process_GivenEmptyMiddleChunk_ShouldStillAssembleTheMessage()
     {
@@ -133,6 +138,7 @@ public sealed class ChunkedMessageAssemblerTests
         actual.Value.Payload.ToArray().ShouldBe([1, 2, 3]);
     }
 
+    // Additional coverage
     [Fact]
     public void Process_GivenEmptyPayloadInEveryChunk_ShouldAssembleAnEmptyMessage()
     {
@@ -149,6 +155,7 @@ public sealed class ChunkedMessageAssemblerTests
         actual.Value.ChunkMessageIds.Length.ShouldBe(2);
     }
 
+    // Additional coverage
     [Fact]
     public void Process_GivenChunksThatFillExactlyTheTotalSize_ShouldAssembleTheMessage()
     {
@@ -164,6 +171,7 @@ public sealed class ChunkedMessageAssemblerTests
         actual.Value.Payload.Length.ShouldBe(100);
     }
 
+    // Additional coverage
     [Fact]
     public void Process_GivenMoreChunksThanTheInitialCapacityOfTheIdArray_ShouldReturnTheIdOfEveryChunkInChunkOrder()
     {
@@ -182,6 +190,7 @@ public sealed class ChunkedMessageAssemblerTests
         actual.Value.Payload.Length.ShouldBe(numberOfChunks);
     }
 
+    // Additional coverage
     [Fact]
     public void Process_GivenBrokerThatClaimsAHugeNumberOfChunks_ShouldNotAllocateTheIdArrayForAllChunks()
     {
@@ -204,6 +213,7 @@ public sealed class ChunkedMessageAssemblerTests
         _track.ShouldBeEmpty();
     }
 
+    // Additional coverage
     [Fact]
     public void Process_GivenCompletedMessage_ShouldLeaveNoPendingContext()
     {
@@ -219,6 +229,7 @@ public sealed class ChunkedMessageAssemblerTests
         uut.QueueCount.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void Process_GivenFirstChunkOfIncompleteMessage_ShouldHaveOnePendingContext()
     {
@@ -280,6 +291,7 @@ public sealed class ChunkedMessageAssemblerTests
         uut.PendingCount.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void Process_GivenManyMessagesWithRandomlyInterleavedChunks_ShouldAssembleEveryMessageCorrectly()
     {
@@ -354,6 +366,7 @@ public sealed class ChunkedMessageAssemblerTests
         uut.PendingCount.ShouldBe(1);
     }
 
+    // Additional coverage
     [Fact]
     public void Process_GivenFirstChunkAgainWithDifferentEntry_ShouldRestartAssemblyWithTheNewChunk()
     {
@@ -428,6 +441,7 @@ public sealed class ChunkedMessageAssemblerTests
         EntryIds(last.Value.ChunkMessageIds).ShouldBe([1UL, 2UL, 3UL, 6UL]);
     }
 
+    // Additional coverage
     [Fact]
     public void Process_GivenRedeliveredChunkWithSameEntry_ShouldNotAckAndKeepAssembling()
     {
@@ -464,6 +478,7 @@ public sealed class ChunkedMessageAssemblerTests
         _track.ShouldBeEmpty();
     }
 
+    // Additional coverage
     [Fact]
     public void Process_GivenChunkGapBeforeExpiry_ShouldTrackChunk()
     {
@@ -479,6 +494,7 @@ public sealed class ChunkedMessageAssemblerTests
         EntryIds(_track).ShouldBe([7UL]);
     }
 
+    // Additional coverage
     [Fact]
     public void Process_GivenChunkGapAndExpiryDisabled_ShouldTrackChunk()
     {
@@ -493,6 +509,7 @@ public sealed class ChunkedMessageAssemblerTests
         EntryIds(_track).ShouldBe([7UL]);
     }
 
+    // Additional coverage
     [Fact]
     public void Process_GivenChunkInTheMiddleOfTheMessageWithoutTheFirstChunk_ShouldDropOnlyThatChunk()
     {
@@ -509,6 +526,7 @@ public sealed class ChunkedMessageAssemblerTests
         uut.QueueCount.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void Process_GivenChunkSkippingAChunk_ShouldDropTheContextAndTrackTheChunk()
     {
@@ -529,6 +547,7 @@ public sealed class ChunkedMessageAssemblerTests
         uut.QueueCount.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void Process_GivenChunksInReverseOrder_ShouldNotAssembleTheMessage()
     {
@@ -563,6 +582,7 @@ public sealed class ChunkedMessageAssemblerTests
         uut.PendingCount.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void Process_GivenChunkOverflowingTotalSize_ShouldDropContext()
     {
@@ -581,6 +601,7 @@ public sealed class ChunkedMessageAssemblerTests
         uut.QueueCount.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void Process_GivenChunkThatOverflowsTheTotalSize_ShouldNotThrow()
     {
@@ -594,6 +615,7 @@ public sealed class ChunkedMessageAssemblerTests
         Should.NotThrow(act);
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(5, 4)]
     [InlineData(2, 2)]
@@ -641,6 +663,7 @@ public sealed class ChunkedMessageAssemblerTests
         uut.PendingCount.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void Process_GivenMaxPendingExceededWithoutAutoAck_ShouldTrackOldestChunks()
     {
@@ -658,6 +681,7 @@ public sealed class ChunkedMessageAssemblerTests
         uut.PendingCount.ShouldBe(1);
     }
 
+    // Additional coverage
     [Fact]
     public void Process_GivenMaxPendingExceededRepeatedly_ShouldEvictTheOldestFirst()
     {
@@ -680,6 +704,7 @@ public sealed class ChunkedMessageAssemblerTests
         Feed(uut, "d", 1, 2, 6).ShouldNotBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public void Process_GivenMaxPendingExceeded_ShouldNotEvictAMessageThatWasStartedAgain()
     {
@@ -697,6 +722,7 @@ public sealed class ChunkedMessageAssemblerTests
         uut.PendingCount.ShouldBe(2);
     }
 
+    // Additional coverage
     [Fact]
     public void Process_GivenMaxPendingOfOneAndFirstChunkRedelivered_ShouldNotEvictAnything()
     {
@@ -713,6 +739,7 @@ public sealed class ChunkedMessageAssemblerTests
         uut.PendingCount.ShouldBe(1);
     }
 
+    // Additional coverage
     [Fact]
     public void Process_GivenMaxPendingExceededAfterSeveralChunksWereReceived_ShouldAckEveryReceivedChunkOfTheOldest()
     {
@@ -729,6 +756,7 @@ public sealed class ChunkedMessageAssemblerTests
         EntryIds(_acks).ShouldBe([1UL, 2UL, 3UL]);
     }
 
+    // Additional coverage
     [Fact]
     public void Process_GivenNoMaxPending_ShouldNeverEvict()
     {
@@ -746,6 +774,7 @@ public sealed class ChunkedMessageAssemblerTests
         _track.ShouldBeEmpty();
     }
 
+    // Additional coverage
     [Fact]
     public void Process_GivenMaxPending_ShouldNeverHaveMorePendingMessagesThanTheMax()
     {
@@ -785,6 +814,7 @@ public sealed class ChunkedMessageAssemblerTests
         uut.QueueCount.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void RemoveExpired_GivenIncompleteMessageThatIsNotOlderThanExpiry_ShouldKeepContext()
     {
@@ -802,6 +832,7 @@ public sealed class ChunkedMessageAssemblerTests
         uut.PendingCount.ShouldBe(1);
     }
 
+    // Additional coverage
     [Fact]
     public void RemoveExpired_GivenExpiredMessage_ShouldNotAssembleItWhenTheLastChunkArrives()
     {
@@ -818,6 +849,7 @@ public sealed class ChunkedMessageAssemblerTests
         actual.ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public void RemoveExpired_GivenSeveralMessagesWhereOnlyTheOldestAreExpired_ShouldKeepTheNewest()
     {
@@ -841,6 +873,7 @@ public sealed class ChunkedMessageAssemblerTests
         Feed(uut, "c", 1, 2, 4).ShouldNotBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public void RemoveExpired_GivenExpiryDisabled_ShouldDoNothing()
     {
@@ -858,6 +891,7 @@ public sealed class ChunkedMessageAssemblerTests
         uut.PendingCount.ShouldBe(1);
     }
 
+    // Additional coverage
     [Fact]
     public void RemoveExpired_GivenNothingPending_ShouldDoNothing()
     {
@@ -964,6 +998,7 @@ public sealed class ChunkedMessageAssemblerTests
         uut.QueueCount.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void RemoveExpired_GivenMessageThatWasStartedAgain_ShouldExpireFromTheTimeItWasStartedAgain()
     {
@@ -983,6 +1018,7 @@ public sealed class ChunkedMessageAssemblerTests
         uut.PendingCount.ShouldBe(1);
     }
 
+    // Additional coverage
     [Fact]
     public void Clear_GivenPendingMessages_ShouldDropAllContextsWithoutAcknowledging()
     {
@@ -1003,6 +1039,7 @@ public sealed class ChunkedMessageAssemblerTests
         EntryIds(_track).ShouldBe([3UL]);
     }
 
+    // Additional coverage
     [Fact]
     public void Clear_GivenAssemblerThatIsUsedAfterwards_ShouldAssembleNewMessages()
     {
@@ -1020,6 +1057,7 @@ public sealed class ChunkedMessageAssemblerTests
         _acks.ShouldBeEmpty();
     }
 
+    // Additional coverage
     [Fact]
     public void Dispose_GivenPendingMessages_ShouldDropAllContexts()
     {
@@ -1037,6 +1075,7 @@ public sealed class ChunkedMessageAssemblerTests
         _acks.ShouldBeEmpty();
     }
 
+    // Additional coverage
     [Fact]
     public void Dispose_GivenCalledTwice_ShouldNotThrow()
     {
@@ -1051,6 +1090,7 @@ public sealed class ChunkedMessageAssemblerTests
         Should.NotThrow(act);
     }
 
+    // Additional coverage
     [Fact]
     public void Process_GivenDisposed_ShouldReturnNullAndKeepNothing()
     {
@@ -1070,6 +1110,7 @@ public sealed class ChunkedMessageAssemblerTests
         _track.ShouldBeEmpty();
     }
 
+    // Additional coverage
     [Fact]
     public void RemoveExpired_GivenDisposed_ShouldDoNothing()
     {
@@ -1087,6 +1128,7 @@ public sealed class ChunkedMessageAssemblerTests
         acks.ShouldBeEmpty();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Process_GivenIncompleteMessageAndAcknowledgeExpired_ShouldAcknowledgeTheChunksWhenTheMessageExpires()
     {
@@ -1109,6 +1151,7 @@ public sealed class ChunkedMessageAssemblerTests
         _acks.ShouldBeEmpty();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Process_GivenAcknowledgeExpiredThatThrows_ShouldKeepAcknowledgingLaterMessages()
     {
@@ -1135,6 +1178,7 @@ public sealed class ChunkedMessageAssemblerTests
         EntryIds(actual).ShouldBe([2UL]);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Process_GivenAcknowledgeExpiredThatFails_ShouldNotFaultTheTimer()
     {
@@ -1157,6 +1201,7 @@ public sealed class ChunkedMessageAssemblerTests
         uut.PendingCount.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void Process_GivenExpireTimeLongerThanATimerCanHandle_ShouldNotThrowAndKeepTheMessage()
     {
@@ -1181,6 +1226,7 @@ public sealed class ChunkedMessageAssemblerTests
         acks.ShouldBeEmpty();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Process_GivenNoAcknowledgeExpired_ShouldNotExpireMessagesByItself()
     {
@@ -1198,6 +1244,7 @@ public sealed class ChunkedMessageAssemblerTests
         EntryIds(acks).ShouldBe([1UL]);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Dispose_GivenIncompleteMessageAndTimer_ShouldNotAcknowledgeAfterwards()
     {
@@ -1218,6 +1265,7 @@ public sealed class ChunkedMessageAssemblerTests
         calls.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Process_GivenCompletedMessagesOnly_ShouldNotAcknowledgeAnythingFromTheTimer()
     {
@@ -1238,6 +1286,7 @@ public sealed class ChunkedMessageAssemblerTests
         calls.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void Process_GivenIncompleteMessage_ShouldRetainTheChunkMemory()
     {
@@ -1253,6 +1302,7 @@ public sealed class ChunkedMessageAssemblerTests
         GC.KeepAlive(uut);
     }
 
+    // Additional coverage
     [Fact]
     public void Process_GivenCompletedMessage_ShouldReleaseTheChunkMemoryWhenTheMessageIsGone()
     {
@@ -1268,6 +1318,7 @@ public sealed class ChunkedMessageAssemblerTests
         GC.KeepAlive(uut);
     }
 
+    // Additional coverage
     [Fact]
     public void RemoveExpired_GivenExpiredMessage_ShouldReleaseTheChunkMemory()
     {
@@ -1284,6 +1335,7 @@ public sealed class ChunkedMessageAssemblerTests
         GC.KeepAlive(uut);
     }
 
+    // Additional coverage
     [Fact]
     public void Process_GivenEvictedMessage_ShouldReleaseTheChunkMemory()
     {
@@ -1302,6 +1354,7 @@ public sealed class ChunkedMessageAssemblerTests
         GC.KeepAlive(uut);
     }
 
+    // Additional coverage
     [Fact]
     public void Process_GivenFirstChunkAgainWithDifferentEntry_ShouldReleaseTheMemoryOfThePreviousChunks()
     {
@@ -1320,6 +1373,7 @@ public sealed class ChunkedMessageAssemblerTests
         GC.KeepAlive(uut);
     }
 
+    // Additional coverage
     [Fact]
     public void Process_GivenChunkGap_ShouldReleaseTheMemoryOfTheDroppedContext()
     {
@@ -1336,6 +1390,7 @@ public sealed class ChunkedMessageAssemblerTests
         GC.KeepAlive(uut);
     }
 
+    // Additional coverage
     [Fact]
     public void Clear_GivenIncompleteMessage_ShouldReleaseTheChunkMemory()
     {
@@ -1351,6 +1406,7 @@ public sealed class ChunkedMessageAssemblerTests
         GC.KeepAlive(uut);
     }
 
+    // Additional coverage
     [Fact]
     public void Dispose_GivenIncompleteMessage_ShouldReleaseTheChunkMemory()
     {
@@ -1366,6 +1422,7 @@ public sealed class ChunkedMessageAssemblerTests
         GC.KeepAlive(uut);
     }
 
+    // Additional coverage
     [Fact]
     public void Process_GivenMiddleChunks_ShouldOnlyAllocateTheSegmentOfEveryChunk()
     {
@@ -1388,6 +1445,7 @@ public sealed class ChunkedMessageAssemblerTests
         allocated.ShouldBeLessThanOrEqualTo(64 * (numberOfChunks - 2));
     }
 
+    // Additional coverage
     [Fact]
     public void Process_GivenChunksThatAreDiscardedOrDuplicated_ShouldNotAllocate()
     {
@@ -1423,6 +1481,7 @@ public sealed class ChunkedMessageAssemblerTests
         allocated.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void Process_GivenOneMegabyteInHundredChunks_ShouldNotCopyThePayload()
     {
@@ -1447,6 +1506,7 @@ public sealed class ChunkedMessageAssemblerTests
         allocated.ShouldBeLessThan(16 * 1024);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Process_GivenConcurrentProducersOfDistinctMessages_ShouldAssembleEveryMessageCorrectly()
     {
@@ -1466,6 +1526,7 @@ public sealed class ChunkedMessageAssemblerTests
         uut.QueueCount.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Process_GivenConcurrentProducersAndExpirySweeps_ShouldAssembleEveryMessageCorrectlyAndKeepAllStateConsistent()
     {
@@ -1500,6 +1561,7 @@ public sealed class ChunkedMessageAssemblerTests
         uut.QueueCount.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Process_GivenConcurrentProducersEvictionsAndExpiry_ShouldAccountForEveryChunkExactlyOnce()
     {
@@ -1539,6 +1601,7 @@ public sealed class ChunkedMessageAssemblerTests
         accounted.Distinct().Count().ShouldBe(workers * messages * chunks);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Dispose_GivenConcurrentProducers_ShouldNotThrowAndDropEverything()
     {

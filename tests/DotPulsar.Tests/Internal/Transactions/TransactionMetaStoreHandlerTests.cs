@@ -39,6 +39,7 @@ public sealed class TransactionMetaStoreHandlerTests
         EndTxn
     }
 
+    // Additional coverage
     [Fact]
     public async Task Start_GivenCoordinatorAnswers_ShouldConnectAndBeReady()
     {
@@ -75,6 +76,7 @@ public sealed class TransactionMetaStoreHandlerTests
         uut.AvailableRequestPermits.ShouldBe(MaxPendingOperations);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Start_GivenCalledTwice_ShouldConnectOnce()
     {
@@ -93,6 +95,7 @@ public sealed class TransactionMetaStoreHandlerTests
         coordinator.ConnectRequests.Count.ShouldBe(1);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Connect_ShouldLookUpTheAssignPartitionOfTheCoordinatorAndSendTcClientConnectRequestWithTcId()
     {
@@ -111,6 +114,7 @@ public sealed class TransactionMetaStoreHandlerTests
     }
 
     // The connection is only kept open while it has channels, and the handler counts as a channel
+    // Additional coverage
     [Fact]
     public async Task Connected_ShouldRegisterHandlerWithConnectionSoItStaysActive()
     {
@@ -128,6 +132,7 @@ public sealed class TransactionMetaStoreHandlerTests
         coordinator.RemovedRegistrations.ShouldBeEmpty();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Connect_GivenProtocolVersionBelowNineteen_ShouldNotSendTcClientConnectRequest()
     {
@@ -171,6 +176,7 @@ public sealed class TransactionMetaStoreHandlerTests
         await pool.Received(1).FindConnectionForTopic(AssignPartitionTopic, Arg.Any<CancellationToken>());
     }
 
+    // Additional coverage
     [Fact]
     public async Task Connect_GivenTcClientConnectResponseWithError_ShouldRetryWithTheErrorMappedByTheHandler()
     {
@@ -262,6 +268,7 @@ public sealed class TransactionMetaStoreHandlerTests
         calls.ShouldBe(5);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Connect_GivenConnectionLost_ShouldUnregisterFromTheOldConnectionAndRegisterWithTheNewOne()
     {
@@ -285,6 +292,7 @@ public sealed class TransactionMetaStoreHandlerTests
         second.RemovedRegistrations.ShouldBe([1UL]);
     }
 
+    // Additional coverage
     [Fact]
     public async Task ConnectionClosed_GivenConnectionIsClosed_ShouldReconnect()
     {
@@ -305,6 +313,7 @@ public sealed class TransactionMetaStoreHandlerTests
         uut.CurrentState.ShouldBe(TransactionMetaStoreHandlerState.Ready);
     }
 
+    // Additional coverage
     [Fact]
     public async Task ConnectionClosed_GivenConnectionIsStillOpen_ShouldIgnoreNotification()
     {
@@ -376,6 +385,7 @@ public sealed class TransactionMetaStoreHandlerTests
         coordinator.RequestsOf<CommandNewTxn>().ShouldBeEmpty();
     }
 
+    // Additional coverage
     [Fact]
     public async Task NewTransaction_GivenReadyHandler_ShouldSendCommandNewTxnWithMillisTtlAndTcId()
     {
@@ -397,6 +407,7 @@ public sealed class TransactionMetaStoreHandlerTests
         uut.AvailableRequestPermits.ShouldBe(MaxPendingOperations);
     }
 
+    // Additional coverage
     [Fact]
     public async Task AddPublishPartitionToTxn_GivenReadyHandler_ShouldSendCommandWithTransactionIdAndPartition()
     {
@@ -416,6 +427,7 @@ public sealed class TransactionMetaStoreHandlerTests
         command.Partitions.ShouldBe(["persistent://public/default/test-partition-0"]);
     }
 
+    // Additional coverage
     [Fact]
     public async Task AddSubscriptionToTxn_GivenReadyHandler_ShouldSendCommandWithTransactionIdAndSubscription()
     {
@@ -437,6 +449,7 @@ public sealed class TransactionMetaStoreHandlerTests
         subscription.Subscription_.ShouldBe("my-subscription");
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(TxnAction.Commit)]
     [InlineData(TxnAction.Abort)]
@@ -458,6 +471,7 @@ public sealed class TransactionMetaStoreHandlerTests
         command.TxnAction.ShouldBe(action);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Request_GivenHandlerNotConnectedYet_ShouldBeSentAfterConnect()
     {
@@ -502,6 +516,7 @@ public sealed class TransactionMetaStoreHandlerTests
         uut.AvailableRequestPermits.ShouldBe(MaxPendingOperations);
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(Request.NewTransaction)]
     [InlineData(Request.AddPublishPartitionToTxn)]
@@ -524,6 +539,7 @@ public sealed class TransactionMetaStoreHandlerTests
         coordinator.Requests[1].ShouldBeSameAs(coordinator.Requests[0]);
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(Request.NewTransaction, ServerError.InvalidTxnStatus, typeof(InvalidTransactionStatusException))]
     [InlineData(Request.AddPublishPartitionToTxn, ServerError.InvalidTxnStatus, typeof(InvalidTransactionStatusException))]
@@ -552,6 +568,7 @@ public sealed class TransactionMetaStoreHandlerTests
         uut.AvailableRequestPermits.ShouldBe(MaxPendingOperations);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Request_GivenGenericErrorResponse_ShouldThrowTheExceptionMappedByTheClient()
     {
@@ -569,6 +586,7 @@ public sealed class TransactionMetaStoreHandlerTests
         uut.PendingRequestsCount.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Request_GivenResponseOfAnotherType_ShouldThrowUnexpectedResponseException()
     {
@@ -607,6 +625,7 @@ public sealed class TransactionMetaStoreHandlerTests
         coordinator.PendingRequestCount.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Request_GivenNoResponseWithinOperationTimeout_ShouldNameTheRequestInTheException()
     {
@@ -648,6 +667,7 @@ public sealed class TransactionMetaStoreHandlerTests
         await Should.ThrowAsync<OperationCanceledException>(commit);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Request_GivenConnectionLostBeforeResponse_ShouldResendOnNewConnection()
     {
@@ -671,6 +691,7 @@ public sealed class TransactionMetaStoreHandlerTests
         uut.AvailableRequestPermits.ShouldBe(MaxPendingOperations);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Request_GivenReconnectWhileRequestIsInFlight_ShouldNotSendItAgainOnTheSameConnection()
     {
@@ -704,6 +725,7 @@ public sealed class TransactionMetaStoreHandlerTests
         coordinator.RequestsOf<CommandAddPartitionToTxn>().Count.ShouldBe(2);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Request_GivenTransactionCoordinatorNotFoundThreeTimes_ShouldSendOncePerResponse()
     {
@@ -754,6 +776,7 @@ public sealed class TransactionMetaStoreHandlerTests
         await Task.WhenAll(pending.Skip(1).Select(task => Record.ExceptionAsync(() => task).AsTask()));
     }
 
+    // Additional coverage
     [Fact]
     public async Task DisposeAsync_GivenCallerWaitingForPermit_ShouldFailItWithPulsarClientClosedException()
     {
@@ -778,6 +801,7 @@ public sealed class TransactionMetaStoreHandlerTests
     }
 
     // The permit that the disposal releases when it fails the pending requests can reach a caller that is waiting for a permit before the caller has noticed that the handler is disposed. How often depends on the machine, so the disposal is repeated.
+    // Additional coverage
     [Fact]
     public async Task DisposeAsync_GivenCallerWaitingForPermitRepeatedly_ShouldAlwaysFailItWithPulsarClientClosedExceptionAndGiveAllPermitsBack()
     {
@@ -836,6 +860,7 @@ public sealed class TransactionMetaStoreHandlerTests
         coordinator.RemovedRegistrations.ShouldBe([1UL]);
     }
 
+    // Additional coverage
     [Fact]
     public async Task DisposeAsync_GivenPendingOps_ShouldFailThemAndReleasePermits()
     {
@@ -918,6 +943,7 @@ public sealed class TransactionMetaStoreHandlerTests
         uut.AvailableRequestPermits.ShouldBe(MaxPendingOperations);
     }
 
+    // Additional coverage
     [Fact]
     public async Task DisposeAsync_GivenHandlerNeverConnected_ShouldFailPendingRequestAndFaultConnected()
     {
@@ -940,6 +966,7 @@ public sealed class TransactionMetaStoreHandlerTests
         uut.AvailableRequestPermits.ShouldBe(MaxPendingOperations);
     }
 
+    // Additional coverage
     [Fact]
     public async Task DisposeAsync_GivenHandlerNotStarted_ShouldCloseHandler()
     {
@@ -954,6 +981,7 @@ public sealed class TransactionMetaStoreHandlerTests
         await Should.ThrowAsync<PulsarClientClosedException>(uut.Connected.WaitAsync(_timeout, Current.CancellationToken));
     }
 
+    // Additional coverage
     [Fact]
     public async Task DisposeAsync_GivenCalledTwice_ShouldBeNoOp()
     {
@@ -972,6 +1000,7 @@ public sealed class TransactionMetaStoreHandlerTests
         coordinator.RemovedRegistrations.ShouldBe([1UL]);
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(Request.NewTransaction)]
     [InlineData(Request.AddPublishPartitionToTxn)]
@@ -1038,6 +1067,7 @@ public sealed class TransactionMetaStoreHandlerTests
         exception.ShouldBeOfType<MetaStoreHandlerNotReadyException>();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Request_GivenCallerCancellationBeforeSend_ShouldThrowOperationCanceledExceptionAndSendNothing()
     {
@@ -1059,6 +1089,7 @@ public sealed class TransactionMetaStoreHandlerTests
         uut.AvailableRequestPermits.ShouldBe(MaxPendingOperations);
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(ServerError.TransactionCoordinatorNotFound, typeof(TransactionCoordinatorNotFoundException))]
     [InlineData(ServerError.InvalidTxnStatus, typeof(InvalidTransactionStatusException))]

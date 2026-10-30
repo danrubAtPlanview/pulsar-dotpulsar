@@ -19,6 +19,7 @@ using DotPulsar.Abstractions;
 [Trait("Category", "Unit")]
 public sealed class MessageMetadataTests
 {
+    // Additional coverage
     [Fact]
     public void Transaction_GivenNoTransaction_ShouldBeNullAndHaveNoTxnIds()
     {
@@ -31,6 +32,7 @@ public sealed class MessageMetadataTests
         uut.ProtocolMetadata().HasTxnidLeastBits.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(0UL, 0UL)]
     [InlineData(0UL, 5UL)]
@@ -54,6 +56,7 @@ public sealed class MessageMetadataTests
         uut.ProtocolMetadata().TxnidLeastBits.ShouldBe(leastSigBits);
     }
 
+    // Additional coverage
     [Fact]
     public void Transaction_GivenTransactionThenNull_ShouldClearTxnIds()
     {

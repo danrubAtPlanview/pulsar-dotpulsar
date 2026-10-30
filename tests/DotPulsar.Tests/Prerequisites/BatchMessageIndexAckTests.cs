@@ -215,6 +215,7 @@ public sealed class BatchMessageIndexAckTests : IDisposable
         await WaitForBacklog(topicName, subscription, 0);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenBatchIndexAckEnabledAndEveryOtherMessageAcknowledged_ShouldRedeliverOnlyTheUnacknowledgedMessages()
     {
@@ -252,6 +253,7 @@ public sealed class BatchMessageIndexAckTests : IDisposable
         moreMessage.ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenBatchIndexAckDisabledAndEveryOtherMessageAcknowledged_ShouldRedeliverTheWholeBatch()
     {
@@ -286,6 +288,7 @@ public sealed class BatchMessageIndexAckTests : IDisposable
         received.Select(message => message.MessageId.BatchIndex).ShouldBe(Enumerable.Range(0, numberOfMessages));
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -310,6 +313,7 @@ public sealed class BatchMessageIndexAckTests : IDisposable
         await WaitForBacklog(topicName, subscription, 0);
     }
 
+    // Additional coverage
     [Fact]
     public async Task AcknowledgeCumulative_GivenPartiallyAcknowledgedBatchAndBatchIndexAckDisabled_ShouldAcknowledgeThePreviousBatches()
     {
@@ -348,6 +352,7 @@ public sealed class BatchMessageIndexAckTests : IDisposable
         moreMessage.ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Receive_GivenBatches_ShouldReturnMessageIdsWithTopicAndConsecutiveBatchIndexes()
     {

@@ -65,6 +65,7 @@ public sealed class KeyBasedBatchMessageContainerTests
         uut.Items.Select(item => item.Metadata.SequenceId).ShouldBeSequence(1ul, 2ul, 0ul, 3ul, 4ul);
     }
 
+    // Additional coverage
     [Fact]
     public void CreateBatches_GivenOrderingKey_ShouldPreferOrderingKeyOverPartitionKey()
     {
@@ -86,6 +87,7 @@ public sealed class KeyBasedBatchMessageContainerTests
         uut.Items.Select(item => item.Metadata.SequenceId).ShouldBeSequence(1ul, 2ul, 3ul, 4ul);
     }
 
+    // Additional coverage
     [Fact]
     public void CreateBatches_GivenOrderingKeysWithSameBytes_ShouldGroupThemEvenIfTheyAreDifferentInstances()
     {
@@ -103,6 +105,7 @@ public sealed class KeyBasedBatchMessageContainerTests
         groups[0].Count.ShouldBe(2);
     }
 
+    // Additional coverage
     [Fact]
     public void CreateBatches_GivenMessagesWithoutKey_ShouldGroupThemTogether()
     {
@@ -127,6 +130,7 @@ public sealed class KeyBasedBatchMessageContainerTests
         uut.Items.Select(item => item.Metadata.SequenceId).ShouldBeSequence(2ul, 1ul, 3ul, 4ul);
     }
 
+    // Additional coverage
     [Fact]
     public void CreateBatches_GivenEmptyPartitionKey_ShouldNotGroupItWithMessagesWithoutKey()
     {
@@ -143,6 +147,7 @@ public sealed class KeyBasedBatchMessageContainerTests
         groups.Count.ShouldBe(2);
     }
 
+    // Additional coverage
     [Fact]
     public void CreateBatches_GivenOneMessageForEachKey_ShouldReturnGroupsWithoutPreparedBatchSortedBySequenceId()
     {
@@ -162,6 +167,7 @@ public sealed class KeyBasedBatchMessageContainerTests
         uut.Items.Select(item => item.Metadata.SequenceId).ShouldBeSequence(10ul, 20ul, 30ul);
     }
 
+    // Additional coverage
     [Fact]
     public void CreateBatches_GivenOneMessageForAKey_ShouldKeepTheMetadataOfTheMessage()
     {
@@ -180,6 +186,7 @@ public sealed class KeyBasedBatchMessageContainerTests
         item.Metadata.HasNumMessagesInBatch.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void CreateBatches_GivenKeysInAnyOrder_ShouldKeepTheOrderOfTheMessagesOfAKey()
     {
@@ -201,6 +208,7 @@ public sealed class KeyBasedBatchMessageContainerTests
         BatchPayloadReader.Read(groups[1].Batch!).Select(m => System.Text.Encoding.UTF8.GetString(m.Payload)).ShouldBeSequence("a1", "a2", "a3");
     }
 
+    // Additional coverage
     [Fact]
     public void CreateBatches_GivenMoreThan1000MessagesAndManyKeys_ShouldSortAllGroupsAndKeepEveryMessage()
     {
@@ -251,6 +259,7 @@ public sealed class KeyBasedBatchMessageContainerTests
         actual.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void HasSameTxn_GivenKeyBasedTransactionalBatchAndPlainMessage_ShouldReturnFalse()
     {
@@ -265,6 +274,7 @@ public sealed class KeyBasedBatchMessageContainerTests
         actual.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void HasSameTxn_GivenKeyBasedMessagesOfOneTransactionWithDifferentKeys_ShouldReturnTrueForSameAndFalseForOtherTransaction()
     {
@@ -300,6 +310,7 @@ public sealed class KeyBasedBatchMessageContainerTests
         plain.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void CreateBatches_GivenTransactionalMessagesWithDifferentKeys_ShouldCopyTheTransactionToEveryBatch()
     {
@@ -323,6 +334,7 @@ public sealed class KeyBasedBatchMessageContainerTests
         }
     }
 
+    // Additional coverage
     [Fact]
     public void CreateBatches_GivenPlainMessagesAfterTransactionalBatchAndClear_ShouldNotCarryTheTransaction()
     {
@@ -347,6 +359,7 @@ public sealed class KeyBasedBatchMessageContainerTests
         groups[0].Batch!.Metadata.HasTxnidLeastBits.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void HaveEnoughSpace_GivenMaxMessagesReachedAcrossKeys_ShouldReturnFalse()
     {
@@ -366,6 +379,7 @@ public sealed class KeyBasedBatchMessageContainerTests
         uut.NumMessagesInBatch.ShouldBe(3);
     }
 
+    // Additional coverage
     [Fact]
     public void Add_GivenMaxBytesReachedAcrossKeys_ShouldReportFull()
     {
@@ -384,6 +398,7 @@ public sealed class KeyBasedBatchMessageContainerTests
         uut.CurrentBatchSize.ShouldBe(100);
     }
 
+    // Additional coverage
     [Fact]
     public void Add_GivenMaxMessagesReachedAcrossKeys_ShouldReportFull()
     {
@@ -399,6 +414,7 @@ public sealed class KeyBasedBatchMessageContainerTests
         second.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void HasSameSchema_GivenOtherSchemaVersionForTheKey_ShouldReturnFalseOnlyForThatKey()
     {
@@ -421,6 +437,7 @@ public sealed class KeyBasedBatchMessageContainerTests
         otherKey.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void CanAddToCurrentBatch_GivenMessageWithOtherTransaction_ShouldReturnFalse()
     {
@@ -435,6 +452,7 @@ public sealed class KeyBasedBatchMessageContainerTests
         actual.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void ShouldFlush_GivenDelayElapsedSinceTheFirstMessageOfAnyKey_ShouldReturnTrue()
     {
@@ -455,6 +473,7 @@ public sealed class KeyBasedBatchMessageContainerTests
         afterDelay.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void GetRemainingPublishDelay_GivenEmptyContainer_ShouldReturnInfinite()
     {
@@ -468,6 +487,7 @@ public sealed class KeyBasedBatchMessageContainerTests
         actual.ShouldBe(Timeout.InfiniteTimeSpan);
     }
 
+    // Additional coverage
     [Fact]
     public void Items_GivenCreateBatchesNotCalled_ShouldBeEmpty()
     {
@@ -483,6 +503,7 @@ public sealed class KeyBasedBatchMessageContainerTests
         uut.IsEmpty.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void HighestSequenceId_GivenMessagesOfSeveralKeys_ShouldBeTheSequenceIdOfTheLastAddedMessage()
     {
@@ -505,6 +526,7 @@ public sealed class KeyBasedBatchMessageContainerTests
         uut.HighestSequenceId.ShouldBe(0ul);
     }
 
+    // Additional coverage
     [Fact]
     public void Clear_GivenCreatedBatches_ShouldEmptyTheContainerAndStartCleanForTheNextBatch()
     {
@@ -535,6 +557,7 @@ public sealed class KeyBasedBatchMessageContainerTests
         uut.Items.Select(item => item.Metadata.SequenceId).ShouldBeSequence(10ul, 11ul);
     }
 
+    // Additional coverage
     [Fact]
     public void Clear_GivenEmptyContainer_ShouldNotThrow()
     {
@@ -548,6 +571,7 @@ public sealed class KeyBasedBatchMessageContainerTests
         exception.ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public void CreateBatches_GivenEmptyContainer_ShouldNotAddAGroup()
     {
@@ -562,6 +586,7 @@ public sealed class KeyBasedBatchMessageContainerTests
         groups.Count.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void CreateBatches_GivenGroupsInDestination_ShouldAppendWithStartRelativeToTheItemsOfTheContainer()
     {
@@ -604,6 +629,7 @@ public sealed class KeyBasedBatchMessageContainerTests
         BatchPayloadReader.ToHex(metadata.ToByteArray()).ShouldBe(JavaKnownAnswer.KeyBasedMetadata);
     }
 
+    // Additional coverage
     [Fact]
     public void CreateBatches_GivenSecondRoundWithMoreKeysThanTheFirst_ShouldWorkWithRentedAndNewContainers()
     {

@@ -41,6 +41,7 @@ public sealed class BatchPayloadWriterTests
         BatchPayloadReader.ToHex(output.Writer.WrittenSpan.ToArray()).ShouldBe(JavaKnownAnswer.Payload);
     }
 
+    // Additional coverage
     [Fact]
     public void Write_GivenMessage_ShouldWriteBigEndianSizeThenMetadataThenPayload()
     {
@@ -60,6 +61,7 @@ public sealed class BatchPayloadWriterTests
         actual.AsSpan(4 + expectedMetadata.Length).ToArray().ShouldBe("hello"u8.ToArray());
     }
 
+    // Additional coverage
     [Fact]
     public void Write_GivenMessageWithPartitionKey_ShouldAlwaysWriteThePartitionKeyB64EncodedFlag()
     {
@@ -78,6 +80,7 @@ public sealed class BatchPayloadWriterTests
         message.Metadata.PartitionKeyB64Encoded.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void Write_GivenMessageWithoutFieldsAfterMessageWithAllFields_ShouldNotLeakFieldsOfThePreviousMessage()
     {
@@ -100,6 +103,7 @@ public sealed class BatchPayloadWriterTests
         messages[1].Payload.ShouldBe([9]);
     }
 
+    // Additional coverage
     [Fact]
     public void Write_GivenMessageWithoutSequenceId_ShouldNotWriteASequenceId()
     {
@@ -115,6 +119,7 @@ public sealed class BatchPayloadWriterTests
         BatchPayloadReader.Read(output.Writer.WrittenSpan.ToArray(), 1)[0].Metadata.HasSequenceId.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void Write_GivenMessageWithProperties_ShouldNotChangeTheProperties()
     {
@@ -133,6 +138,7 @@ public sealed class BatchPayloadWriterTests
         item.Metadata.Properties[1].Value.ShouldBe("v2");
     }
 
+    // Additional coverage
     [Fact]
     public void Write_GivenMessageLargerThanTheInitialBuffer_ShouldGrowTheBuffer()
     {

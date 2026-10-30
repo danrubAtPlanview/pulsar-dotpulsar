@@ -17,6 +17,7 @@ namespace DotPulsar.Tests;
 [Trait("Category", "Unit")]
 public sealed class TransactionOptionsTests
 {
+    // Additional coverage
     [Fact]
     public void Constructor_ShouldSetTimeoutToDefaultTimeout()
     {
@@ -27,6 +28,7 @@ public sealed class TransactionOptionsTests
         uut.Timeout.ShouldBe(TransactionOptions.DefaultTimeout);
     }
 
+    // Additional coverage
     [Fact]
     public void DefaultTimeout_ShouldBeOneMinute()
     {

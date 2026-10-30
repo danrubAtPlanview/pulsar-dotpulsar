@@ -99,6 +99,7 @@ public sealed class ConnectionPoolTests : IDisposable
         }
     }
 
+    // Additional coverage
     [Fact]
     public async Task FindConnectionForTopic_GivenBrokerSupportsVersion19_ShouldNegotiateProtocolVersion19()
     {

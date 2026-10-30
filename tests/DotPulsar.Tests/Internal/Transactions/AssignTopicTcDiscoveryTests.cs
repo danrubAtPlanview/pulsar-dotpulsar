@@ -43,6 +43,7 @@ public sealed class AssignTopicTcDiscoveryTests
         await pool.DidNotReceive().FindConnectionForTopic(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
+    // Additional coverage
     [Fact]
     public async Task Start_GivenSixteenPartitions_ShouldCreateHandlerPerPartitionWithAssignTopicNames()
     {
@@ -64,6 +65,7 @@ public sealed class AssignTopicTcDiscoveryTests
         uut.Handlers.ShouldBe(factory.Handlers);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Start_GivenNoHandlerFactory_ShouldCreateTransactionMetaStoreHandlers()
     {
@@ -80,6 +82,7 @@ public sealed class AssignTopicTcDiscoveryTests
         coordinator.ConnectRequests.Select(request => request.TcId).Order().ShouldBe([0UL, 1UL]);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Start_GivenHandlersNotConnected_ShouldWaitForEveryHandler()
     {
@@ -99,6 +102,7 @@ public sealed class AssignTopicTcDiscoveryTests
         isCompletedBeforeLastHandlerIsConnected.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Start_GivenHandlerConnectFails_ShouldThrow()
     {
@@ -114,6 +118,7 @@ public sealed class AssignTopicTcDiscoveryTests
         exception.ShouldBeSameAs(error);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Start_GivenCancellationWhileWaitingForHandlers_ShouldThrowOperationCanceledException()
     {
@@ -148,6 +153,7 @@ public sealed class AssignTopicTcDiscoveryTests
             handlers[i].ShouldBeSameAs(factory.Handlers[(i + 1) % 16]);
     }
 
+    // Additional coverage
     [Fact]
     public async Task NextHandler_GivenOneHandler_ShouldAlwaysReturnIt()
     {
@@ -163,6 +169,7 @@ public sealed class AssignTopicTcDiscoveryTests
         handlers.ShouldAllBe(handler => ReferenceEquals(handler, factory.Handlers[0]));
     }
 
+    // Additional coverage
     [Fact]
     public async Task NextHandler_GivenNotStarted_ShouldReturnNull()
     {
@@ -176,6 +183,7 @@ public sealed class AssignTopicTcDiscoveryTests
         handler.ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public async Task NextHandler_GivenConcurrentCallers_ShouldDistributeEvenly()
     {
@@ -208,6 +216,7 @@ public sealed class AssignTopicTcDiscoveryTests
         handler.ShouldBeSameAs(factory.Handlers[2]);
     }
 
+    // Additional coverage
     [Fact]
     public async Task HandlerForCoordinator_GivenUnknownId_ShouldReturnNull()
     {
@@ -225,6 +234,7 @@ public sealed class AssignTopicTcDiscoveryTests
         maxHandler.ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public async Task HandlerForCoordinator_GivenNotStarted_ShouldReturnNull()
     {
@@ -259,6 +269,7 @@ public sealed class AssignTopicTcDiscoveryTests
         uut.HandlerForCoordinator(0).ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public async Task DisposeAsync_GivenHandlerThatFailsToDispose_ShouldStillDisposeTheOtherHandlers()
     {
@@ -277,6 +288,7 @@ public sealed class AssignTopicTcDiscoveryTests
         await factory.Handlers[2].Received(1).DisposeAsync();
     }
 
+    // Additional coverage
     [Fact]
     public async Task DisposeAsync_GivenStartFailed_ShouldDisposeTheHandlersThatWereCreated()
     {
@@ -294,6 +306,7 @@ public sealed class AssignTopicTcDiscoveryTests
             await handler.Received(1).DisposeAsync();
     }
 
+    // Additional coverage
     [Fact]
     public async Task DisposeAsync_GivenCalledTwice_ShouldDisposeHandlersOnce()
     {

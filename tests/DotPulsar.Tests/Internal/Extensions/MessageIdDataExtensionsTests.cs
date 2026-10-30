@@ -20,6 +20,7 @@ using DotPulsar.Internal.PulsarApi;
 [Trait("Category", "Unit")]
 public sealed class MessageIdDataExtensionsTests
 {
+    // Additional coverage
     [Fact]
     public void MapFrom_GivenMessageId_ShouldCopyTheIdentifiers()
     {
@@ -36,6 +37,7 @@ public sealed class MessageIdDataExtensionsTests
         uut.BatchIndex.ShouldBe(4);
     }
 
+    // Additional coverage
     [Fact]
     public void MapFrom_GivenPooledInstanceWithAckSet_ShouldResetAckSetAndBatchSize()
     {

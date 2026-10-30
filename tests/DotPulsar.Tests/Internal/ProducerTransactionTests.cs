@@ -28,6 +28,7 @@ public sealed class ProducerTransactionTests
     private const string _topic = "persistent://public/default/test";
     private static readonly TimeSpan _timeout = TimeSpan.FromSeconds(10);
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenTransactionNotOpen_ShouldThrowInvalidTransactionStatusExceptionAndNotEnqueue()
     {
@@ -49,6 +50,7 @@ public sealed class ProducerTransactionTests
         await tcClient.DidNotReceive().AddPublishPartitionToTxn(Arg.Any<TransactionId>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenForeignITransaction_ShouldThrowArgumentException()
     {
@@ -67,6 +69,7 @@ public sealed class ProducerTransactionTests
         connection.Sent.ShouldBeEmpty();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenFirstTransactionalSendThenPlainSend_ShouldWriteInCallOrder()
     {
@@ -93,6 +96,7 @@ public sealed class ProducerTransactionTests
         sent[0].SequenceId.ShouldBeLessThan(sent[1].SequenceId);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenRegistrationFails_ShouldFailOnlyThatMessageAndContinue()
     {
@@ -119,6 +123,7 @@ public sealed class ProducerTransactionTests
         transaction.CurrentState.ShouldBe(TransactionState.Aborted);
     }
 
+    // Additional coverage
     [Fact]
     public async Task SendChannel_GivenTransactionalSend_ShouldRegisterOpBeforeReturning()
     {
@@ -145,6 +150,7 @@ public sealed class ProducerTransactionTests
         transaction.CurrentState.ShouldBe(TransactionState.Committed);
     }
 
+    // Additional coverage
     [Fact]
     public async Task SendChannel_GivenCommitStartedBeforeProducerIsConnected_ShouldFailTheCommitBecauseTheSendCanNoLongerBeRegistered()
     {
@@ -171,6 +177,7 @@ public sealed class ProducerTransactionTests
         transaction.CurrentState.ShouldBe(TransactionState.Aborted);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenSamePartitionTwice_ShouldRegisterPartitionOnce()
     {
@@ -189,6 +196,7 @@ public sealed class ProducerTransactionTests
         connection.Sent.Count.ShouldBe(2);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenPartitionedTopic_ShouldRegisterEachPartitionOnce()
     {
@@ -210,6 +218,7 @@ public sealed class ProducerTransactionTests
         connection.Sent.Count.ShouldBe(6);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenSendCancelledWhileQueueIsFull_ShouldFailTheOperationOfTheTransaction()
     {
@@ -238,6 +247,7 @@ public sealed class ProducerTransactionTests
         await Should.ThrowAsync<TransactionHasOperationFailedException>(transaction.Commit(Current.CancellationToken).AsTask().WaitAsync(_timeout, Current.CancellationToken));
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenTransactionalMessageThenPlainMessage_ShouldNotLeakTransactionIdsIntoThePlainMessage()
     {
@@ -263,6 +273,7 @@ public sealed class ProducerTransactionTests
         sent[2].MetadataIsTransactional.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenTransactionalMessage_ShouldSendTheIdsOfTheTransaction()
     {
@@ -282,6 +293,7 @@ public sealed class ProducerTransactionTests
         sent.MetadataTxnidLeastBits.ShouldBe(5UL);
     }
 
+    // Additional coverage
     [Fact]
     public async Task CreateProducer_GivenClientWithTransactions_ShouldSetTxnEnabled()
     {
@@ -299,6 +311,7 @@ public sealed class ProducerTransactionTests
         command.TxnEnabled.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public async Task CreateProducer_GivenClientWithoutTransactions_ShouldNotSetTxnEnabled()
     {

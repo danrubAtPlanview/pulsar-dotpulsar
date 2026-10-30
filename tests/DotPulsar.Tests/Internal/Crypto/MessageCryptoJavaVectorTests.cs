@@ -24,6 +24,7 @@ using System.Buffers;
 [Trait("Category", "Unit")]
 public sealed class MessageCryptoJavaVectorTests
 {
+    // Additional coverage
     [Theory]
     [MemberData(nameof(JavaCryptoVectors.All), MemberType = typeof(JavaCryptoVectors))]
     public void TryDecrypt_GivenMessageEncryptedByTheJavaClient_ShouldReturnThePlaintext(string keySet, string wrappedKey, string iv, string ciphertext, string plaintext)
@@ -44,6 +45,7 @@ public sealed class MessageCryptoJavaVectorTests
         Convert.ToHexString(decrypted.ToArray()).ToLowerInvariant().ShouldBe(plaintext);
     }
 
+    // Additional coverage
     [Fact]
     public void TryDecrypt_GivenAllMessagesOfTheJavaClientInOrder_ShouldOnlyCallTheKeyReaderOncePerDataKey()
     {

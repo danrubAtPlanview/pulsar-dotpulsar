@@ -297,6 +297,7 @@ public sealed class NegativeAcknowledgeTests : IDisposable
         receivedMessages.Count.ShouldBe(10, $"invocation {invocation}");
     }
 
+    // Additional coverage
     [Fact]
     public async Task NegativeAcknowledge_GivenMessageId_ShouldRedeliverAfterTheDelayAndNotBefore()
     {

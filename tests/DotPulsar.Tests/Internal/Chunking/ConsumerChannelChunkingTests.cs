@@ -56,6 +56,7 @@ public sealed class ConsumerChannelChunkingTests
         uut.Assembler.PendingCount.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact(Timeout = 30_000)]
     public async Task Receive_GivenChunkedMessage_ShouldDeliverTheMetadataOfTheLastChunk()
     {
@@ -156,6 +157,7 @@ public sealed class ConsumerChannelChunkingTests
         AcknowledgedEntries(uut).ShouldBeSequence(10UL);
     }
 
+    // Additional coverage
     [Fact(Timeout = 30_000)]
     public async Task Receive_GivenChunkWithoutItsFirstChunkAndAckTimeout_ShouldTrackTheChunkAndNotAcknowledgeIt()
     {
@@ -174,6 +176,7 @@ public sealed class ConsumerChannelChunkingTests
         uut.Acks.ShouldBeEmpty();
     }
 
+    // Additional coverage
     [Fact(Timeout = 30_000)]
     public async Task Receive_GivenChunkWithoutItsFirstChunkThatIsOlderThanTheExpireTime_ShouldAcknowledgeTheChunkAndNotTrackIt()
     {
@@ -234,6 +237,7 @@ public sealed class ConsumerChannelChunkingTests
         tracker.Count.ShouldBe(2);
     }
 
+    // Additional coverage
     [Fact(Timeout = 30_000)]
     public async Task Receive_GivenChunkThatIsDroppedAndNoAckTimeout_ShouldNotFail()
     {
@@ -250,6 +254,7 @@ public sealed class ConsumerChannelChunkingTests
         uut.Acks.ShouldBeEmpty();
     }
 
+    // Additional coverage
     [Fact(Timeout = 30_000)]
     public async Task Receive_GivenCompressedChunkedMessage_ShouldDecompressTheAssembledPayloadOnceUsingTheMetadataOfTheLastChunk()
     {
@@ -296,6 +301,7 @@ public sealed class ConsumerChannelChunkingTests
     }
 
     // The channel asks for more permits when it has counted as many entries as the last request gave. The first request is counted as half of its permits.
+    // Additional coverage
     [Fact(Timeout = 30_000)]
     public async Task Receive_GivenChunks_ShouldCountEveryChunkEntryAsOnePermit()
     {
@@ -362,6 +368,7 @@ public sealed class ConsumerChannelChunkingTests
         uut.Assembler.PendingCount.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact(Timeout = 30_000)]
     public async Task Send_GivenIndividualAcknowledgmentOfAllChunksOfATrackedMessage_ShouldNoLongerWaitForTheMessage()
     {
@@ -405,6 +412,7 @@ public sealed class ConsumerChannelChunkingTests
         deadLetterHandler.Contains(Ledger, 11).ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact(Timeout = 30_000)]
     public async Task Receive_GivenMessageThatIsNotChunked_ShouldDeliverAnIdWithoutChunks()
     {
@@ -420,6 +428,7 @@ public sealed class ConsumerChannelChunkingTests
         actual.MessageId.GetChunkMessageIds().ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact(Timeout = 30_000)]
     public async Task Receive_GivenBatchThatClaimsToBeChunked_ShouldUnbatchItAndNotAssembleIt()
     {

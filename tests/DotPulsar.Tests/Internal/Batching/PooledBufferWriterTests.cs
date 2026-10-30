@@ -19,6 +19,7 @@ using DotPulsar.Internal.Batching;
 [Trait("Category", "Unit")]
 public sealed class PooledBufferWriterTests
 {
+    // Additional coverage
     [Fact]
     public void WrittenMemory_GivenNothingWritten_ShouldBeEmpty()
     {
@@ -35,6 +36,7 @@ public sealed class PooledBufferWriterTests
         uut.Capacity.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void GetSpan_GivenNothingWritten_ShouldReturnSpanWithAtLeastTheSizeHint()
     {
@@ -51,6 +53,7 @@ public sealed class PooledBufferWriterTests
         uut.Reset();
     }
 
+    // Additional coverage
     [Fact]
     public void GetSpan_GivenSizeHintZero_ShouldReturnNonEmptySpan()
     {
@@ -67,6 +70,7 @@ public sealed class PooledBufferWriterTests
         uut.Reset();
     }
 
+    // Additional coverage
     [Fact]
     public void GetSpan_GivenSizeLargerThanTheFreeSpace_ShouldGrowAndKeepTheWrittenBytes()
     {
@@ -95,6 +99,7 @@ public sealed class PooledBufferWriterTests
         uut.Reset();
     }
 
+    // Additional coverage
     [Fact]
     public void GetMemory_GivenBytesWritten_ShouldReturnMemoryAfterTheWrittenBytes()
     {
@@ -115,6 +120,7 @@ public sealed class PooledBufferWriterTests
         uut.Reset();
     }
 
+    // Additional coverage
     [Fact]
     public void Advance_GivenCountBeyondTheArray_ShouldThrow()
     {
@@ -132,6 +138,7 @@ public sealed class PooledBufferWriterTests
         uut.Reset();
     }
 
+    // Additional coverage
     [Fact]
     public void Advance_GivenNegativeCount_ShouldThrow()
     {
@@ -145,6 +152,7 @@ public sealed class PooledBufferWriterTests
         exception.ShouldBeOfType<ArgumentOutOfRangeException>();
     }
 
+    // Additional coverage
     [Fact]
     public void Advance_GivenZeroAndNoArray_ShouldNotThrow()
     {
@@ -158,6 +166,7 @@ public sealed class PooledBufferWriterTests
         exception.ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public void GetSpan_GivenNegativeSizeHint_ShouldThrow()
     {
@@ -171,6 +180,7 @@ public sealed class PooledBufferWriterTests
         exception.ShouldBeOfType<ArgumentOutOfRangeException>();
     }
 
+    // Additional coverage
     [Fact]
     public void Initialize_GivenAlreadyInitialized_ShouldKeepTheWrittenBytes()
     {
@@ -191,6 +201,7 @@ public sealed class PooledBufferWriterTests
         uut.Reset();
     }
 
+    // Additional coverage
     [Fact]
     public void Reset_GivenWrittenBytes_ShouldReleaseTheArrayAndAllowReuse()
     {

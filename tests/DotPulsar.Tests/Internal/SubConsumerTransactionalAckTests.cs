@@ -51,6 +51,7 @@ public sealed class SubConsumerTransactionalAckTests
         RegistrationFails
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenTransactionAndTransactionalAckAfterBatchMessage_ShouldNotCarryTheAckSetOrTheBatchSizeOfTheBatchMessage()
     {
@@ -78,6 +79,7 @@ public sealed class SubConsumerTransactionalAckTests
         sent[1].MessageId[0].FirstChunkMessageId.ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenTransactionAndMessageIdWithBatchSizeAfterOneWithout_ShouldSendTheBatchSizeOnlyWithTheSecond()
     {
@@ -96,6 +98,7 @@ public sealed class SubConsumerTransactionalAckTests
         sent.ShouldBe([(-1, false, 0), (3, true, 5), (-1, false, 0)]);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenTransactionalAcksOneAfterTheOther_ShouldReuseTheCommandAndItsMessageId()
     {
@@ -124,6 +127,7 @@ public sealed class SubConsumerTransactionalAckTests
         commands[2].MessageId.Count.ShouldBe(1);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenTransactionalAcksOfDifferentTypesOneAfterTheOther_ShouldSendEveryAckWithItsOwnTypeAndMessageId()
     {
@@ -147,6 +151,7 @@ public sealed class SubConsumerTransactionalAckTests
     }
 
     // The connection assigns the request id of a command that asks for a receipt, and a command that is pooled keeps it
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenTransactionAfterAckThatAskedForReceipt_ShouldNotSendTheRequestIdOfTheAckBefore()
     {
@@ -165,6 +170,7 @@ public sealed class SubConsumerTransactionalAckTests
         requestIds.ShouldBe([false]);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenPlainAckAfterTransactionalAck_ShouldNotCarryTheTransactionOrTheMessageIdOfTheTransactionalAck()
     {
@@ -191,6 +197,7 @@ public sealed class SubConsumerTransactionalAckTests
         sent.ShouldBe([(false, false, 3UL, 0, false)]);
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(Failure.SendFails)]
     [InlineData(Failure.ConnectionLost)]
@@ -257,6 +264,7 @@ public sealed class SubConsumerTransactionalAckTests
     }
 
     // The acknowledgment is an operation of the transaction that begins and ends in the acknowledgment itself (and not in a continuation of its task)
+    // Additional coverage
     [Theory]
     [InlineData(null, true)]
     [InlineData(ServerError.TransactionConflict, false)]
@@ -288,6 +296,7 @@ public sealed class SubConsumerTransactionalAckTests
         }
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenTransactionAndDisposedConsumer_ShouldThrowConsumerDisposedExceptionAndGiveTheCommandBackWithoutSending()
     {
@@ -307,6 +316,7 @@ public sealed class SubConsumerTransactionalAckTests
         pool.Outstanding.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenTransactionAndFaultedConsumer_ShouldThrowTheFaultAndGiveTheCommandBackWithoutSending()
     {
@@ -327,6 +337,7 @@ public sealed class SubConsumerTransactionalAckTests
         pool.Outstanding.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenTransactionAndConnectionLostWhileWaiting_ShouldRetryWithTheSameCommandAndGiveItBackOnce()
     {
@@ -348,6 +359,7 @@ public sealed class SubConsumerTransactionalAckTests
         pool.Returns.ShouldBe(1);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenTransactionAndReceiptThatHasNotArrived_ShouldKeepTheCommandUntilTheAcknowledgmentHasEnded()
     {
@@ -394,6 +406,7 @@ public sealed class SubConsumerTransactionalAckTests
     }
 
     // The acknowledgments of a list of message ids, which can have any size, do not use the pool
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenTransactionAndSeveralMessageIds_ShouldNotUseThePool()
     {
@@ -411,6 +424,7 @@ public sealed class SubConsumerTransactionalAckTests
         pool.Returns.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenTransactionThatIsNotOpen_ShouldNotTakeACommandFromThePool()
     {
@@ -433,6 +447,7 @@ public sealed class SubConsumerTransactionalAckTests
     // The spec allows what the transaction adds to be as much as a continuation (64-112 B), and it was 536 B with a new command for every acknowledgment. It is 8 B now
     // (the closure of the executor of a transactional acknowledgment is a little bigger than the one of a plain acknowledgment), and every allocation that can come back
     // is bigger than the 32 B that this allows: the command (152 B), its message id (104 B), the array of its ack set (88 B), a result task (72 B) and a closure (48 B).
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenTransaction_ShouldAllocateAtMostOneContinuationMoreThanAcknowledgmentThatWaitsForReceipt()
     {
@@ -451,6 +466,7 @@ public sealed class SubConsumerTransactionalAckTests
         (transactional - receipt).ShouldBeLessThanOrEqualTo(32);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenTransactionAndBatchMessage_ShouldAllocateAtMostOneContinuationMoreThanAcknowledgmentThatWaitsForReceipt()
     {
@@ -470,6 +486,7 @@ public sealed class SubConsumerTransactionalAckTests
         (transactional - receipt).ShouldBeLessThanOrEqualTo(32);
     }
 
+    // Additional coverage
     [Fact]
     public async Task AcknowledgeCumulative_GivenTransaction_ShouldAllocateAtMostOneContinuationMoreThanAcknowledgmentThatWaitsForReceipt()
     {
@@ -491,6 +508,7 @@ public sealed class SubConsumerTransactionalAckTests
     // The receipt of a broker arrives on another thread, so the acknowledgment has to wait for it, and every async method that waits allocates its state machine.
     // What the transaction may add is the continuation that tells the transaction that the acknowledgment has ended (64-112 B, if it were needed). It is 0-30 B (it is not needed any more,
     // and the numbers of this test change by that much from run to run). It was 972 B with a command for every acknowledgment, a continuation, and an async method for the transaction.
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenTransactionAndReceiptOnThreadPool_ShouldAllocateAtMostOneContinuationMoreThanAcknowledgmentThatWaitsForReceipt()
     {
@@ -510,6 +528,7 @@ public sealed class SubConsumerTransactionalAckTests
         difference.ShouldBeLessThanOrEqualTo(64);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenTransactionAndBatchMessageAndReceiptOnThreadPool_ShouldAllocateAtMostOneContinuationMoreThanAcknowledgmentThatWaitsForReceipt()
     {

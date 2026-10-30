@@ -27,6 +27,7 @@ public sealed class PemKeyLoaderTests
     private static void SkipWhenExplicitCurvesAreNotSupported()
         => Assert.SkipWhen(OperatingSystem.IsMacOS(), "The platform does not support importing keys with explicit curve parameters");
 
+    // Additional coverage
     [Theory]
     [InlineData(CryptoTestKeys.ClientRsaPublic)]
     [InlineData(CryptoTestKeys.ClientRsaPkcs8Public)]
@@ -41,6 +42,7 @@ public sealed class PemKeyLoaderTests
         rsa.KeySize.ShouldBe(2048);
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(CryptoTestKeys.ClientRsaPrivate)]
     [InlineData(CryptoTestKeys.ClientRsaPkcs8Private)]
@@ -56,6 +58,7 @@ public sealed class PemKeyLoaderTests
         rsa.ExportParameters(true).D.ShouldNotBeNull();
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(CryptoTestKeys.ClientEcdsaPublic, 128)]
     [InlineData(CryptoTestKeys.CryptoEcdsaPublic, 521)]
@@ -72,6 +75,7 @@ public sealed class PemKeyLoaderTests
         ec.KeySize.ShouldBe(keySize);
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(CryptoTestKeys.ClientEcdsaPrivate, 128)]
     [InlineData(CryptoTestKeys.CryptoEcdsaPrivate, 521)]
@@ -90,6 +94,7 @@ public sealed class PemKeyLoaderTests
     }
 
     // The upstream file 'private-key.client-mismatch-rsa.pem' is a secp521r1 key (with explicit parameters) and not an RSA key. That is what makes it a mismatch for the RSA public keys.
+    // Additional coverage
     [Fact]
     public void LoadPrivateKey_GivenClientMismatchRsaPrivate_ShouldReturnEcDh()
     {
@@ -103,6 +108,7 @@ public sealed class PemKeyLoaderTests
         actual.ShouldBeAssignableTo<ECDiffieHellman>().KeySize.ShouldBe(521);
     }
 
+    // Additional coverage
     [Fact]
     public void LoadPublicKey_GivenEcExplicitParametersPublicAndPrivate_ShouldReturnMatchingKeys()
     {
@@ -120,6 +126,7 @@ public sealed class PemKeyLoaderTests
         actual.Y.ShouldBe(expected.Y);
     }
 
+    // Additional coverage
     [Fact]
     public void LoadPrivateKey_GivenEcPrivateKeyWithLeadingEcParametersBlock_ShouldSkipTheBlock()
     {
@@ -134,6 +141,7 @@ public sealed class PemKeyLoaderTests
         actual.ShouldBeAssignableTo<ECDiffieHellman>().ExportParameters(true).D.ShouldBe(key.ExportParameters(true).D);
     }
 
+    // Additional coverage
     [Fact]
     public void LoadPublicKey_GivenSpkiWithLeadingEcParametersBlock_ShouldSkipTheBlock()
     {
@@ -148,6 +156,7 @@ public sealed class PemKeyLoaderTests
         actual.ShouldBeAssignableTo<ECDiffieHellman>().ExportParameters(false).Q.X.ShouldBe(key.ExportParameters(false).Q.X);
     }
 
+    // Additional coverage
     [Fact]
     public void LoadPrivateKey_GivenPkcs8EcKey_ShouldReturnEcDh()
     {
@@ -161,6 +170,7 @@ public sealed class PemKeyLoaderTests
         actual.ShouldBeAssignableTo<ECDiffieHellman>().ExportParameters(true).D.ShouldBe(key.ExportParameters(true).D);
     }
 
+    // Additional coverage
     [Fact]
     public void LoadPublicKey_GivenRsaPublicKeyPem_ShouldReturnRsa()
     {
@@ -174,6 +184,7 @@ public sealed class PemKeyLoaderTests
         actual.ShouldBeAssignableTo<RSA>().ExportParameters(false).Modulus.ShouldBe(key.ExportParameters(false).Modulus);
     }
 
+    // Additional coverage
     [Fact]
     public void LoadPublicKey_GivenRsaCertificate_ShouldReturnRsa()
     {
@@ -189,6 +200,7 @@ public sealed class PemKeyLoaderTests
         actual.ShouldBeAssignableTo<RSA>().ExportParameters(false).Modulus.ShouldBe(key.ExportParameters(false).Modulus);
     }
 
+    // Additional coverage
     [Fact]
     public void LoadPublicKey_GivenEcCertificate_ShouldReturnEcDh()
     {
@@ -204,6 +216,7 @@ public sealed class PemKeyLoaderTests
         actual.ShouldBeAssignableTo<ECDiffieHellman>().ExportParameters(false).Q.X.ShouldBe(key.ExportParameters(false).Q.X);
     }
 
+    // Additional coverage
     [Fact]
     public void LoadPublicKey_GivenCertificateWithoutVersion_ShouldReturnRsa()
     {
@@ -226,6 +239,7 @@ public sealed class PemKeyLoaderTests
         actual.ShouldBeAssignableTo<RSA>().ExportParameters(false).Modulus.ShouldBe(key.ExportParameters(false).Modulus);
     }
 
+    // Additional coverage
     [Fact]
     public void LoadPublicKey_GivenWindowsLineEndingsAndLeadingWhitespace_ShouldReturnRsa()
     {
@@ -239,6 +253,7 @@ public sealed class PemKeyLoaderTests
         actual.ShouldBeAssignableTo<RSA>();
     }
 
+    // Additional coverage
     [Fact]
     public void LoadPublicKey_GivenPrivateKey_ShouldThrow()
     {
@@ -249,6 +264,7 @@ public sealed class PemKeyLoaderTests
         exception.ShouldBeOfType<CryptographicException>().Message.ShouldContain("RSA PRIVATE KEY");
     }
 
+    // Additional coverage
     [Fact]
     public void LoadPrivateKey_GivenPublicKey_ShouldThrow()
     {
@@ -259,6 +275,7 @@ public sealed class PemKeyLoaderTests
         exception.ShouldBeOfType<CryptographicException>().Message.ShouldContain("PUBLIC KEY");
     }
 
+    // Additional coverage
     [Theory]
     [InlineData("")]
     [InlineData("not a pem file")]
@@ -274,6 +291,7 @@ public sealed class PemKeyLoaderTests
         exception.ShouldBeOfType<CryptographicException>().Message.ShouldContain("No PEM block");
     }
 
+    // Additional coverage
     [Fact]
     public void LoadPublicKey_GivenInvalidBase64_ShouldThrow()
     {
@@ -284,6 +302,7 @@ public sealed class PemKeyLoaderTests
         exception.ShouldBeOfType<CryptographicException>().Message.ShouldContain("base64");
     }
 
+    // Additional coverage
     [Fact]
     public void LoadPrivateKey_GivenEncryptedPem_ShouldThrow()
     {
@@ -297,6 +316,7 @@ public sealed class PemKeyLoaderTests
         exception.ShouldBeOfType<CryptographicException>().Message.ShouldContain("encrypted");
     }
 
+    // Additional coverage
     [Theory]
     [InlineData("MIIB")]
     [InlineData("MAA=")]
@@ -310,6 +330,7 @@ public sealed class PemKeyLoaderTests
         exception.ShouldBeAssignableTo<CryptographicException>();
     }
 
+    // Additional coverage
     [Fact]
     public void LoadPublicKey_GivenUnsupportedAlgorithm_ShouldThrow()
     {
@@ -324,6 +345,7 @@ public sealed class PemKeyLoaderTests
         exception.ShouldBeOfType<CryptographicException>().Message.ShouldContain("2B6570");
     }
 
+    // Additional coverage
     [Fact]
     public void LoadPrivateKey_GivenUnsupportedPemType_ShouldThrow()
     {

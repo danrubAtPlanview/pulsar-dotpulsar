@@ -17,6 +17,7 @@ namespace DotPulsar.Tests;
 [Trait("Category", "Unit")]
 public sealed class TransactionIdTests
 {
+    // Additional coverage
     [Fact]
     public void Constructor_GivenMostAndLeast_ShouldStoreBothValues()
     {
@@ -28,6 +29,7 @@ public sealed class TransactionIdTests
         uut.LeastSigBits.ShouldBe(5UL);
     }
 
+    // Additional coverage
     [Fact]
     public void ToString_GivenMostAndLeast_ShouldFormatLikeUpstream()
     {
@@ -41,6 +43,7 @@ public sealed class TransactionIdTests
         actual.ShouldBe("(1,5)");
     }
 
+    // Additional coverage
     [Fact]
     public void ToString_GivenMaxValues_ShouldFormatAsUnsigned()
     {
@@ -54,6 +57,7 @@ public sealed class TransactionIdTests
         actual.ShouldBe("(18446744073709551615,18446744073709551615)");
     }
 
+    // Additional coverage
     [Fact]
     public void Default_ShouldBeZeroZero()
     {
@@ -65,6 +69,7 @@ public sealed class TransactionIdTests
         uut.ShouldBe(new TransactionId(0, 0));
     }
 
+    // Additional coverage
     [Fact]
     public void Equals_GivenSameBits_ShouldBeEqual()
     {
@@ -80,6 +85,7 @@ public sealed class TransactionIdTests
         uut.GetHashCode().ShouldBe(other.GetHashCode());
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(2, 5)]
     [InlineData(1, 6)]
@@ -98,6 +104,7 @@ public sealed class TransactionIdTests
         (uut != other).ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void Equals_GivenOtherType_ShouldNotBeEqual()
     {

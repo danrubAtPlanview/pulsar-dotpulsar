@@ -29,6 +29,7 @@ public sealed class ProducerSendTimeoutTests
     private static readonly TimeSpan _timeout = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan _sendTimeout = TimeSpan.FromMilliseconds(300);
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenNoReceiptWithinSendTimeout_ShouldThrowOperationTimeoutException()
     {
@@ -45,6 +46,7 @@ public sealed class ProducerSendTimeoutTests
         producer.State.IsFinalState().ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenEarlierSendTimedOut_ShouldKeepProducerConnectedAndIgnoreTheLateReceipt()
     {
@@ -65,6 +67,7 @@ public sealed class ProducerSendTimeoutTests
         connection.CommandProducers.ShouldHaveSingleItem("the producer did not reconnect");
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenBatchingAndNoReceiptWithinSendTimeout_ShouldFailEveryMessageOfTheBatch()
     {
@@ -83,6 +86,7 @@ public sealed class ProducerSendTimeoutTests
         connection.Sent.ShouldHaveSingleItem().NumMessagesInBatch.ShouldBe(3);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Commit_GivenTransactionalSendThatTimedOut_ShouldAbortTheTransaction()
     {
@@ -103,6 +107,7 @@ public sealed class ProducerSendTimeoutTests
         transaction.CurrentState.ShouldBe(TransactionState.Aborted);
     }
 
+    // Additional coverage
     [Fact]
     public async Task SendChannel_GivenNoReceiptWithinSendTimeout_ShouldNotCallTheCallbackAndCompleteTheChannel()
     {

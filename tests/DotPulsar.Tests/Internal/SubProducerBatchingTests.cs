@@ -30,6 +30,7 @@ public sealed class SubProducerBatchingTests
     private static readonly TimeSpan _timeout = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan _longDelay = TimeSpan.FromHours(1);
 
+    // Additional coverage
     [Fact]
     public async Task Dispatcher_GivenBatchingMaxMessages3AndSixMessages_ShouldSendTwoEntries()
     {
@@ -50,6 +51,7 @@ public sealed class SubProducerBatchingTests
         entries.ShouldAllBe(entry => entry.IsBatch && entry.NumberOfMessages == 3);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Dispatcher_GivenBatch_ShouldSetSequenceIdToTheLowestAndHighestSequenceIdToTheLastAndNumMessagesInBatch()
     {
@@ -69,6 +71,7 @@ public sealed class SubProducerBatchingTests
         entry.Metadata.NumMessagesInBatch.ShouldBe(4);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Dispatcher_GivenSlowProducer_ShouldSendAfterBatchingMaxPublishDelay()
     {
@@ -87,6 +90,7 @@ public sealed class SubProducerBatchingTests
         channel.Entries.ShouldHaveSingleItem().NumberOfMessages.ShouldBe(2);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Dispatcher_GivenBatchOfThree_ShouldCompleteEachMessageWithBatchIndex()
     {
@@ -105,6 +109,7 @@ public sealed class SubProducerBatchingTests
         messageIds.ShouldAllBe(messageId => messageId.LedgerId == 1 && messageId.EntryId == messageIds[0].EntryId && messageId.Partition == 4 && messageId.Topic == _topic);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Dispatcher_GivenSingleMessageBatch_ShouldSendItAsItIsAndCompleteWithReceiptBatchIndex()
     {
@@ -125,6 +130,7 @@ public sealed class SubProducerBatchingTests
         messageId.BatchIndex.ShouldBe(7);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Dispatcher_GivenTransactionalThenPlainMessage_ShouldSendTwoEntries()
     {
@@ -148,6 +154,7 @@ public sealed class SubProducerBatchingTests
         entries[1].Metadata.HasTxnidMostBits.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Dispatcher_GivenPlainThenTransactionalMessage_ShouldSendTwoEntries()
     {
@@ -169,6 +176,7 @@ public sealed class SubProducerBatchingTests
         entries[1].Metadata.HasTxnidLeastBits.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Dispatcher_GivenMessagesOfTwoTransactions_ShouldSendTwoEntries()
     {
@@ -191,6 +199,7 @@ public sealed class SubProducerBatchingTests
         entries[1].Metadata.TxnidLeastBits.ShouldBe(14UL);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Dispatcher_GivenMessagesOfTheSameTransaction_ShouldSendOneBatchWithTheTransactionIds()
     {
@@ -211,6 +220,7 @@ public sealed class SubProducerBatchingTests
         entry.Metadata.TxnidLeastBits.ShouldBe(13UL);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Dispatcher_GivenDeliverAtTimeMessageBetweenMessages_ShouldSendItAlone()
     {
@@ -234,6 +244,7 @@ public sealed class SubProducerBatchingTests
         entries[2].MessageSequenceIds.ShouldBe([4UL, 5UL]);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Dispatcher_GivenCancelledMessageBeforeGrouping_ShouldNotSendIt()
     {
@@ -254,6 +265,7 @@ public sealed class SubProducerBatchingTests
         cancelledOp.ReceiptTcs.Task.IsCanceled.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Dispatcher_GivenCancelledFirstMessage_ShouldNotSendItAndBatchTheOthers()
     {
@@ -273,6 +285,7 @@ public sealed class SubProducerBatchingTests
         channel.Entries.ShouldHaveSingleItem().MessageSequenceIds.ShouldBe([2UL, 3UL]);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Dispatcher_GivenCancelledMessageAfterGrouping_ShouldStillSendIt()
     {
@@ -292,6 +305,7 @@ public sealed class SubProducerBatchingTests
         channel.Entries[1].MessageSequenceIds.ShouldBe([1UL, 2UL, 3UL]);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Dispatcher_GivenReconnect_ShouldResendIdenticalBatches()
     {
@@ -316,6 +330,7 @@ public sealed class SubProducerBatchingTests
         entries[3].Payload.ShouldBe(entries[1].Payload);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Dispatcher_GivenReconnectWhileBatchIsOpen_ShouldPutTheMessagesInBatchesAgain()
     {
@@ -336,6 +351,7 @@ public sealed class SubProducerBatchingTests
         channel.Entries.ShouldHaveSingleItem().MessageSequenceIds.ShouldBe([1UL, 2UL, 3UL]);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Dispatcher_GivenExplicitSequenceIdLowerThanLastPushed_ShouldSendItInItsOwnEntry()
     {
@@ -357,6 +373,7 @@ public sealed class SubProducerBatchingTests
         entries[2].MessageSequenceIds.ShouldBe([12UL, 13UL]);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Dispatcher_GivenKeyBased_ShouldReorderQueueAndMatchReceiptsInSendOrder()
     {
@@ -387,6 +404,7 @@ public sealed class SubProducerBatchingTests
         messageIds[1].EntryId.ShouldNotBe(messageIds[0].EntryId);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Dispatcher_GivenKeyBasedAndReconnect_ShouldResendTheBatchesInTheSameOrder()
     {
@@ -410,6 +428,7 @@ public sealed class SubProducerBatchingTests
         entries[3].Payload.ShouldBe(entries[1].Payload);
     }
 
+    // Additional coverage
     [Fact]
     public async Task ResponseProcessor_GivenNotAllowedSendErrorForBatch_ShouldFailAllMessagesOfBatchAndKeepProducerConnected()
     {
@@ -438,6 +457,7 @@ public sealed class SubProducerBatchingTests
         registerEvent.ReceivedCalls().Select(call => call.GetArguments()[0]).ShouldNotContain(argument => argument is ExecutorFaulted || argument is SendReceiptWrongOrdering);
     }
 
+    // Additional coverage
     [Fact]
     public async Task ResponseProcessor_GivenNotAllowedSendErrorWithHighestSequenceId_ShouldMatchHead()
     {
@@ -463,6 +483,7 @@ public sealed class SubProducerBatchingTests
         registerEvent.ReceivedCalls().Select(call => call.GetArguments()[0]).ShouldNotContain(argument => argument is ExecutorFaulted || argument is SendReceiptWrongOrdering);
     }
 
+    // Additional coverage
     [Fact]
     public async Task ResponseProcessor_GivenNotAllowedSendErrorForBatchThatIsNotTheHead_ShouldReconnectInsteadOfFailingTheWrongMessages()
     {
@@ -482,6 +503,7 @@ public sealed class SubProducerBatchingTests
         headOps.Concat(notAllowedOps).ShouldAllBe(sendOp => !sendOp.ReceiptTcs.Task.IsCompleted);
     }
 
+    // Additional coverage
     [Fact]
     public async Task ResponseProcessor_GivenReceiptWithOtherHighestSequenceIdThanTheBatch_ShouldReconnect()
     {
@@ -505,6 +527,7 @@ public sealed class SubProducerBatchingTests
         sendOps.ShouldAllBe(sendOp => !sendOp.ReceiptTcs.Task.IsCompleted);
     }
 
+    // Additional coverage
     [Fact]
     public async Task ResponseProcessor_GivenReceiptWithTheHighestSequenceIdOfTheBatch_ShouldCompleteTheMessages()
     {
@@ -557,6 +580,7 @@ public sealed class SubProducerBatchingTests
         failedOps.ShouldAllBe(sendOp => sendOp.Batch == null);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Flush_GivenLongPublishDelay_ShouldSendImmediatelyAndAwaitLastMessage()
     {
@@ -574,6 +598,7 @@ public sealed class SubProducerBatchingTests
         channel.Entries.ShouldHaveSingleItem().NumberOfMessages.ShouldBe(5);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Flush_GivenNoMessages_ShouldBeCompleted()
     {
@@ -588,6 +613,7 @@ public sealed class SubProducerBatchingTests
         flush.IsCompletedSuccessfully.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Flush_GivenLastMessageFails_ShouldFailWithItsException()
     {
@@ -605,6 +631,7 @@ public sealed class SubProducerBatchingTests
         await Should.ThrowAsync<NotAllowedException>(act);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Flush_GivenLastMessageAlreadySent_ShouldNotSendALaterBatchBeforeItsDelay()
     {
@@ -629,6 +656,7 @@ public sealed class SubProducerBatchingTests
         channel.Entries[1].MessageSequenceIds.ShouldBe([3UL]);
     }
 
+    // Additional coverage
     [Fact]
     public async Task WaitForSendQueueEmpty_GivenLongPublishDelay_ShouldNotWaitForTheDelay()
     {
@@ -645,6 +673,7 @@ public sealed class SubProducerBatchingTests
         channel.Entries.ShouldHaveSingleItem().NumberOfMessages.ShouldBe(3);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Dispatcher_GivenRegistrationGateOfLaterMessageNotCompleted_ShouldWaitForItAndBatchItWithTheOthers()
     {
@@ -666,6 +695,7 @@ public sealed class SubProducerBatchingTests
         channel.Entries.ShouldHaveSingleItem().MessageSequenceIds.ShouldBe([1UL, 2UL, 3UL]);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Dispatcher_GivenRegistrationGateNotCompletedWithinPublishDelay_ShouldSendTheBatchWithoutTheMessage()
     {
@@ -687,6 +717,7 @@ public sealed class SubProducerBatchingTests
         channel.Entries[1].MessageSequenceIds.ShouldBe([2UL, 3UL]);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Dispatcher_GivenRegistrationGateOfLaterMessageFails_ShouldFailOnlyThatMessageAndBatchTheOthers()
     {
@@ -708,6 +739,7 @@ public sealed class SubProducerBatchingTests
         channel.Entries.ShouldHaveSingleItem().MessageSequenceIds.ShouldBe([1UL, 3UL]);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Dispatcher_GivenRegistrationGateAlreadyFailedForLaterMessage_ShouldFailOnlyThatMessageAndBatchTheOthers()
     {

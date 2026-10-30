@@ -36,6 +36,7 @@ public sealed class SubProducerSendTimeoutTests
     // and a busy machine can need more than 200 milliseconds for that.
     private static readonly TimeSpan _longSendTimeout = TimeSpan.FromSeconds(1);
 
+    // Additional coverage
     [Fact]
     public async Task SendTimeout_GivenNoReceipt_ShouldFailPendingMessageWithOperationTimeoutException()
     {
@@ -52,6 +53,7 @@ public sealed class SubProducerSendTimeoutTests
         channel.Entries.ShouldHaveSingleItem();
     }
 
+    // Additional coverage
     [Fact]
     public async Task SendTimeout_GivenThreePendingMessages_ShouldFailAllWithTheirOwnSequenceIds()
     {
@@ -74,6 +76,7 @@ public sealed class SubProducerSendTimeoutTests
         exceptions[2].Message.ShouldContain("sequence id 13");
     }
 
+    // Additional coverage
     [Fact]
     public async Task SendTimeout_GivenReceiptBeforeDeadline_ShouldNotFail()
     {
@@ -90,6 +93,7 @@ public sealed class SubProducerSendTimeoutTests
         sendOp.ReceiptTcs.Task.IsCompletedSuccessfully.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public async Task SendTimeout_GivenLateReceiptAfterTimeout_ShouldIgnoreItAndKeepProducerConnected()
     {
@@ -116,6 +120,7 @@ public sealed class SubProducerSendTimeoutTests
         registerEvent.ReceivedCalls().Select(call => call.GetArguments()[0]).ShouldNotContain(argument => argument is ExecutorFaulted || argument is SendReceiptWrongOrdering || argument is ChannelDisconnected);
     }
 
+    // Additional coverage
     [Fact]
     public async Task SendTimeout_GivenMessageEnqueuedAfterTimeout_ShouldNotBeFailedByThatTimeout()
     {
@@ -136,6 +141,7 @@ public sealed class SubProducerSendTimeoutTests
         stopwatch.Elapsed.ShouldBeGreaterThan(TimeSpan.FromMilliseconds(500), "the second message has to wait for the timeout itself, and is not failed by the timeout of the first message");
     }
 
+    // Additional coverage
     [Fact]
     public async Task SendTimeout_GivenBatchingEnabled_ShouldAddBatchingMaxPublishDelayToDeadline()
     {
@@ -153,6 +159,7 @@ public sealed class SubProducerSendTimeoutTests
         stopwatch.Elapsed.ShouldBeGreaterThan(TimeSpan.FromMilliseconds(950), "the message is waiting in a batch, and the batch is not due for 800 milliseconds");
     }
 
+    // Additional coverage
     [Fact]
     public async Task SendTimeout_GivenBatchThatWaitedForItsDelay_ShouldWaitForTheSendTimeoutFromWhenTheBatchWasSent()
     {
@@ -170,6 +177,7 @@ public sealed class SubProducerSendTimeoutTests
         stopwatch.Elapsed.ShouldBeGreaterThan(TimeSpan.FromMilliseconds(400), "the message was sent when the batch was due, which is after 200 milliseconds, and not when it was created");
     }
 
+    // Additional coverage
     [Fact]
     public async Task SendTimeout_GivenTimeoutWhileDispatcherWaitsForRegistration_ShouldAbandonGroupAndContinue()
     {
@@ -194,6 +202,7 @@ public sealed class SubProducerSendTimeoutTests
         channel.Entries.ShouldHaveSingleItem().MessageSequenceIds.ShouldBe([3UL]);
     }
 
+    // Additional coverage
     [Fact]
     public async Task SendTimeout_GivenZero_ShouldNotFailAnything()
     {
@@ -211,6 +220,7 @@ public sealed class SubProducerSendTimeoutTests
         sendOp.CreatedTimestamp.ShouldBe(0L);
     }
 
+    // Additional coverage
     [Fact]
     public async Task SendTimeout_GivenQueueFullAndEnqueuerBlocked_ShouldUnblockEnqueuerAfterTimeout()
     {
@@ -232,6 +242,7 @@ public sealed class SubProducerSendTimeoutTests
         await WaitFor.Until(() => channel.Entries.Count == 2, "the message that was blocked is written");
     }
 
+    // Additional coverage
     [Fact]
     public async Task SendTimeout_GivenDispose_ShouldStopTimerAndCancelPendingMessages()
     {
@@ -248,6 +259,7 @@ public sealed class SubProducerSendTimeoutTests
         sendOp.ReceiptTcs.Task.IsCanceled.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public async Task WaitForSendQueueEmpty_GivenTimeoutRemovedAllMessages_ShouldComplete()
     {
@@ -264,6 +276,7 @@ public sealed class SubProducerSendTimeoutTests
         await Should.ThrowAsync<OperationTimeoutException>(sendOp.ReceiptTcs.Task.WaitAsync(_timeout, Current.CancellationToken));
     }
 
+    // Additional coverage
     [Fact]
     public async Task SendTimeout_GivenNoMessagesForLongerThanTheTimeout_ShouldNotAffectLaterMessages()
     {

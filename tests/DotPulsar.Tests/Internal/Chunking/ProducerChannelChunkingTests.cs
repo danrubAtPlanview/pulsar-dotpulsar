@@ -50,6 +50,7 @@ public sealed class ProducerChannelChunkingTests
         state.Payload.ToArray().ShouldBe(payload.ToArray());
     }
 
+    // Additional coverage
     [Fact]
     public void PlanChunking_GivenPayload_ShouldSetTheFieldsOfTheChunksOnACopyOfTheMetadata()
     {
@@ -76,6 +77,7 @@ public sealed class ProducerChannelChunkingTests
         metadata.HasNumChunksFromMsg.ShouldBeFalse("the metadata of the caller is not changed");
     }
 
+    // Additional coverage
     [Fact]
     public void PlanChunking_GivenChunkMaxMessageSizeSmallerThanWhatFits_ShouldUseIt()
     {
@@ -91,6 +93,7 @@ public sealed class ProducerChannelChunkingTests
         state.TotalChunks.ShouldBe(50);
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(0)]
     [InlineData(-1)]
@@ -109,6 +112,7 @@ public sealed class ProducerChannelChunkingTests
         state.ChunkSize.ShouldBe(_maxMessageSize - GetMetadataSizeBeforeChunking(state));
     }
 
+    // Additional coverage
     [Fact]
     public void PlanChunking_GivenMetadataThatDoesNotFitInTheMaxMessageSize_ShouldThrowTooLargeMessageException()
     {
@@ -138,6 +142,7 @@ public sealed class ProducerChannelChunkingTests
         metadata.Uuid.ShouldBe("caller");
     }
 
+    // Additional coverage
     [Fact]
     public void PlanChunking_GivenPayloadThatFitsInOneFrame_ShouldReturnOneChunkWithoutChunkFields()
     {
@@ -157,6 +162,7 @@ public sealed class ProducerChannelChunkingTests
         state.Metadata.ProducerName.ShouldBe(_producerName);
     }
 
+    // Additional coverage
     [Fact]
     public void PlanChunking_GivenEmptyPayload_ShouldReturnOneChunk()
     {
@@ -197,6 +203,7 @@ public sealed class ProducerChannelChunkingTests
         state.TotalChunks.ShouldBe((2500 + state.ChunkSize - 1) / state.ChunkSize);
     }
 
+    // Additional coverage
     [Fact]
     public void PlanChunking_GivenMetadataThatIsCompressedAlready_ShouldNotCompressAgain()
     {
@@ -220,6 +227,7 @@ public sealed class ProducerChannelChunkingTests
         state.Metadata.UncompressedSize.ShouldBe(5000u);
     }
 
+    // Additional coverage
     [Fact]
     public void PlanChunking_GivenTransactionalMetadata_ShouldKeepTheTransactionIds()
     {
@@ -264,6 +272,7 @@ public sealed class ProducerChannelChunkingTests
         written.SelectMany(x => x.Payload).ToArray().ShouldBe(payload.ToArray());
     }
 
+    // Additional coverage
     [Fact]
     public async Task SendChunk_GivenLastChunk_ShouldWriteTheRestOfThePayload()
     {
@@ -281,6 +290,7 @@ public sealed class ProducerChannelChunkingTests
         written.Single().Metadata.ChunkId.ShouldBe(2);
     }
 
+    // Additional coverage
     [Fact]
     public async Task SendChunk_GivenTransactionalMessage_ShouldSetTheTransactionIdsOnTheCommandOfEveryChunk()
     {
@@ -301,6 +311,7 @@ public sealed class ProducerChannelChunkingTests
         written.ShouldAllBe(x => x.Metadata.TxnidMostBits == 3 && x.Metadata.TxnidLeastBits == 4);
     }
 
+    // Additional coverage
     [Fact]
     public async Task SendChunk_GivenMessageThatIsNotSplit_ShouldWriteItWithoutChunkFieldsAndWithoutCheckingTheSize()
     {
@@ -343,6 +354,7 @@ public sealed class ProducerChannelChunkingTests
         written[1].Metadata.HasChunkId.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public async Task SendChunk_GivenChunkAfterPlainMessage_ShouldSetIsChunkAndSkipTheSizeCheck()
     {
@@ -380,6 +392,7 @@ public sealed class ProducerChannelChunkingTests
         written.Single().Metadata.Uuid.ShouldBe("caller");
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenPlainMessage_ShouldNotSetIsChunkOrSkipTheSizeCheck()
     {

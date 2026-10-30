@@ -23,6 +23,7 @@ public sealed class AesGcmCipherTests
     private static byte[] Hex(string hex) => Convert.FromHexString(hex);
 
     // McGrew and Viega, "The Galois/Counter Mode of Operation (GCM)", test cases 13 and 14
+    // Additional coverage
     [Fact]
     public void Encrypt_GivenNistTestCase13And14_ShouldMatch()
     {
@@ -44,6 +45,7 @@ public sealed class AesGcmCipherTests
         tag14.ShouldBe(Hex("d0d1c8a799996bf0265b98b5d48ab919"));
     }
 
+    // Additional coverage
     [Fact]
     public void Encrypt_GivenNistTestCase15_ShouldMatch()
     {
@@ -64,6 +66,7 @@ public sealed class AesGcmCipherTests
         tag.ShouldBe(Hex("b094dac5d93471bdec1a502270e3cc6c"));
     }
 
+    // Additional coverage
     [Fact]
     public void Decrypt_GivenNistTestCase14_ShouldReturnPlaintext()
     {
@@ -80,6 +83,7 @@ public sealed class AesGcmCipherTests
         plaintext.ShouldBe(new byte[16]);
     }
 
+    // Additional coverage
     [Fact]
     public void Decrypt_GivenTamperedTag_ShouldReturnFalse()
     {
@@ -95,6 +99,7 @@ public sealed class AesGcmCipherTests
         actual.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(16)]
     [InlineData(24)]
@@ -120,6 +125,7 @@ public sealed class AesGcmCipherTests
         uut.KeyLength.ShouldBe(keyLength);
     }
 
+    // Additional coverage
     [Fact]
     public void Encrypt_GivenInvalidKeyLength_ShouldThrow()
     {
@@ -130,6 +136,7 @@ public sealed class AesGcmCipherTests
         (exception is ArgumentException || exception is CryptographicException).ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void Encrypt_GivenDisposed_ShouldReturnFalse()
     {
@@ -144,6 +151,7 @@ public sealed class AesGcmCipherTests
         actual.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void Decrypt_GivenDisposed_ShouldReturnFalse()
     {
@@ -158,6 +166,7 @@ public sealed class AesGcmCipherTests
         actual.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void Dispose_GivenCalledTwice_ShouldNotThrow()
     {

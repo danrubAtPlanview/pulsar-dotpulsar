@@ -24,6 +24,7 @@ using System.Collections;
 [Trait("Category", "Unit")]
 public sealed class PreparedBatchTests
 {
+    // Additional coverage
     [Fact]
     public void Reset_GivenEveryFieldOfTheMetadataIsSet_ShouldMakeTheMetadataEqualToNewMetadata()
     {
@@ -43,6 +44,7 @@ public sealed class PreparedBatchTests
         uut.Metadata.ShouldBe(new MessageMetadata());
     }
 
+    // Additional coverage
     [Fact]
     public void Reset_GivenWrittenPayloadAndSequenceIds_ShouldClearThem()
     {
@@ -65,6 +67,7 @@ public sealed class PreparedBatchTests
         uut.HighestSequenceId.ShouldBe(0ul);
     }
 
+    // Additional coverage
     [Fact]
     public void Payload_GivenWrittenBytes_ShouldReturnTheWrittenBytes()
     {
@@ -85,6 +88,7 @@ public sealed class PreparedBatchTests
         uut.Return();
     }
 
+    // Additional coverage
     [Fact]
     public void Return_GivenBatchInUse_ShouldResetItAndMakeItAvailableFromThePool()
     {
@@ -108,6 +112,7 @@ public sealed class PreparedBatchTests
         actual.Metadata.HasSequenceId.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void Return_GivenCalledTwice_ShouldBeGivenToTheNextCallersOnlyOnce()
     {
@@ -128,6 +133,7 @@ public sealed class PreparedBatchTests
         second.ShouldNotBeSameAs(uut);
     }
 
+    // Additional coverage
     [Fact]
     public void Return_GivenBatchThatWasRentedAgain_ShouldBeReturnedAgain()
     {
@@ -146,6 +152,7 @@ public sealed class PreparedBatchTests
         actual.ShouldBeSameAs(uut);
     }
 
+    // Additional coverage
     [Fact]
     public void Get_GivenPoolWithoutBatches_ShouldCreateBatchesThatReturnToThePool()
     {
@@ -162,6 +169,7 @@ public sealed class PreparedBatchTests
         second.IsReturned.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void Shared_GivenAccessedTwice_ShouldReturnTheSameInstance()
     {

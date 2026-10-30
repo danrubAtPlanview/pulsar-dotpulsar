@@ -355,6 +355,7 @@ public class AsyncQueueWithCursorTests
         await sut.DisposeAsync();
     }
 
+    // Additional coverage
     [Fact]
     public async Task RemoveCurrentItem_GivenQueueIsFullAndEnqueuePending_ShouldEnqueue()
     {
@@ -458,6 +459,7 @@ public class AsyncQueueWithCursorTests
         item.Received().Dispose();
     }
 
+    // Additional coverage
     [Fact]
     public async Task TryPeekNextItem_GivenItemAfterCursor_ShouldNotMoveCursor()
     {
@@ -480,6 +482,7 @@ public class AsyncQueueWithCursorTests
         await sut.DisposeAsync();
     }
 
+    // Additional coverage
     [Fact]
     public async Task TryPeekNextItem_GivenCursorAtLastItem_ShouldReturnFalse()
     {
@@ -498,6 +501,7 @@ public class AsyncQueueWithCursorTests
         await sut.DisposeAsync();
     }
 
+    // Additional coverage
     [Fact]
     public async Task MoveNext_GivenItemAfterCursor_ShouldMoveCursorAndReturnItem()
     {
@@ -519,6 +523,7 @@ public class AsyncQueueWithCursorTests
         await sut.DisposeAsync();
     }
 
+    // Additional coverage
     [Fact]
     public async Task MoveNext_GivenNoItem_ShouldThrowAsyncQueueWithCursorNoItemException()
     {
@@ -537,6 +542,7 @@ public class AsyncQueueWithCursorTests
         await sut.DisposeAsync();
     }
 
+    // Additional coverage
     [Fact]
     public async Task MoveCursorBack_GivenItemsPassed_ShouldReturnTheSameItemsAgain()
     {
@@ -562,6 +568,7 @@ public class AsyncQueueWithCursorTests
         await sut.DisposeAsync();
     }
 
+    // Additional coverage
     [Fact]
     public async Task MoveCursorBack_GivenMoreThanTheItemsPassed_ShouldPutCursorBeforeFirstItem()
     {
@@ -583,6 +590,7 @@ public class AsyncQueueWithCursorTests
         await sut.DisposeAsync();
     }
 
+    // Additional coverage
     [Fact]
     public async Task MoveCursorBack_GivenHeadDequeuedWhileCursorIsAtLaterItem_ShouldNotLoseTheItemsAfterTheHead()
     {
@@ -609,6 +617,7 @@ public class AsyncQueueWithCursorTests
         await sut.DisposeAsync();
     }
 
+    // Additional coverage
     [Fact]
     public async Task RewriteItemsUpToCursor_GivenItems_ShouldReorderValuesInPlace()
     {
@@ -634,6 +643,7 @@ public class AsyncQueueWithCursorTests
         await sut.DisposeAsync();
     }
 
+    // Additional coverage
     [Fact]
     public async Task RewriteItemsUpToCursor_GivenMoreItemsThanNodes_ShouldThrow()
     {
@@ -652,6 +662,7 @@ public class AsyncQueueWithCursorTests
         await sut.DisposeAsync();
     }
 
+    // Additional coverage
     [Fact]
     public async Task TryPeekLast_GivenItems_ShouldReturnTheLastItemWithoutRemovingIt()
     {
@@ -674,6 +685,7 @@ public class AsyncQueueWithCursorTests
         await sut.DisposeAsync();
     }
 
+    // Additional coverage
     [Fact]
     public async Task TryPeekLast_GivenQueueIsEmpty_ShouldReturnFalse()
     {
@@ -690,6 +702,7 @@ public class AsyncQueueWithCursorTests
         await sut.DisposeAsync();
     }
 
+    // Additional coverage
     [Fact]
     public async Task WaitForNextItem_GivenItemAfterCursor_ShouldReturnTrueWithoutWaiting()
     {
@@ -708,6 +721,7 @@ public class AsyncQueueWithCursorTests
         await sut.DisposeAsync();
     }
 
+    // Additional coverage
     [Fact]
     public async Task WaitForNextItem_GivenEnqueueDuringWait_ShouldReturnTrueAndNotMoveCursor()
     {
@@ -728,6 +742,7 @@ public class AsyncQueueWithCursorTests
         await sut.DisposeAsync();
     }
 
+    // Additional coverage
     [Fact]
     public async Task WaitForNextItem_GivenTimeout_ShouldReturnFalse()
     {
@@ -744,6 +759,7 @@ public class AsyncQueueWithCursorTests
         await sut.DisposeAsync();
     }
 
+    // Additional coverage
     [Fact]
     public async Task WaitForNextItem_GivenSignalWaiters_ShouldReturnFalse()
     {
@@ -762,6 +778,7 @@ public class AsyncQueueWithCursorTests
         await sut.DisposeAsync();
     }
 
+    // Additional coverage
     [Fact]
     public async Task WaitForNextItem_GivenSignalWaitersBeforeTheWait_ShouldReturnFalseWithoutWaiting()
     {
@@ -780,6 +797,7 @@ public class AsyncQueueWithCursorTests
         await sut.DisposeAsync();
     }
 
+    // Additional coverage
     [Fact]
     public async Task RemoveAll_GivenItems_ShouldReturnThemInOrderAndEmptyTheQueue()
     {
@@ -801,6 +819,7 @@ public class AsyncQueueWithCursorTests
         await sut.DisposeAsync();
     }
 
+    // Additional coverage
     [Fact]
     public async Task RemoveAll_GivenCursorInTheQueue_ShouldPutCursorBeforeTheFirstNewItem()
     {
@@ -823,6 +842,7 @@ public class AsyncQueueWithCursorTests
         await sut.DisposeAsync();
     }
 
+    // Additional coverage
     [Fact]
     public async Task RemoveAll_GivenPendingNextItem_ShouldNotCancelIt()
     {
@@ -843,6 +863,7 @@ public class AsyncQueueWithCursorTests
         await sut.DisposeAsync();
     }
 
+    // Additional coverage
     [Fact]
     public async Task RemoveAll_GivenWaitForEmptyPending_ShouldCompleteIt()
     {
@@ -861,6 +882,7 @@ public class AsyncQueueWithCursorTests
         await sut.DisposeAsync();
     }
 
+    // Additional coverage
     [Fact]
     public async Task RemoveAll_GivenQueueIsFullAndEnqueuePending_ShouldReleaseTheEnqueue()
     {
@@ -881,6 +903,7 @@ public class AsyncQueueWithCursorTests
         await sut.DisposeAsync();
     }
 
+    // Additional coverage
     [Fact]
     public async Task WaitForNextItem_GivenCancellation_ShouldThrowOperationCanceledException()
     {

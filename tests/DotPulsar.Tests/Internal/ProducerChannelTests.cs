@@ -22,6 +22,7 @@ using System.Buffers;
 [Trait("Category", "Unit")]
 public sealed class ProducerChannelTests
 {
+    // Additional coverage
     [Fact]
     public async Task Send_GivenTransactionalThenNonTransactionalMetadata_ShouldClearTxnIdsOnPooledCommand()
     {
@@ -44,6 +45,7 @@ public sealed class ProducerChannelTests
         written[1].MetadataIsTransactional.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenNonTransactionalThenTransactionalMetadata_ShouldSetTxnIdsOnPooledCommand()
     {
@@ -66,6 +68,7 @@ public sealed class ProducerChannelTests
         written[1].MetadataTxnidLeastBits.ShouldBe(4UL);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenBatchMetadata_ShouldSetNumMessagesAndHighestSequenceIdOnCommand()
     {
@@ -84,6 +87,7 @@ public sealed class ProducerChannelTests
         commands[0].HighestSequenceId.ShouldBe(14UL);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenSingleMessageAfterBatch_ShouldResetNumMessagesAndHighestSequenceId()
     {
@@ -104,6 +108,7 @@ public sealed class ProducerChannelTests
         commands[1].HasHighestSequenceId.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenMessageThatIsNotBatched_ShouldSendOneMessage()
     {
@@ -184,6 +189,7 @@ public sealed class ProducerChannelTests
         metadata.HasSchemaVersion.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void MaxMessageSize_GivenConnectionWithMaxMessageSize_ShouldReturnIt()
     {

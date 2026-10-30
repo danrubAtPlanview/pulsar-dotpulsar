@@ -21,6 +21,7 @@ public sealed class BackoffTests
 {
     private static TimeSpan Milliseconds(long value) => TimeSpan.FromMilliseconds(value);
 
+    // Additional coverage
     [Fact]
     public void Next_GivenNoJitter_ShouldReturnInitialAndThenDoubleUntilMax()
     {
@@ -34,6 +35,7 @@ public sealed class BackoffTests
         actual.ShouldBe([Milliseconds(100), Milliseconds(200), Milliseconds(400), Milliseconds(800), Milliseconds(1000), Milliseconds(1000), Milliseconds(1000)]);
     }
 
+    // Additional coverage
     [Fact]
     public void Next_GivenPerOperationRetryConfiguration_ShouldCapAtSixSeconds()
     {
@@ -47,6 +49,7 @@ public sealed class BackoffTests
         actual.ShouldBe([Milliseconds(100), Milliseconds(200), Milliseconds(400), Milliseconds(800), Milliseconds(1600), Milliseconds(3200), Milliseconds(6000), Milliseconds(6000), Milliseconds(6000)]);
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(0.0, 950)]
     [InlineData(0.25, 975)]
@@ -65,6 +68,7 @@ public sealed class BackoffTests
         actual.ShouldBe(Milliseconds(expectedMilliseconds));
     }
 
+    // Additional coverage
     [Fact]
     public void Next_GivenJitterPercentIsZero_ShouldNotUseRandom()
     {
@@ -78,6 +82,7 @@ public sealed class BackoffTests
         actual.ShouldBe(Milliseconds(100));
     }
 
+    // Additional coverage
     [Fact]
     public void Next_GivenDefaultClockAndRandom_ShouldStayWithinJitterBounds()
     {
@@ -95,6 +100,7 @@ public sealed class BackoffTests
         }
     }
 
+    // Additional coverage
     [Fact]
     public void Next_GivenMandatoryStop_ShouldTruncateDelayOnceAndThenKeepDoubling()
     {
@@ -115,6 +121,7 @@ public sealed class BackoffTests
         uut.IsMandatoryStopMade.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void Next_GivenMandatoryStopNotYetReached_ShouldNotMakeMandatoryStop()
     {
@@ -128,6 +135,7 @@ public sealed class BackoffTests
         uut.IsMandatoryStopMade.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void Next_GivenRemainingTimeToMandatoryStopBelowInitial_ShouldReturnInitial()
     {
@@ -145,6 +153,7 @@ public sealed class BackoffTests
         uut.IsMandatoryStopMade.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void Next_GivenMandatoryStopEqualToInitial_ShouldReturnInitialTwiceAndThenDouble()
     {
@@ -158,6 +167,7 @@ public sealed class BackoffTests
         actual.ShouldBe([Milliseconds(100), Milliseconds(100), Milliseconds(400), Milliseconds(800)]);
     }
 
+    // Additional coverage
     [Fact]
     public void Next_GivenNoMandatoryStop_ShouldOnlyReadTheClockOnce()
     {
@@ -178,6 +188,7 @@ public sealed class BackoffTests
         uut.IsMandatoryStopMade.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void Next_GivenAllZero_ShouldReturnZero()
     {
@@ -192,6 +203,7 @@ public sealed class BackoffTests
         uut.IsMandatoryStopMade.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void Reset_GivenBackoffHasGrown_ShouldReturnInitialAgain()
     {
@@ -209,6 +221,7 @@ public sealed class BackoffTests
         uut.Next().ShouldBe(Milliseconds(200));
     }
 
+    // Additional coverage
     [Fact]
     public void Reset_GivenMandatoryStopMade_ShouldRestartMandatoryStopTracking()
     {
@@ -230,6 +243,7 @@ public sealed class BackoffTests
         uut.IsMandatoryStopMade.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(-0.1)]
     [InlineData(100.1)]

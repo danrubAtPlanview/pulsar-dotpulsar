@@ -30,6 +30,7 @@ public sealed class DecryptionKeyCacheTests
         return ByteString.CopyFrom(bytes);
     }
 
+    // Additional coverage
     [Fact]
     public void TryGet_GivenPutKey_ShouldReturnTheCipherByWrappedKeyContent()
     {
@@ -46,6 +47,7 @@ public sealed class DecryptionKeyCacheTests
         actualCipher.ShouldBeSameAs(cipher);
     }
 
+    // Additional coverage
     [Fact]
     public void TryGet_GivenUnknownKey_ShouldReturnFalse()
     {
@@ -60,6 +62,7 @@ public sealed class DecryptionKeyCacheTests
         actual.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void TryGetLast_GivenPutLast_ShouldReturnTheCipherByProducerName()
     {
@@ -78,6 +81,7 @@ public sealed class DecryptionKeyCacheTests
         other.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void RemoveLast_GivenSameCipher_ShouldRemoveTheEntry()
     {
@@ -93,6 +97,7 @@ public sealed class DecryptionKeyCacheTests
         uut.TryGetLast("producer", out _).ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void RemoveLast_GivenOtherCipher_ShouldKeepTheEntry()
     {
@@ -109,6 +114,7 @@ public sealed class DecryptionKeyCacheTests
         actual.ShouldBeSameAs(cipher);
     }
 
+    // Additional coverage
     [Fact]
     public void TryGet_GivenEntryThatHasNotBeenAccessedForTheExpirationTime_ShouldReturnFalse()
     {
@@ -125,6 +131,7 @@ public sealed class DecryptionKeyCacheTests
         actual.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void TryGet_GivenEntryThatIsAccessedWithinTheExpirationTime_ShouldKeepTheEntryAlive()
     {
@@ -147,6 +154,7 @@ public sealed class DecryptionKeyCacheTests
         third.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void Put_GivenMaximumWeightIsExceeded_ShouldEvictTheOldestAccessedEntries()
     {
@@ -174,6 +182,7 @@ public sealed class DecryptionKeyCacheTests
         uut.TryGet(CreateKey(4), out _).ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void Put_GivenSameKeyTwice_ShouldReplaceTheEntryAndNotCountItsWeightTwice()
     {
@@ -194,6 +203,7 @@ public sealed class DecryptionKeyCacheTests
         uut.TryGet(CreateKey(2), out _).ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void Put_GivenExpiredEntriesAndTheSweepTimeHasPassed_ShouldFreeTheWeightOfTheExpiredEntries()
     {
@@ -214,6 +224,7 @@ public sealed class DecryptionKeyCacheTests
         uut.TryGet(CreateKey(3), out _).ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void Dispose_GivenEntries_ShouldDisposeTheCiphers()
     {
@@ -232,6 +243,7 @@ public sealed class DecryptionKeyCacheTests
         uut.TryGetLast("producer", out _).ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void Put_GivenConcurrentCalls_ShouldNotThrow()
     {

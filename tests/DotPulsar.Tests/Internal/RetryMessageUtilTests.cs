@@ -33,6 +33,7 @@ public sealed class RetryMessageUtilTests
         actual.ShouldBe(expected);
     }
 
+    // Additional coverage
     [Fact]
     public void FormatMessageId_GivenNonBatched_ShouldReturnLedgerEntryPartition()
     {
@@ -46,6 +47,7 @@ public sealed class RetryMessageUtilTests
         actual.ShouldBe("1:2:-1");
     }
 
+    // Additional coverage
     [Fact]
     public void FormatMessageId_GivenBatched_ShouldAppendBatchIndex()
     {
@@ -59,6 +61,7 @@ public sealed class RetryMessageUtilTests
         actual.ShouldBe("1:2:0:3");
     }
 
+    // Additional coverage
     [Fact]
     public void FormatMessageId_GivenMessageIdWithTopic_ShouldNotIncludeTheTopic()
     {

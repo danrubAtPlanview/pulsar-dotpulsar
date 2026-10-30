@@ -25,6 +25,7 @@ public sealed class TransactionTests
     private static readonly TimeSpan _timeout = TimeSpan.FromSeconds(10);
     private static readonly TransactionId _id = new(0, 5);
 
+    // Additional coverage
     [Fact]
     public void Constructor_ShouldCreateOpenTransaction()
     {
@@ -38,6 +39,7 @@ public sealed class TransactionTests
         uut.State.IsFinalState().ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public async Task RegisterProducedTopic_GivenSameTopicTwice_ShouldSendOneRequest()
     {
@@ -53,6 +55,7 @@ public sealed class TransactionTests
         await tcClient.Received(1).AddPublishPartitionToTxn(_id, "topic", CancellationToken.None);
     }
 
+    // Additional coverage
     [Fact]
     public async Task RegisterProducedTopic_GivenDifferentTopics_ShouldSendOneRequestPerTopic()
     {
@@ -71,6 +74,7 @@ public sealed class TransactionTests
         await tcClient.Received(2).AddPublishPartitionToTxn(Arg.Any<TransactionId>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
+    // Additional coverage
     [Fact]
     public async Task RegisterProducedTopic_GivenConcurrentCallers_ShouldSendOneRequest()
     {
@@ -90,6 +94,7 @@ public sealed class TransactionTests
         await tcClient.Received(1).AddPublishPartitionToTxn(Arg.Any<TransactionId>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
+    // Additional coverage
     [Fact]
     public async Task RegisterProducedTopic_GivenCompletedRegistration_ShouldReturnCompletedValueTask()
     {
@@ -104,6 +109,7 @@ public sealed class TransactionTests
         result.IsCompletedSuccessfully.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public async Task RegisterProducedTopic_GivenFailedRegistration_ShouldFailLaterCallsWithSameException()
     {
@@ -123,6 +129,7 @@ public sealed class TransactionTests
         await tcClient.Received(1).AddPublishPartitionToTxn(Arg.Any<TransactionId>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
+    // Additional coverage
     [Fact]
     public async Task RegisterProducedTopic_GivenCancellationWhileRegistering_ShouldStopWaitingButKeepTheRegistration()
     {
@@ -146,6 +153,7 @@ public sealed class TransactionTests
         await tcClient.Received(1).AddPublishPartitionToTxn(_id, "topic", CancellationToken.None);
     }
 
+    // Additional coverage
     [Fact]
     public async Task RegisterProducedTopic_GivenStateNotOpen_ShouldThrowInvalidTransactionStatusException()
     {
@@ -162,6 +170,7 @@ public sealed class TransactionTests
         await tcClient.DidNotReceive().AddPublishPartitionToTxn(Arg.Any<TransactionId>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
+    // Additional coverage
     [Fact]
     public async Task RegisterAckedTopic_GivenSameTopicAndSubscriptionTwice_ShouldSendOneRequest()
     {
@@ -178,6 +187,7 @@ public sealed class TransactionTests
         await tcClient.Received(1).AddSubscriptionToTxn(Arg.Any<TransactionId>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
+    // Additional coverage
     [Fact]
     public async Task RegisterAckedTopic_GivenDifferentSubscription_ShouldSendAnotherRequest()
     {
@@ -196,6 +206,7 @@ public sealed class TransactionTests
         await tcClient.Received(1).AddSubscriptionToTxn(_id, "other-topic", "subscription-1", CancellationToken.None);
     }
 
+    // Additional coverage
     [Fact]
     public async Task RegisterAckedTopic_GivenFailedRegistration_ShouldFailLaterCallsWithSameException()
     {
@@ -215,6 +226,7 @@ public sealed class TransactionTests
         await tcClient.Received(1).AddSubscriptionToTxn(Arg.Any<TransactionId>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
+    // Additional coverage
     [Fact]
     public async Task RegisterAckedTopic_GivenStateNotOpen_ShouldThrowInvalidTransactionStatusException()
     {
@@ -231,6 +243,7 @@ public sealed class TransactionTests
         await tcClient.DidNotReceive().AddSubscriptionToTxn(Arg.Any<TransactionId>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
+    // Additional coverage
     [Fact]
     public void EnsureOpen_GivenOpenTransaction_ShouldNotThrow()
     {
@@ -244,6 +257,7 @@ public sealed class TransactionTests
         exception.ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public async Task EnsureOpen_GivenAbortedTransaction_ShouldThrowInvalidTransactionStatusException()
     {
@@ -259,6 +273,7 @@ public sealed class TransactionTests
         uut.IsOpen.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void From_GivenTransaction_ShouldReturnTheTransaction()
     {
@@ -272,6 +287,7 @@ public sealed class TransactionTests
         result.ShouldBeSameAs(uut);
     }
 
+    // Additional coverage
     [Fact]
     public void From_GivenTransactionNotCreatedByDotPulsar_ShouldThrowArgumentException()
     {
@@ -286,6 +302,7 @@ public sealed class TransactionTests
         ((ArgumentException) exception).ParamName.ShouldBe("transaction");
     }
 
+    // Additional coverage
     [Fact]
     public async Task Commit_GivenPendingOps_ShouldWaitForOpsBeforeEndTxn()
     {
@@ -314,6 +331,7 @@ public sealed class TransactionTests
         await tcClient.Received(1).Commit(_id, CancellationToken.None);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Commit_GivenNoOps_ShouldSetCommitted()
     {
@@ -331,6 +349,7 @@ public sealed class TransactionTests
         await tcClient.DidNotReceive().Abort(Arg.Any<TransactionId>(), Arg.Any<CancellationToken>());
     }
 
+    // Additional coverage
     [Fact]
     public async Task Commit_GivenCompletedOps_ShouldSetCommitted()
     {
@@ -367,6 +386,7 @@ public sealed class TransactionTests
         await tcClient.DidNotReceive().Commit(Arg.Any<TransactionId>(), Arg.Any<CancellationToken>());
     }
 
+    // Additional coverage
     [Fact]
     public async Task Commit_GivenOpThatFailsWhileCommitIsWaiting_ShouldAbortAndThrowTransactionHasOperationFailedException()
     {
@@ -386,6 +406,7 @@ public sealed class TransactionTests
         uut.CurrentState.ShouldBe(TransactionState.Aborted);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Commit_GivenCancelledOp_ShouldBeTreatedAsFailedOp()
     {
@@ -402,6 +423,7 @@ public sealed class TransactionTests
         uut.CurrentState.ShouldBe(TransactionState.Aborted);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Commit_GivenFailedOpAndAbortFails_ShouldStillThrowTransactionHasOperationFailedException()
     {
@@ -419,6 +441,7 @@ public sealed class TransactionTests
         uut.CurrentState.ShouldBe(TransactionState.Error);
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(typeof(TransactionNotFoundException))]
     [InlineData(typeof(InvalidTransactionStatusException))]
@@ -439,6 +462,7 @@ public sealed class TransactionTests
         uut.State.IsFinalState().ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Commit_GivenOtherError_ShouldKeepCommittingState()
     {
@@ -491,6 +515,7 @@ public sealed class TransactionTests
         await tcClient.Received(2).Commit(Arg.Any<TransactionId>(), Arg.Any<CancellationToken>());
     }
 
+    // Additional coverage
     [Fact]
     public async Task Commit_GivenTwoConcurrentCommits_ShouldSendEndTxnTwice()
     {
@@ -511,6 +536,7 @@ public sealed class TransactionTests
         await tcClient.Received(2).Commit(Arg.Any<TransactionId>(), Arg.Any<CancellationToken>());
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(TransactionState.Committed)]
     [InlineData(TransactionState.Aborted)]
@@ -532,6 +558,7 @@ public sealed class TransactionTests
         await tcClient.DidNotReceive().Commit(Arg.Any<TransactionId>(), Arg.Any<CancellationToken>());
     }
 
+    // Additional coverage
     [Fact]
     public async Task Commit_GivenAbortingState_ShouldThrowInvalidTransactionStatusException()
     {
@@ -590,6 +617,7 @@ public sealed class TransactionTests
         uut.CurrentState.ShouldBe(TransactionState.Committed);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Abort_GivenOpenTransaction_ShouldSetAborted()
     {
@@ -607,6 +635,7 @@ public sealed class TransactionTests
         await tcClient.DidNotReceive().Commit(Arg.Any<TransactionId>(), Arg.Any<CancellationToken>());
     }
 
+    // Additional coverage
     [Fact]
     public async Task Abort_GivenPendingOps_ShouldWaitForOpsBeforeEndTxn()
     {
@@ -629,6 +658,7 @@ public sealed class TransactionTests
         uut.CurrentState.ShouldBe(TransactionState.Aborted);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Abort_GivenFailedOp_ShouldIgnoreItAndAbort()
     {
@@ -645,6 +675,7 @@ public sealed class TransactionTests
         await tcClient.Received(1).Abort(_id, CancellationToken.None);
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(typeof(TransactionNotFoundException))]
     [InlineData(typeof(InvalidTransactionStatusException))]
@@ -664,6 +695,7 @@ public sealed class TransactionTests
         uut.CurrentState.ShouldBe(TransactionState.Error);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Abort_GivenOtherError_ShouldKeepAbortingStateAndAllowAbortingAgain()
     {
@@ -684,6 +716,7 @@ public sealed class TransactionTests
         uut.CurrentState.ShouldBe(TransactionState.Aborted);
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(TransactionState.Committed)]
     [InlineData(TransactionState.Aborted)]
@@ -705,6 +738,7 @@ public sealed class TransactionTests
         await tcClient.DidNotReceive().Abort(Arg.Any<TransactionId>(), Arg.Any<CancellationToken>());
     }
 
+    // Additional coverage
     [Fact]
     public async Task Abort_GivenCommittingState_ShouldThrowInvalidTransactionStatusException()
     {
@@ -721,6 +755,7 @@ public sealed class TransactionTests
         exception.ShouldBeOfType<InvalidTransactionStatusException>().Message.ShouldBe("[0:5] with unexpected state: Committing, expect: [Open, Aborting]");
     }
 
+    // Additional coverage
     [Fact]
     public async Task Abort_ShouldCancelTimer()
     {
@@ -758,6 +793,7 @@ public sealed class TransactionTests
         await tcClient.DidNotReceive().Abort(Arg.Any<TransactionId>(), Arg.Any<CancellationToken>());
     }
 
+    // Additional coverage
     [Fact]
     public async Task Timeout_GivenCommitting_ShouldNotChangeState()
     {
@@ -779,6 +815,7 @@ public sealed class TransactionTests
         uut.CurrentState.ShouldBe(TransactionState.Committed);
     }
 
+    // Additional coverage
     [Fact]
     public void Constructor_GivenTimeoutLongerThanTheTimerSupports_ShouldNotThrow()
     {
@@ -789,6 +826,7 @@ public sealed class TransactionTests
         exception.ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public async Task State_GivenCommit_ShouldNotifyOnStateChangeTo()
     {
@@ -805,6 +843,7 @@ public sealed class TransactionTests
         (await committed.WaitAsync(_timeout, Current.CancellationToken)).ShouldBe(TransactionState.Committed);
     }
 
+    // Additional coverage
     [Fact]
     public async Task State_GivenAbort_ShouldNotifyOnStateChangeFromOpen()
     {
@@ -846,6 +885,7 @@ public sealed class TransactionTests
         uut.CurrentState.ShouldBe(TransactionState.Committed);
     }
 
+    // Additional coverage
     [Fact]
     public async Task RegisterAckOp_GivenOpsCompletedBeforeCommit_ShouldNotWait()
     {
@@ -866,6 +906,7 @@ public sealed class TransactionTests
         uut.CurrentState.ShouldBe(TransactionState.Committed);
     }
 
+    // Additional coverage
     [Fact]
     public async Task RegisterSendOp_GivenOpsInSeveralRounds_ShouldWaitOnlyForTheOpsThatArePending()
     {

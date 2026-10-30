@@ -31,6 +31,7 @@ public sealed class SubConsumerAckPathTests
 
     // The executor needs a closure and a delegate for every acknowledgment, which is 104 B. That is what the acknowledgment allocated before transactions
     // were added (benchmark PlainAck on e8f2ba2). The result of the executor was a class, which added 32 B.
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenNoReceiptRequested_ShouldNotAllocateMoreThanTheClosureOfTheExecutor()
     {
@@ -47,6 +48,7 @@ public sealed class SubConsumerAckPathTests
         channel.Acknowledgments.ShouldBeGreaterThan(0);
     }
 
+    // Additional coverage
     [Fact]
     public async Task AcknowledgeCumulative_GivenNoReceiptRequested_ShouldNotAllocateMoreThanTheClosureOfTheExecutor()
     {
@@ -62,6 +64,7 @@ public sealed class SubConsumerAckPathTests
         allocated.ShouldBeLessThanOrEqualTo(104);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenNoReceiptRequestedAndConnectionLostWhileSending_ShouldRetryOnNewChannel()
     {
@@ -84,6 +87,7 @@ public sealed class SubConsumerAckPathTests
         calls.ShouldBe(2);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenNoReceiptRequestedAndExceptionThatIsNotRetried_ShouldThrowTheExceptionAndRegisterExecutorFaulted()
     {
@@ -103,6 +107,7 @@ public sealed class SubConsumerAckPathTests
         _eventRegister.Received(2).Register(Arg.Is<IEvent>(e => e is ExecutorFaulted));
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenNoReceiptRequestedAndChannelThatReturnsResponse_ShouldNotEvaluateIt()
     {

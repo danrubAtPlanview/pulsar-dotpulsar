@@ -162,6 +162,7 @@ public sealed class BatchMessageContainerTests
         actual.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void HasSameTxn_GivenEmptyContainer_ShouldReturnTrueForAnyMessage()
     {
@@ -177,6 +178,7 @@ public sealed class BatchMessageContainerTests
         transactional.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void HasSameTxn_GivenTransactionWithMostBitsZero_ShouldNotTreatItAsPlain()
     {
@@ -195,6 +197,7 @@ public sealed class BatchMessageContainerTests
         otherTransaction.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void HasSameTxn_GivenOnlyOneOfTheTransactionBits_ShouldTreatTheMessageAsPlain()
     {
@@ -211,6 +214,7 @@ public sealed class BatchMessageContainerTests
         actual.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void HasSameTxn_GivenCallsToTheQuery_ShouldNotChangeTheContainer()
     {
@@ -227,6 +231,7 @@ public sealed class BatchMessageContainerTests
         uut.NumMessagesInBatch.ShouldBe(1);
     }
 
+    // Additional coverage
     [Fact]
     public void CanAddToCurrentBatch_GivenMessageThatFits_ShouldReturnTrue()
     {
@@ -241,6 +246,7 @@ public sealed class BatchMessageContainerTests
         actual.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void CanAddToCurrentBatch_GivenMessageThatDoesNotFit_ShouldReturnFalse()
     {
@@ -255,6 +261,7 @@ public sealed class BatchMessageContainerTests
         actual.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void CanAddToCurrentBatch_GivenMessageWithOtherTransaction_ShouldReturnFalse()
     {
@@ -269,6 +276,7 @@ public sealed class BatchMessageContainerTests
         actual.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void CanAddToCurrentBatch_GivenMessageWithOtherSchemaVersion_ShouldReturnFalse()
     {
@@ -285,6 +293,7 @@ public sealed class BatchMessageContainerTests
         actual.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void HaveEnoughSpace_GivenMaxBytesZero_ShouldUseMaxMessageSize()
     {
@@ -301,6 +310,7 @@ public sealed class BatchMessageContainerTests
         doesNotFit.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void HaveEnoughSpace_GivenMaxBytes_ShouldUseMaxBytesAndNotMaxMessageSize()
     {
@@ -317,6 +327,7 @@ public sealed class BatchMessageContainerTests
         doesNotFit.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void HaveEnoughSpace_GivenMaxMessagesReached_ShouldReturnFalse()
     {
@@ -334,6 +345,7 @@ public sealed class BatchMessageContainerTests
         atLimit.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void HaveEnoughSpace_GivenMaxMessagesZero_ShouldNotLimitTheNumberOfMessages()
     {
@@ -351,6 +363,7 @@ public sealed class BatchMessageContainerTests
         actual.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void HaveEnoughSpace_GivenMessageLargerThanMaxBytesAndEmptyContainer_ShouldReturnFalse()
     {
@@ -364,6 +377,7 @@ public sealed class BatchMessageContainerTests
         actual.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void Add_GivenMessagesUpToMaxBytes_ShouldReportFull()
     {
@@ -383,6 +397,7 @@ public sealed class BatchMessageContainerTests
         uut.NumMessagesInBatch.ShouldBe(3);
     }
 
+    // Additional coverage
     [Fact]
     public void Add_GivenMaxMessagesReached_ShouldReportFull()
     {
@@ -400,6 +415,7 @@ public sealed class BatchMessageContainerTests
         third.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void Add_GivenMaxBytesZeroAndMaxMessageSizeReached_ShouldReportFull()
     {
@@ -415,6 +431,7 @@ public sealed class BatchMessageContainerTests
         second.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void Add_GivenMessageLargerThanMaxBytes_ShouldReportFullAndFormABatchOfOne()
     {
@@ -433,6 +450,7 @@ public sealed class BatchMessageContainerTests
         groups[0].Batch.ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public void Add_GivenSequenceIdsThatAreNotIncreasing_ShouldSetLowestToTheFirstAndHighestToTheLastAdded()
     {
@@ -449,6 +467,7 @@ public sealed class BatchMessageContainerTests
         uut.HighestSequenceId.ShouldBe(3ul);
     }
 
+    // Additional coverage
     [Fact]
     public void IsEmpty_GivenNewContainer_ShouldBeTrueAndAfterAddFalseAndAfterClearTrue()
     {
@@ -470,6 +489,7 @@ public sealed class BatchMessageContainerTests
         uut.Items.Count.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void GetRemainingPublishDelay_GivenEmptyContainer_ShouldReturnInfinite()
     {
@@ -483,6 +503,7 @@ public sealed class BatchMessageContainerTests
         actual.ShouldBe(Timeout.InfiniteTimeSpan);
     }
 
+    // Additional coverage
     [Fact]
     public void GetRemainingPublishDelay_GivenMessagesAdded_ShouldCountDownFromTheFirstMessage()
     {
@@ -509,6 +530,7 @@ public sealed class BatchMessageContainerTests
         uut.GetRemainingPublishDelay().ShouldBe(TimeSpan.Zero);
     }
 
+    // Additional coverage
     [Fact]
     public void ShouldFlush_GivenEmptyContainer_ShouldReturnFalse()
     {
@@ -524,6 +546,7 @@ public sealed class BatchMessageContainerTests
         actual.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void ShouldFlush_GivenDelayElapsed_ShouldReturnTrue()
     {
@@ -542,6 +565,7 @@ public sealed class BatchMessageContainerTests
         afterDelay.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void ShouldFlush_GivenFullContainerBeforeDelay_ShouldReturnTrue()
     {
@@ -560,6 +584,7 @@ public sealed class BatchMessageContainerTests
         afterSecond.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void Clear_GivenBatchThatWasFlushed_ShouldRestartTheDelayWithTheNextFirstMessage()
     {
@@ -578,6 +603,7 @@ public sealed class BatchMessageContainerTests
         uut.GetRemainingPublishDelay().ShouldBe(TimeSpan.FromMilliseconds(5));
     }
 
+    // Additional coverage
     [Fact]
     public void HasSameSchema_GivenEmptyContainer_ShouldReturnTrue()
     {
@@ -593,6 +619,7 @@ public sealed class BatchMessageContainerTests
         actual.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void HasSameSchema_GivenExplicitAndImplicitSchemaVersion_ShouldReturnFalse()
     {
@@ -614,6 +641,7 @@ public sealed class BatchMessageContainerTests
         explicitInImplicit.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void HasSameSchema_GivenNoSchemaVersion_ShouldReturnTrue()
     {
@@ -628,6 +656,7 @@ public sealed class BatchMessageContainerTests
         actual.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void HasSameSchema_GivenSameAndOtherExplicitSchemaVersion_ShouldReturnTrueAndFalse()
     {
@@ -650,6 +679,7 @@ public sealed class BatchMessageContainerTests
         otherVersion.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void HasSameSchema_GivenSchemaIdAndSchemaVersion_ShouldCompareBoth()
     {
@@ -680,6 +710,7 @@ public sealed class BatchMessageContainerTests
         otherVersionResult.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void CreateBatches_GivenEmptyContainer_ShouldNotAddAGroup()
     {
@@ -694,6 +725,7 @@ public sealed class BatchMessageContainerTests
         groups.Count.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void CreateBatches_GivenOneMessage_ShouldReturnSingleGroupWithoutPreparedBatch()
     {
@@ -720,6 +752,7 @@ public sealed class BatchMessageContainerTests
         item.Metadata.HasNumMessagesInBatch.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void CreateBatches_GivenOneMessage_ShouldUpdateTheMaxBatchSizeWithThePayloadSize()
     {
@@ -735,6 +768,7 @@ public sealed class BatchMessageContainerTests
         uut.MaxBatchSize.ShouldBe(4000);
     }
 
+    // Additional coverage
     [Fact]
     public void CreateBatches_GivenThreeMessages_ShouldWriteSingleMessageMetadataFraming()
     {
@@ -785,6 +819,7 @@ public sealed class BatchMessageContainerTests
         messages[2].Metadata.HasNullValue.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void CreateBatches_GivenThreeMessages_ShouldBeReadableByTheBatchHandlerOfTheConsumer()
     {
@@ -832,6 +867,7 @@ public sealed class BatchMessageContainerTests
         third.SequenceId.ShouldBe(102ul);
     }
 
+    // Additional coverage
     [Fact]
     public void CreateBatches_GivenThreeMessages_ShouldSetBatchMetadata()
     {
@@ -876,6 +912,7 @@ public sealed class BatchMessageContainerTests
         metadata.HasEventTime.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void CreateBatches_GivenPlainMessages_ShouldNotSetTransactionOnBatchMetadata()
     {
@@ -898,6 +935,7 @@ public sealed class BatchMessageContainerTests
         metadata.HasReplicatedFrom.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void CreateBatches_GivenTransactionWithMostBitsZero_ShouldCopyBothBitsToBatchMetadata()
     {
@@ -918,6 +956,7 @@ public sealed class BatchMessageContainerTests
         metadata.TxnidLeastBits.ShouldBe(5ul);
     }
 
+    // Additional coverage
     [Fact]
     public void CreateBatches_GivenSequenceIdsThatAreNotIncreasing_ShouldUseFirstAsSequenceIdAndLastAddedAsHighestSequenceId()
     {
@@ -939,6 +978,7 @@ public sealed class BatchMessageContainerTests
         batch.Metadata.HighestSequenceId.ShouldBe(3ul);
     }
 
+    // Additional coverage
     [Fact]
     public void CreateBatches_GivenTransactionalBatchThenPlainBatch_ShouldNotCarryTransactionToThePlainBatch()
     {
@@ -970,6 +1010,7 @@ public sealed class BatchMessageContainerTests
         BatchPayloadReader.Read(plainBatch).Select(m => m.Metadata.SequenceId).ShouldBeSequence(3ul, 4ul);
     }
 
+    // Additional coverage
     [Fact]
     public void CreateBatches_GivenMoreThan1000Messages_ShouldWriteAllMessagesInOrder()
     {
@@ -1002,6 +1043,7 @@ public sealed class BatchMessageContainerTests
         }
     }
 
+    // Additional coverage
     [Fact]
     public void Add_GivenMaxMessagesOf1200_ShouldReportFullAtMessage1200()
     {
@@ -1022,6 +1064,7 @@ public sealed class BatchMessageContainerTests
         uut.HaveEnoughSpace(TestBatchItem.Create(1200, "x"), MaxMessageSize).ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void CreateBatches_GivenPayloadsInSeveralSegments_ShouldCopyAllSegments()
     {
@@ -1042,6 +1085,7 @@ public sealed class BatchMessageContainerTests
         messages[2].Payload.ShouldBe([8]);
     }
 
+    // Additional coverage
     [Fact]
     public void CreateBatches_GivenMessagesWithProperties_ShouldNotChangeThePropertiesOfTheMessages()
     {
@@ -1063,6 +1107,7 @@ public sealed class BatchMessageContainerTests
         items[0].Metadata.Properties.Count.ShouldBe(2);
     }
 
+    // Additional coverage
     [Fact]
     public void CurrentBatchSize_GivenThreeMessages_ShouldBeTheSumOfThePayloadSizesWithoutFraming()
     {
@@ -1082,6 +1127,7 @@ public sealed class BatchMessageContainerTests
         groups[0].Batch!.Payload.Length.ShouldBe(JavaKnownAnswer.PayloadSize);
     }
 
+    // Additional coverage
     [Fact]
     public void CreateBatches_GivenBatchLargerThanTheMaxBatchSize_ShouldGrowTheMaxBatchSize()
     {
@@ -1099,6 +1145,7 @@ public sealed class BatchMessageContainerTests
         uut.MaxBatchSize.ShouldBeGreaterThan(6000);
     }
 
+    // Additional coverage
     [Fact]
     public void Clear_GivenBatchWasCreated_ShouldKeepTheBufferSizingAndResetTheRest()
     {

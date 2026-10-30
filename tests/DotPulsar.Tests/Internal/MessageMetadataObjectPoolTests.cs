@@ -20,6 +20,7 @@ using DotPulsar.Internal;
 [Trait("Category", "Unit")]
 public sealed class MessageMetadataObjectPoolTests
 {
+    // Additional coverage
     [Fact]
     public void Return_GivenMetadataWithTransaction_ShouldClearTransactionAndTxnIds()
     {
@@ -38,6 +39,7 @@ public sealed class MessageMetadataObjectPoolTests
         metadata.ProtocolMetadata().HasTxnidLeastBits.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void Get_GivenMetadataReturnedWithTransaction_ShouldNotHaveTransaction()
     {

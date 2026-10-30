@@ -28,6 +28,7 @@ public sealed class ChunkingWiringTests
 {
     private const string Topic = "persistent://public/default/test";
 
+    // Additional coverage
     [Fact(Timeout = 30_000)]
     public async Task Consumer_GivenChunksOfAMessage_ShouldDeliverItAndAcknowledgeEveryChunkWhenTheMessageIsAcknowledged()
     {
@@ -50,6 +51,7 @@ public sealed class ChunkingWiringTests
         broker.Acks[0].MessageId.Select(id => id.EntryId).ShouldBeSequence(10UL, 11UL, 12UL);
     }
 
+    // Additional coverage
     [Fact(Timeout = 30_000)]
     public async Task Consumer_GivenCumulativeAcknowledgmentOfAChunkedMessage_ShouldAcknowledgeTheLastChunkOnly()
     {
@@ -92,6 +94,7 @@ public sealed class ChunkingWiringTests
         broker.Acks.SelectMany(ack => ack.MessageId).Select(id => id.EntryId).ShouldBeSequence(1UL);
     }
 
+    // Additional coverage
     [Fact(Timeout = 30_000)]
     public async Task Consumer_GivenMaxPendingChunkedMessageWithoutAutoAckOldest_ShouldNotAcknowledgeTheChunksOfTheOldestMessage()
     {
@@ -132,6 +135,7 @@ public sealed class ChunkingWiringTests
         broker.Acks.Single().MessageId.Select(id => id.EntryId).ShouldBeSequence(7UL, 8UL);
     }
 
+    // Additional coverage
     [Fact(Timeout = 30_000)]
     public async Task Consumer_GivenZeroExpireTimeOfIncompleteChunkedMessage_ShouldNeverAcknowledgeAnIncompleteMessage()
     {
@@ -170,6 +174,7 @@ public sealed class ChunkingWiringTests
         message.MessageId.FirstChunkMessageId!.EntryId.ShouldBe(10UL);
     }
 
+    // Additional coverage
     [Fact(Timeout = 30_000)]
     public async Task Reader_GivenMaxPendingChunkedMessage_ShouldDropTheOldestIncompleteMessage()
     {
@@ -189,6 +194,7 @@ public sealed class ChunkingWiringTests
         Encoding.UTF8.GetString(message.Data.ToArray()).ShouldBe("chunk-b-0|chunk-b-1|");
     }
 
+    // Additional coverage
     [Fact(Timeout = 30_000)]
     public async Task Reader_GivenZeroMaxPendingChunkedMessage_ShouldNotLimitTheIncompleteMessages()
     {
@@ -225,6 +231,7 @@ public sealed class ChunkingWiringTests
         broker.Subscriptions.Single().StartMessageId.EntryId.ShouldBe(10UL);
     }
 
+    // Additional coverage
     [Fact(Timeout = 30_000)]
     public async Task Reader_GivenStartMessageIdThatIsNotChunked_ShouldSubscribeFromIt()
     {
@@ -254,6 +261,7 @@ public sealed class ChunkingWiringTests
         broker.Seeks.Single().MessageId.EntryId.ShouldBe(10UL);
     }
 
+    // Additional coverage
     [Fact(Timeout = 30_000)]
     public async Task Reader_GivenSeek_ShouldDropTheIncompleteChunkedMessages()
     {

@@ -23,6 +23,7 @@ using DotPulsar.Tests.Internal.Crypto;
 [Trait("Category", "Unit")]
 public sealed class ConsumerBuilderTests
 {
+    // Additional coverage
     [Fact]
     public void Create_GivenNoBatchIndexAckEnabled_ShouldDisableIt()
     {
@@ -36,6 +37,7 @@ public sealed class ConsumerBuilderTests
         options().BatchIndexAckEnabled.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
@@ -51,6 +53,7 @@ public sealed class ConsumerBuilderTests
         options().BatchIndexAckEnabled.ShouldBe(batchIndexAckEnabled);
     }
 
+    // Additional coverage
     [Fact]
     public void BatchIndexAckEnabled_ShouldReturnTheBuilder()
     {
@@ -64,6 +67,7 @@ public sealed class ConsumerBuilderTests
         actual.ShouldBeSameAs(uut);
     }
 
+    // Additional coverage
     [Fact]
     public void ConsumerOptions_GivenNoChanges_ShouldHaveTheDefaultBatchIndexAckEnabled()
     {
@@ -75,6 +79,7 @@ public sealed class ConsumerBuilderTests
         uut.BatchIndexAckEnabled.ShouldBe(ConsumerOptions<string>.DefaultBatchIndexAckEnabled);
     }
 
+    // Additional coverage
     [Fact]
     public void Create_GivenNoAckTimeoutSettings_ShouldUseTheDefaults()
     {
@@ -91,6 +96,7 @@ public sealed class ConsumerBuilderTests
         ConsumerOptions<string>.DefaultAckTimeoutTickTime.ShouldBe(TimeSpan.FromSeconds(1));
     }
 
+    // Additional coverage
     [Fact]
     public void Create_GivenAckTimeoutAndTickTime_ShouldPassThemOnInTheOptions()
     {
@@ -105,6 +111,7 @@ public sealed class ConsumerBuilderTests
         options().AckTimeoutTickTime.ShouldBe(TimeSpan.FromMilliseconds(250));
     }
 
+    // Additional coverage
     [Fact]
     public void Create_GivenNoDeadLetterPolicy_ShouldNotSetOneInTheOptions()
     {
@@ -118,6 +125,7 @@ public sealed class ConsumerBuilderTests
         options().DeadLetterPolicy.ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public void Create_GivenDeadLetterPolicy_ShouldPassItOnInTheOptions()
     {
@@ -147,6 +155,7 @@ public sealed class ConsumerBuilderTests
         exception.ShouldBeOfType<ConfigurationException>().Message.ShouldBe("MaxRedeliverCount must be > 0.");
     }
 
+    // Additional coverage
     [Fact]
     public void Create_GivenNoNegativeAcknowledgeRedeliveryDelay_ShouldUseTheDefault()
     {
@@ -161,6 +170,7 @@ public sealed class ConsumerBuilderTests
         ConsumerOptions<string>.DefaultNegativeAcknowledgeRedeliveryDelay.ShouldBe(TimeSpan.FromMinutes(1));
     }
 
+    // Additional coverage
     [Fact]
     public void Create_GivenNegativeAcknowledgeRedeliveryDelay_ShouldPassItOnInTheOptions()
     {
@@ -174,6 +184,7 @@ public sealed class ConsumerBuilderTests
         options().NegativeAcknowledgeRedeliveryDelay.ShouldBe(TimeSpan.FromSeconds(5));
     }
 
+    // Additional coverage
     [Fact]
     public void Builder_GivenAckTimeoutDeadLetterPolicyAndNegativeAcknowledgeRedeliveryDelay_ShouldReturnTheBuilder()
     {
@@ -222,6 +233,7 @@ public sealed class ConsumerBuilderTests
         options().ExpireTimeOfIncompleteChunkedMessage.ShouldBe(TimeSpan.FromMilliseconds(12));
     }
 
+    // Additional coverage
     [Fact]
     public void Builder_GivenChunkSettings_ShouldReturnTheBuilder()
     {
@@ -269,6 +281,7 @@ public sealed class ConsumerBuilderTests
         options().CryptoFailureAction.ShouldBe(cryptoFailureAction);
     }
 
+    // Additional coverage
     [Fact]
     public void Builder_GivenCryptoSettings_ShouldReturnTheBuilder()
     {
@@ -280,6 +293,7 @@ public sealed class ConsumerBuilderTests
         uut.CryptoFailureAction(ConsumerCryptoFailureAction.Consume).ShouldBeSameAs(uut);
     }
 
+    // Additional coverage
     [Fact]
     public void ConsumerOptions_GivenNoChanges_ShouldHaveTheDefaultCryptoSettings()
     {

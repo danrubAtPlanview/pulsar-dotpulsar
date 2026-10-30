@@ -20,6 +20,7 @@ using DotPulsar.Internal;
 [Trait("Category", "Unit")]
 public sealed class RetriableErrorsTests
 {
+    // Additional coverage
     [Theory]
     [InlineData(typeof(AuthorizationException))]
     [InlineData(typeof(InvalidSchemeException))]
@@ -49,6 +50,7 @@ public sealed class RetriableErrorsTests
         actual.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(typeof(AuthenticationException))]
     [InlineData(typeof(ServiceNotReadyException))]

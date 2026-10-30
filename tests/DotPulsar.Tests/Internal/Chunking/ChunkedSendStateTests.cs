@@ -53,6 +53,7 @@ public sealed class ChunkedSendStateTests
         uut.IsChunked.ShouldBe(expectedChunks > 1);
     }
 
+    // Additional coverage
     [Fact]
     public void Plan_GivenEmptyPayload_ShouldReturnSingleChunkWithEmptyPayload()
     {
@@ -67,6 +68,7 @@ public sealed class ChunkedSendStateTests
         uut.GetChunk(0).Length.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void Plan_GivenSingleChunk_ShouldNotSetChunkFields()
     {
@@ -108,6 +110,7 @@ public sealed class ChunkedSendStateTests
         uut.ChunkMessageIds.Length.ShouldBe(4);
     }
 
+    // Additional coverage
     [Fact]
     public void Plan_GivenMultipleChunks_ShouldKeepTheSequenceIdAndTheOtherFieldsOfTheMetadata()
     {
@@ -130,6 +133,7 @@ public sealed class ChunkedSendStateTests
         uut.Metadata.PartitionKey.ShouldBe("key");
     }
 
+    // Additional coverage
     [Fact]
     public void Plan_GivenLargestSequenceId_ShouldWriteTheSequenceIdInTheUuidAsAnUnsignedNumber()
     {
@@ -144,6 +148,7 @@ public sealed class ChunkedSendStateTests
         uut.Metadata.Uuid.ShouldBe("p-18446744073709551615");
     }
 
+    // Additional coverage
     [Fact]
     public void Plan_GivenOneByteChunks_ShouldCreateOneChunkPerByte()
     {
@@ -182,6 +187,7 @@ public sealed class ChunkedSendStateTests
         uut.ChunkSize.ShouldBe(expectedChunkSize == -1 ? limit : expectedChunkSize);
     }
 
+    // Additional coverage
     [Fact]
     public void Plan_GivenEncryptionOverhead_ShouldSubtractItFromTheChunkSize()
     {
@@ -197,6 +203,7 @@ public sealed class ChunkedSendStateTests
         uut.ChunkSize.ShouldBe(limit - 16);
     }
 
+    // Additional coverage
     [Fact]
     public void Plan_GivenEncryptionOverheadAndSmallChunkMaxMessageSize_ShouldNotSubtractTheOverheadFromChunkMaxMessageSize()
     {
@@ -228,6 +235,7 @@ public sealed class ChunkedSendStateTests
         exception.MaxMessageSize.ShouldBe(metadataSize - 1);
     }
 
+    // Additional coverage
     [Fact]
     public void Plan_GivenMaxMessageSizeEqualToTheMetadata_ShouldThrowTooLargeMessageException()
     {
@@ -243,6 +251,7 @@ public sealed class ChunkedSendStateTests
         Should.Throw<TooLargeMessageException>(act);
     }
 
+    // Additional coverage
     [Fact]
     public void Plan_GivenMetadataAndEncryptionOverheadFillingTheMaxMessageSize_ShouldThrowTooLargeMessageException()
     {
@@ -258,6 +267,7 @@ public sealed class ChunkedSendStateTests
         exception.MessageSize.ShouldBe(maxMessageSize);
     }
 
+    // Additional coverage
     [Fact]
     public void Plan_GivenMaxMessageSizeOneLargerThanTheMetadata_ShouldCreateOneByteChunks()
     {
@@ -273,6 +283,7 @@ public sealed class ChunkedSendStateTests
         uut.TotalChunks.ShouldBe(5);
     }
 
+    // Additional coverage
     [Fact]
     public void Plan_GivenPayloadLargerThanInt32MaxValue_ShouldThrowTooLargeMessageException()
     {
@@ -289,6 +300,7 @@ public sealed class ChunkedSendStateTests
         Should.Throw<TooLargeMessageException>(act);
     }
 
+    // Additional coverage
     [Fact]
     public void Plan_GivenSixMegabytesAndTheDefaultMaxMessageSize_ShouldCreateTwoChunks()
     {
@@ -336,6 +348,7 @@ public sealed class ChunkedSendStateTests
         joined.ShouldBe(payload);
     }
 
+    // Additional coverage
     [Fact]
     public void GetChunk_GivenPayloadInSeveralSegments_ShouldReturnTheRightBytes()
     {
@@ -355,6 +368,7 @@ public sealed class ChunkedSendStateTests
         joined.ShouldBe(payload);
     }
 
+    // Additional coverage
     [Fact]
     public void GetChunk_GivenSingleChunk_ShouldReturnTheWholePayload()
     {
@@ -369,6 +383,7 @@ public sealed class ChunkedSendStateTests
         actual.ToArray().ShouldBe(payload);
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(-1)]
     [InlineData(4)]
@@ -387,6 +402,7 @@ public sealed class ChunkedSendStateTests
         Should.Throw<ArgumentOutOfRangeException>(act);
     }
 
+    // Additional coverage
     [Fact]
     public void GetChunk_GivenPayloadSplitInManyChunks_ShouldNotAllocate()
     {
@@ -410,6 +426,7 @@ public sealed class ChunkedSendStateTests
         allocated.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void Plan_GivenTenMegabytesInOneMegabyteChunks_ShouldNotCopyThePayload()
     {
@@ -453,6 +470,7 @@ public sealed class ChunkedSendStateTests
         uut.LastChunkMessageId.ShouldBeSameAs(ids[3]);
     }
 
+    // Additional coverage
     [Fact]
     public void RecordReceipt_GivenPartialReceipts_ShouldTellHowManyChunksToSendAfterAReconnect()
     {

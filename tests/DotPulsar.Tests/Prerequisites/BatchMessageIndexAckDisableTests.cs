@@ -33,6 +33,7 @@ public sealed class BatchMessageIndexAckDisableTests : IDisposable
         _testOutputHelper = outputHelper;
     }
 
+    // Additional coverage
     [Fact]
     public async Task Broker_ShouldNotHaveBatchIndexAcknowledgmentEnabled()
     {
@@ -145,6 +146,7 @@ public sealed class BatchMessageIndexAckDisableTests : IDisposable
         received.Count.ShouldBe(numberOfMessages);
     }
 
+    // Additional coverage
     [Fact]
     public async Task AcknowledgeCumulative_GivenDefaultOptionsAndBatchIndexAckDisabledOnBroker_ShouldRedeliverAllMessages()
     {

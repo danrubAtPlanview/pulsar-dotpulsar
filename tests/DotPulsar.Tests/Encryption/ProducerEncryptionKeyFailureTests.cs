@@ -72,6 +72,7 @@ public sealed class ProducerEncryptionKeyFailureTests : IDisposable
         await AssertNoPublisherFor(topic, TimeSpan.FromSeconds(1));
     }
 
+    // Additional coverage
     [Fact]
     public async Task Create_GivenKeyThatIsNotAPemKey_ShouldThrowCryptoExceptionAndNotRegisterPublisher()
     {

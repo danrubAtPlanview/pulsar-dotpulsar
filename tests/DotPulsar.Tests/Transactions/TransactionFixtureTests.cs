@@ -30,6 +30,7 @@ public sealed class TransactionFixtureTests : IDisposable
         _testOutputHelper = outputHelper;
     }
 
+    // Additional coverage
     [Fact]
     public async Task TransactionFixture_ShouldHaveTransactionCoordinatorAssignTopic()
     {
@@ -45,6 +46,7 @@ public sealed class TransactionFixtureTests : IDisposable
         stats.GetProperty("state").GetString().ShouldBe("Ready");
     }
 
+    // Additional coverage
     [Fact]
     public async Task TransactionFixture_ShouldApplyTheBrokerConfiguration()
     {
@@ -61,6 +63,7 @@ public sealed class TransactionFixtureTests : IDisposable
         configuration.GetProperty("transactionBufferSnapshotMaxTransactionCount").GetString().ShouldBe(transactionBufferSnapshotMaxTransactionCount);
     }
 
+    // Additional coverage
     [Fact]
     public async Task CreateClient_GivenTopicInTransactionNamespace_ShouldSendAndReceiveMessage()
     {
@@ -85,6 +88,7 @@ public sealed class TransactionFixtureTests : IDisposable
         message.Value().ShouldBe(content);
     }
 
+    // Additional coverage
     [Fact]
     public async Task ReceiveOrNull_GivenNoMessage_ShouldReturnNull()
     {

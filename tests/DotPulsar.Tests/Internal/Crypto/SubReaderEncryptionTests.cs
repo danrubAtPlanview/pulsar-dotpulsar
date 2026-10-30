@@ -40,6 +40,7 @@ public sealed class SubReaderEncryptionTests
         SubConsumerEncryptionTests.AssertDisposed(messageCrypto);
     }
 
+    // Additional coverage
     [Fact]
     public async Task ChannelFaulted_GivenMessageCrypto_ShouldDisposeIt()
     {
@@ -54,6 +55,7 @@ public sealed class SubReaderEncryptionTests
         SubConsumerEncryptionTests.AssertDisposed(messageCrypto);
     }
 
+    // Additional coverage
     [Fact]
     public async Task DisposeAsync_GivenNoMessageCrypto_ShouldNotThrow()
     {

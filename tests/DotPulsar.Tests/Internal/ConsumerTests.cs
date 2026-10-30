@@ -532,6 +532,7 @@ public sealed class ConsumerTests : IDisposable
         return messageIds;
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenAckReceiptEnabled_ShouldCompleteAndAdvanceSubscription()
     {
@@ -559,6 +560,7 @@ public sealed class ConsumerTests : IDisposable
         backlog.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public async Task AcknowledgeCumulative_GivenAckReceiptEnabled_ShouldCompleteAndAdvanceSubscription()
     {

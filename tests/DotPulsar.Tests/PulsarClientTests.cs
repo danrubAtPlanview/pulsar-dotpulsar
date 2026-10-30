@@ -146,6 +146,7 @@ public sealed class PulsarClientTests : IDisposable
         exception.Message.ShouldBe("ProducerOptions.MaxPendingMessages must be greater than 0");
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(0)]
     [InlineData(500)]
@@ -171,6 +172,7 @@ public sealed class PulsarClientTests : IDisposable
         exception.Message.ShouldBe("ProducerOptions.BatchingMaxPublishDelay must be at least 1 millisecond");
     }
 
+    // Additional coverage
     [Fact]
     public async Task CreateProducer_GivenNegativeSendTimeout_ShouldThrowConfigurationException()
     {

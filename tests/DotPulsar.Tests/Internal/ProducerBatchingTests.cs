@@ -30,6 +30,7 @@ public sealed class ProducerBatchingTests
     private const string _topic = "persistent://public/default/test";
     private static readonly TimeSpan _timeout = TimeSpan.FromSeconds(10);
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenBatchingEnabledAndTenMessages_ShouldReturnMessageIdsWithBatchIndexes()
     {
@@ -57,6 +58,7 @@ public sealed class ProducerBatchingTests
         messageIds.Values.ShouldAllBe(messageId => messageId.EntryId == messageIds[0].EntryId && messageId.LedgerId == messageIds[0].LedgerId);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenBatchingEnabledAndOneMessage_ShouldReturnMessageIdWithoutBatchIndex()
     {
@@ -75,6 +77,7 @@ public sealed class ProducerBatchingTests
         messageId.BatchIndex.ShouldBe(-1);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenBatchingDisabled_ShouldSendEveryMessageOnItsOwn()
     {
@@ -92,6 +95,7 @@ public sealed class ProducerBatchingTests
         connection.Sent.ShouldAllBe(sent => sent.NumMessages == 1 && sent.NumMessagesInBatch == 1);
     }
 
+    // Additional coverage
     [Fact]
     public async Task SendChannel_GivenBatchingEnabled_ShouldCompleteAllCallbacks()
     {
@@ -120,6 +124,7 @@ public sealed class ProducerBatchingTests
             messageIds.Select(messageId => messageId.BatchIndex).Order().ShouldBe(Enumerable.Range(0, 7));
     }
 
+    // Additional coverage
     [Fact]
     public async Task SendChannelCompletion_GivenLongPublishDelay_ShouldNotWaitForTheDelay()
     {
@@ -136,6 +141,7 @@ public sealed class ProducerBatchingTests
         connection.Sent.ShouldHaveSingleItem().NumMessagesInBatch.ShouldBe(2);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Flush_GivenLongPublishDelay_ShouldSendImmediatelyAndAwaitLastMessage()
     {
@@ -152,6 +158,7 @@ public sealed class ProducerBatchingTests
         connection.Sent.ShouldHaveSingleItem().NumMessagesInBatch.ShouldBe(5);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Flush_GivenManyRoundsOfSendsAndFlushes_ShouldNeverWaitForThePublishDelay()
     {
@@ -176,6 +183,7 @@ public sealed class ProducerBatchingTests
         connection.Sent.Sum(sent => sent.NumMessagesInBatch).ShouldBe(rounds * messagesPerRound);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Flush_GivenMessagesOnAPartitionedTopic_ShouldFlushEveryPartition()
     {
@@ -194,6 +202,7 @@ public sealed class ProducerBatchingTests
         connection.Sent.ShouldAllBe(sent => sent.NumMessagesInBatch == 2);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Flush_GivenNoMessages_ShouldComplete()
     {
@@ -209,6 +218,7 @@ public sealed class ProducerBatchingTests
         connection.Sent.ShouldBeEmpty();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Flush_GivenBatchingDisabled_ShouldAwaitLastMessage()
     {
@@ -231,6 +241,7 @@ public sealed class ProducerBatchingTests
         isCompletedBeforeReceipt.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Flush_GivenLastMessageFails_ShouldThrowItsException()
     {
@@ -247,6 +258,7 @@ public sealed class ProducerBatchingTests
         await Should.ThrowAsync<NotAllowedException>(act);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Flush_GivenCancellation_ShouldThrowOperationCanceledException()
     {
@@ -267,6 +279,7 @@ public sealed class ProducerBatchingTests
         exception.ShouldBeAssignableTo<OperationCanceledException>();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Flush_GivenDisposedProducer_ShouldThrowProducerDisposedException()
     {
@@ -282,6 +295,7 @@ public sealed class ProducerBatchingTests
         await Should.ThrowAsync<ProducerDisposedException>(act);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenTransactionalSendsInOneBatch_ShouldMakeCommitWaitForEveryMessageOfTheBatch()
     {
@@ -313,6 +327,7 @@ public sealed class ProducerBatchingTests
         transaction.CurrentState.ShouldBe(TransactionState.Committed);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Commit_GivenBatchOfTransactionalMessagesThatFailed_ShouldAbortTheTransaction()
     {
@@ -332,6 +347,7 @@ public sealed class ProducerBatchingTests
         transaction.CurrentState.ShouldBe(TransactionState.Aborted);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenPlainAndTransactionalMessagesAndBatching_ShouldNotPutThemInOneEntry()
     {

@@ -38,6 +38,7 @@ public sealed class TransactionTests : IDisposable
         _testOutputHelper = outputHelper;
     }
 
+    // Additional coverage
     [Fact]
     public async Task Create_GivenTransactionsEnabled_ShouldCreateOpenTransactionKnownByCoordinator()
     {
@@ -61,6 +62,7 @@ public sealed class TransactionTests : IDisposable
         await transaction.Abort(_cts.Token);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Create_GivenTimeoutOfOneMinute_ShouldTellTheCoordinatorTheTimeoutInMilliseconds()
     {
@@ -77,6 +79,7 @@ public sealed class TransactionTests : IDisposable
         await transaction.Abort(_cts.Token);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Create_GivenSeveralTransactions_ShouldCreateTransactionsWithDistinctIds()
     {
@@ -93,6 +96,7 @@ public sealed class TransactionTests : IDisposable
         await Task.WhenAll(transactions.Select(transaction => transaction.Abort(_cts.Token).AsTask()));
     }
 
+    // Additional coverage
     [Fact]
     public async Task Commit_GivenEmptyTransaction_ShouldCommitTransaction()
     {
@@ -110,6 +114,7 @@ public sealed class TransactionTests : IDisposable
         status.ShouldBe(HttpStatusCode.NotFound); // The broker removes a transaction that has ended
     }
 
+    // Additional coverage
     [Fact]
     public async Task Abort_GivenEmptyTransaction_ShouldAbortTransaction()
     {
@@ -127,6 +132,7 @@ public sealed class TransactionTests : IDisposable
         status.ShouldBe(HttpStatusCode.NotFound); // The broker removes a transaction that has ended
     }
 
+    // Additional coverage
     [Fact]
     public async Task Commit_GivenCommittedTransaction_ShouldThrowInvalidTransactionStatusException()
     {
@@ -145,6 +151,7 @@ public sealed class TransactionTests : IDisposable
         transaction.CurrentState.ShouldBe(TransactionState.Committed);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Create_GivenShortTimeout_ShouldBecomeTimedOutAndRejectCommitAndAbort()
     {
@@ -248,6 +255,7 @@ public sealed class TransactionTests : IDisposable
         ((PulsarClient) client).TransactionCoordinatorClient.ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Create_GivenNewClient_ShouldStartTheCoordinatorClientWithTheFirstTransaction()
     {

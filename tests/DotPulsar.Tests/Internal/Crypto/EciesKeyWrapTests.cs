@@ -38,6 +38,7 @@ public sealed class EciesKeyWrapTests
     private static void SkipWhenExplicitCurvesAreNotSupported()
         => Assert.SkipWhen(OperatingSystem.IsMacOS(), "The platform does not support importing keys with explicit curve parameters");
 
+    // Additional coverage
     [Fact]
     public void IesEncrypt_GivenVectorInput_ShouldReturnExpectedCiphertextAndTag()
     {
@@ -50,6 +51,7 @@ public sealed class EciesKeyWrapTests
         actual.Skip(32).ToArray().ShouldBe(_vectorTag);
     }
 
+    // Additional coverage
     [Fact]
     public void TryIesDecrypt_GivenVectorOutput_ShouldReturnMessage()
     {
@@ -64,6 +66,7 @@ public sealed class EciesKeyWrapTests
         message.ShouldBe(_vectorMessage);
     }
 
+    // Additional coverage
     [Fact]
     public void TryIesDecrypt_GivenOffset_ShouldIgnoreThePrefix()
     {
@@ -78,6 +81,7 @@ public sealed class EciesKeyWrapTests
         message.ShouldBe(_vectorMessage);
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(0)]
     [InlineData(31)]
@@ -97,6 +101,7 @@ public sealed class EciesKeyWrapTests
         message.ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public void TryIesDecrypt_GivenTooShortInput_ShouldReturnFalse()
     {
@@ -108,6 +113,7 @@ public sealed class EciesKeyWrapTests
         message.ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public void TryIesDecrypt_GivenEmptyMessage_ShouldReturnEmptyMessage()
     {
@@ -123,6 +129,7 @@ public sealed class EciesKeyWrapTests
         message.ShouldBe([]);
     }
 
+    // Additional coverage
     [Fact]
     public void WrapUnwrap_GivenSecp128r1ExplicitKey_ShouldRoundTrip()
     {
@@ -142,6 +149,7 @@ public sealed class EciesKeyWrapTests
         actual.ShouldBe(dataKey);
     }
 
+    // Additional coverage
     [Fact]
     public void WrapUnwrap_GivenSecp521r1ExplicitKey_ShouldRoundTrip()
     {
@@ -161,6 +169,7 @@ public sealed class EciesKeyWrapTests
         actual.ShouldBe(dataKey);
     }
 
+    // Additional coverage
     [Fact]
     public void WrapUnwrap_GivenNamedCurveKey_ShouldRoundTrip()
     {
@@ -177,6 +186,7 @@ public sealed class EciesKeyWrapTests
         actual.ShouldBe(dataKey);
     }
 
+    // Additional coverage
     [Fact]
     public void WrapUnwrap_GivenManyKeys_ShouldRoundTripIncludingCoordinatesWithLeadingZeros()
     {
@@ -204,6 +214,7 @@ public sealed class EciesKeyWrapTests
         sawLeadingZero.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void Wrap_GivenSameInputTwice_ShouldReturnDifferentOutput()
     {
@@ -220,6 +231,7 @@ public sealed class EciesKeyWrapTests
         first.ShouldNotBe(second);
     }
 
+    // Additional coverage
     [Fact]
     public void Wrap_GivenKey_ShouldUseTheXCoordinateOfTheSharedPointAsDefinedByTheSpecification()
     {
@@ -245,6 +257,7 @@ public sealed class EciesKeyWrapTests
         message.ShouldBe(dataKey);
     }
 
+    // Additional coverage
     [Theory]
     [InlineData("ClientEcdsa")]
     [InlineData("CryptoEcdsa")]
@@ -272,6 +285,7 @@ public sealed class EciesKeyWrapTests
     }
 
     // IESEngine: Z = BigIntegers.asUnsignedByteArray(fieldSize, x), so a leading zero byte of the x-coordinate must be kept (about 1 in 256 shared secrets)
+    // Additional coverage
     [Fact]
     public void Wrap_GivenSharedSecretWithLeadingZeroByte_ShouldPadTheSharedSecretToTheFieldSize()
     {
@@ -304,6 +318,7 @@ public sealed class EciesKeyWrapTests
         found.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void Unwrap_GivenSharedSecretWithLeadingZeroByte_ShouldPadTheSharedSecretToTheFieldSize()
     {
@@ -338,6 +353,7 @@ public sealed class EciesKeyWrapTests
         actual.ShouldBe(dataKey);
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(1)]
     [InlineData(40)]
@@ -358,6 +374,7 @@ public sealed class EciesKeyWrapTests
         exception.ShouldBeAssignableTo<CryptographicException>();
     }
 
+    // Additional coverage
     [Fact]
     public void Unwrap_GivenTamperedMac_ShouldFail()
     {
@@ -375,6 +392,7 @@ public sealed class EciesKeyWrapTests
         exception.ShouldBeOfType<CryptographicException>().Message.ShouldContain("MAC");
     }
 
+    // Additional coverage
     [Fact]
     public void Unwrap_GivenWrongPrivateKey_ShouldFail()
     {
@@ -391,6 +409,7 @@ public sealed class EciesKeyWrapTests
         exception.ShouldBeOfType<CryptographicException>().Message.ShouldContain("MAC");
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(0x02)]
     [InlineData(0x03)]
@@ -410,6 +429,7 @@ public sealed class EciesKeyWrapTests
         exception.ShouldBeOfType<CryptographicException>().Message.ShouldContain("Compressed");
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(0x00)]
     [InlineData(0x05)]
@@ -430,6 +450,7 @@ public sealed class EciesKeyWrapTests
         exception.ShouldBeOfType<CryptographicException>().Message.ShouldContain("point encoding");
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(0)]
     [InlineData(1)]
@@ -451,6 +472,7 @@ public sealed class EciesKeyWrapTests
         exception.ShouldBeAssignableTo<CryptographicException>();
     }
 
+    // Additional coverage
     [Fact]
     public void Unwrap_GivenPointThatIsNotOnTheCurve_ShouldThrow()
     {
@@ -466,6 +488,7 @@ public sealed class EciesKeyWrapTests
         exception.ShouldBeAssignableTo<CryptographicException>();
     }
 
+    // Additional coverage
     [Fact]
     public void IsEcKey_GivenEcAndRsaKeys_ShouldReturnWhetherTheKeyIsEc()
     {

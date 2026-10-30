@@ -35,6 +35,7 @@ public sealed class SubProducerSendTimeoutBatchTests
     private static readonly TimeSpan _timeout = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan _sendTimeout = TimeSpan.FromSeconds(1);
 
+    // Additional coverage
     [Fact]
     public async Task SendTimeout_GivenTimeoutBeforeTheDispatcherWritesTheBatch_ShouldWriteTheBatchAndReturnBufferAfterTheWrite()
     {
@@ -75,6 +76,7 @@ public sealed class SubProducerSendTimeoutBatchTests
         registerEvent.ReceivedCalls().Select(call => call.GetArguments()[0]).ShouldNotContain(argument => argument is ExecutorFaulted || argument is ChannelDisconnected);
     }
 
+    // Additional coverage
     [Fact]
     public async Task SendTimeout_GivenFrozenBatch_ShouldFailAllMessagesOfTheBatchAndReturnBuffer()
     {
@@ -96,6 +98,7 @@ public sealed class SubProducerSendTimeoutBatchTests
         sendOps.ShouldAllBe(sendOp => sendOp.Batch == null);
     }
 
+    // Additional coverage
     [Fact]
     public async Task SendTimeout_GivenTimeoutWhileBatchIsBeingWritten_ShouldReturnBufferOnlyAfterTheWrite()
     {

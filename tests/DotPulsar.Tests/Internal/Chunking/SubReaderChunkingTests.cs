@@ -43,6 +43,7 @@ public sealed class SubReaderChunkingTests
         sent.Single().MessageId.EntryId.ShouldBe(10UL);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Seek_GivenMessageIdThatIsNotChunked_ShouldSeekToIt()
     {
@@ -74,6 +75,7 @@ public sealed class SubReaderChunkingTests
         FeedTwoChunks(assembler).ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public async Task ChannelFaulted_ShouldDisposeTheChunkAssembler()
     {

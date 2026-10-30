@@ -17,6 +17,7 @@ namespace DotPulsar.Tests;
 [Trait("Category", "Unit")]
 public sealed class DeadLetterPolicyTests
 {
+    // Additional coverage
     [Fact]
     public void Constructor_GivenMaxRedeliverCount_ShouldSetItAndLeaveTheOtherSettingsUnset()
     {
@@ -29,6 +30,7 @@ public sealed class DeadLetterPolicyTests
         uut.InitialSubscriptionName.ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public void Properties_GivenValues_ShouldReturnThem()
     {

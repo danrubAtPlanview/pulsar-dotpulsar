@@ -21,6 +21,7 @@ using System.Collections;
 [Trait("Category", "Unit")]
 public sealed class AckSetWriterTests
 {
+    // Additional coverage
     [Theory]
     [InlineData(0, 0)]
     [InlineData(1, 1)]
@@ -38,6 +39,7 @@ public sealed class AckSetWriterTests
         actual.ShouldBe(expected);
     }
 
+    // Additional coverage
     [Fact]
     public void WriteIndividual_GivenBatchSize10Index3_ShouldWriteSingleWord0x3F7()
     {
@@ -51,6 +53,7 @@ public sealed class AckSetWriterTests
         target.ShouldBeAckSet(0x3F7);
     }
 
+    // Additional coverage
     [Fact]
     public void WriteIndividual_GivenBatchSize64Index63_ShouldWriteOneWord()
     {
@@ -64,6 +67,7 @@ public sealed class AckSetWriterTests
         target.ShouldBeAckSet(0x7FFFFFFFFFFFFFFF);
     }
 
+    // Additional coverage
     [Fact]
     public void WriteIndividual_GivenBatchSize65Index64_ShouldTrimTrailingZeroWord()
     {
@@ -77,6 +81,7 @@ public sealed class AckSetWriterTests
         target.ShouldBeAckSet(-1L);
     }
 
+    // Additional coverage
     [Fact]
     public void WriteIndividual_GivenBatchSize130Index100_ShouldWriteThreeWords()
     {
@@ -90,6 +95,7 @@ public sealed class AckSetWriterTests
         target.ShouldBeAckSet(-1L, unchecked((long) ~(1UL << 36)), 0b11L);
     }
 
+    // Additional coverage
     [Fact]
     public void WriteIndividual_GivenBatchSizeOfOneAndIndex0_ShouldWriteEmptyList()
     {
@@ -103,6 +109,7 @@ public sealed class AckSetWriterTests
         target.Count.ShouldBe(0);
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(-1)]
     [InlineData(10)]
@@ -119,6 +126,7 @@ public sealed class AckSetWriterTests
         target.ShouldBeAckSet(0x3FF);
     }
 
+    // Additional coverage
     [Fact]
     public void WriteIndividual_GivenBatchSizeZero_ShouldWriteEmptyList()
     {
@@ -132,6 +140,7 @@ public sealed class AckSetWriterTests
         target.Count.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void WriteCumulative_GivenBatchSize10Index4_ShouldClearBits0To4()
     {
@@ -145,6 +154,7 @@ public sealed class AckSetWriterTests
         target.ShouldBeAckSet(0b11_1110_0000);
     }
 
+    // Additional coverage
     [Fact]
     public void WriteCumulative_GivenLastIndex_ShouldWriteEmptyList()
     {
@@ -158,6 +168,7 @@ public sealed class AckSetWriterTests
         target.Count.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void WriteCumulative_GivenBatchSize130Index70_ShouldClearTheFirst71Bits()
     {
@@ -171,6 +182,7 @@ public sealed class AckSetWriterTests
         target.ShouldBeAckSet(0L, unchecked((long) ~((1UL << 7) - 1)), 0b11L);
     }
 
+    // Additional coverage
     [Fact]
     public void WriteCumulative_GivenIndex63_ShouldClearTheFirstWord()
     {
@@ -184,6 +196,7 @@ public sealed class AckSetWriterTests
         target.ShouldBeAckSet(0L, 0b111111L);
     }
 
+    // Additional coverage
     [Fact]
     public void WriteCumulative_GivenIndexBeyondBatch_ShouldWriteEmptyList()
     {
@@ -197,6 +210,7 @@ public sealed class AckSetWriterTests
         target.Count.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void WriteIndividual_GivenTargetWithContent_ShouldReplaceTheContent()
     {
@@ -210,6 +224,7 @@ public sealed class AckSetWriterTests
         target.ShouldBeAckSet(0x3F7);
     }
 
+    // Additional coverage
     [Fact]
     public void WriteWords_GivenTrailingZeroWords_ShouldOmitThem()
     {
@@ -224,6 +239,7 @@ public sealed class AckSetWriterTests
         target.ShouldBeAckSet(5, 0, 7);
     }
 
+    // Additional coverage
     [Fact]
     public void WriteWords_GivenOnlyZeroWords_ShouldWriteEmptyList()
     {
@@ -238,6 +254,7 @@ public sealed class AckSetWriterTests
         target.Count.ShouldBe(0);
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(3000, 0)]
     [InlineData(3000, 1500)]
@@ -258,6 +275,7 @@ public sealed class AckSetWriterTests
         target.ShouldBeAckSet(ToLongArray(bits));
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(3000, 0)]
     [InlineData(3000, 1500)]
@@ -281,6 +299,7 @@ public sealed class AckSetWriterTests
         target.ShouldBeAckSet(ToLongArray(bits));
     }
 
+    // Additional coverage
     [Fact]
     public void WriteIndividual_AfterWarmup_ShouldNotAllocate()
     {

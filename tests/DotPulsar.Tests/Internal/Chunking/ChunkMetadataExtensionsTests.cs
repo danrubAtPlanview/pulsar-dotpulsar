@@ -38,6 +38,7 @@ public sealed class ChunkMetadataExtensionsTests
         actual.ShouldBe(expected);
     }
 
+    // Additional coverage
     [Fact]
     public void IsChunk_GivenNoChunkFields_ShouldBeFalse()
     {
@@ -69,6 +70,7 @@ public sealed class ChunkMetadataExtensionsTests
         actual.ShouldBe(expected);
     }
 
+    // Additional coverage
     [Fact]
     public void IsChunkedMessage_GivenNumberOfMessagesInBatch_ShouldBeFalse()
     {
@@ -82,6 +84,7 @@ public sealed class ChunkMetadataExtensionsTests
         actual.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void IsChunkedMessage_GivenMetadataOfAChunk_ShouldBeTrue()
     {

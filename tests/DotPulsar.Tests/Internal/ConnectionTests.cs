@@ -26,6 +26,7 @@ public sealed class ConnectionTests
 {
     private static readonly TimeSpan _keepAliveInterval = TimeSpan.FromMinutes(5);
 
+    // Additional coverage
     [Fact]
     public void ProtocolVersion_GivenDefaults_ShouldAdvertiseProtocolVersion19()
     {
@@ -35,6 +36,7 @@ public sealed class ConnectionTests
         Constants.TransactionCoordinatorAssignTopic.ShouldBe("persistent://pulsar/system/transaction_coordinator_assign");
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenCommandTcClientConnectRequest_ShouldSendRequestAndReturnResponse()
     {
@@ -54,6 +56,7 @@ public sealed class ConnectionTests
         sent.TcClientConnectRequest.RequestId.ShouldBe(response.TcClientConnectResponse.RequestId);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenCommandNewTxn_ShouldSendRequestAndReturnResponse()
     {
@@ -73,6 +76,7 @@ public sealed class ConnectionTests
         sent.NewTxn.TxnTtlMillis.ShouldBe(60000ul);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenCommandAddPartitionToTxn_ShouldSendRequestAndReturnResponse()
     {
@@ -93,6 +97,7 @@ public sealed class ConnectionTests
         sent.AddPartitionToTxn.Partitions.ShouldBe(["persistent://public/default/topic"]);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenCommandAddSubscriptionToTxn_ShouldSendRequestAndReturnResponse()
     {
@@ -112,6 +117,7 @@ public sealed class ConnectionTests
         stream.Sent.Single(c => c.Type == BaseCommand.Types.Type.AddSubscriptionToTxn).AddSubscriptionToTxn.Subscription.Count.ShouldBe(1);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenCommandEndTxn_ShouldSendRequestAndReturnResponse()
     {
@@ -129,6 +135,7 @@ public sealed class ConnectionTests
         stream.Sent.Single(c => c.Type == BaseCommand.Types.Type.EndTxn).EndTxn.TxnAction.ShouldBe(TxnAction.Abort);
     }
 
+    // Additional coverage
     [Fact]
     public async Task SendWithResponse_GivenCommandAckForRegisteredConsumer_ShouldSendRequestIdAndReturnResponse()
     {
@@ -153,6 +160,7 @@ public sealed class ConnectionTests
         sent.Ack.RequestId.ShouldBe(response.AckResponse.RequestId);
     }
 
+    // Additional coverage
     [Fact]
     public async Task SendWithResponse_GivenCancelledToken_ShouldCancelAndIgnoreLateResponse()
     {
@@ -176,6 +184,7 @@ public sealed class ConnectionTests
         uut.State.IsFinalState().ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public async Task SendWithResponse_GivenConsumerThatIsNotRegistered_ShouldThrowOperationCanceledException()
     {
@@ -189,6 +198,7 @@ public sealed class ConnectionTests
         exception.ShouldBeAssignableTo<OperationCanceledException>();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Connection_GivenAuthChallenge_ShouldRespondWithProtocolVersionAndClientVersion()
     {
@@ -205,6 +215,7 @@ public sealed class ConnectionTests
         response.AuthResponse.ClientVersion.ShouldBe($"{Constants.ClientName} {Constants.ClientVersion}");
     }
 
+    // Additional coverage
     [Fact]
     public async Task AddTransactionMetaStoreHandler_GivenHandler_ShouldNotCloseConnectionOnInactivity()
     {
@@ -220,6 +231,7 @@ public sealed class ConnectionTests
         uut.State.IsFinalState().ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public async Task RemoveTransactionMetaStoreHandler_GivenLastHandler_ShouldCloseConnectionOnInactivity()
     {
@@ -235,6 +247,7 @@ public sealed class ConnectionTests
         state.ShouldBe(ConnectionState.Disconnected);
     }
 
+    // Additional coverage
     [Fact]
     public async Task DisposeAsync_GivenTransactionMetaStoreHandler_ShouldNotifyConnectionClosed()
     {
@@ -250,6 +263,7 @@ public sealed class ConnectionTests
         handler.Received(1).ConnectionClosed();
     }
 
+    // Additional coverage
     [Fact]
     public async Task AddTransactionMetaStoreHandler_GivenDisposedConnection_ShouldThrowConnectionDisposedException()
     {
@@ -284,6 +298,7 @@ public sealed class ConnectionTests
         stream.Sent.ShouldNotContain(command => command.Type == BaseCommand.Types.Type.Send);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenMessageThatFitsInMaxMessageSize_ShouldWriteIt()
     {

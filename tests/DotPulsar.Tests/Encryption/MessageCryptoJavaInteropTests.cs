@@ -36,6 +36,7 @@ public sealed class MessageCryptoJavaInteropTests : IClassFixture<JavaCryptoFixt
     private static MessageMetadata CreateMetadata()
         => new() { ProducerName = "producer", SequenceId = 1, PublishTime = 1 };
 
+    // Additional coverage
     [Theory]
     [InlineData("ClientRsa", 0)]
     [InlineData("ClientRsa", 1000)]
@@ -66,6 +67,7 @@ public sealed class MessageCryptoJavaInteropTests : IClassFixture<JavaCryptoFixt
         encrypted.KeyMetadata.ShouldBe("version:1.0");
     }
 
+    // Additional coverage
     [Theory]
     [InlineData("ClientRsa", 0)]
     [InlineData("ClientRsa", 1000)]
@@ -93,6 +95,7 @@ public sealed class MessageCryptoJavaInteropTests : IClassFixture<JavaCryptoFixt
         actual.ShouldBe(payload);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Encrypt_GivenTwoKeyNames_ShouldBeDecryptedByTheJavaClientWithEitherKey()
     {
@@ -119,6 +122,7 @@ public sealed class MessageCryptoJavaInteropTests : IClassFixture<JavaCryptoFixt
         actualEcdsa.ShouldBe(payload);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Encrypt_GivenTamperedPayload_ShouldNotBeDecryptedByTheJavaClient()
     {

@@ -27,6 +27,7 @@ public sealed class BatchingAllocationTests
     private const int MeasuredRounds = 200;
     private const int MaxAttempts = 5;
 
+    // Additional coverage
     [Theory]
     [InlineData(BatcherType.Default, 1)]
     [InlineData(BatcherType.Default, 2)]
@@ -54,6 +55,7 @@ public sealed class BatchingAllocationTests
         allocated.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void Add_GivenLimitChecksForEveryMessage_ShouldNotAllocate()
     {
@@ -73,6 +75,7 @@ public sealed class BatchingAllocationTests
         allocated.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void BatchingRound_GivenMoreMessagesThanTheBatchLimit_ShouldNotAllocatePerMessage()
     {
@@ -93,6 +96,7 @@ public sealed class BatchingAllocationTests
     }
 
     // Guards the tests above against measuring nothing
+    // Additional coverage
     [Fact]
     public void GetAllocatedBytesForCurrentThread_GivenCodeThatAllocates_ShouldReportTheAllocations()
     {

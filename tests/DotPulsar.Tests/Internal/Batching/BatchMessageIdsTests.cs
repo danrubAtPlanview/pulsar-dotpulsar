@@ -22,6 +22,7 @@ public sealed class BatchMessageIdsTests
 {
     private const string Topic = "persistent://public/default/test";
 
+    // Additional coverage
     [Fact]
     public void Create_GivenBatchOfThree_ShouldReturnIdWithTheIndexInTheBatch()
     {
@@ -37,6 +38,7 @@ public sealed class BatchMessageIdsTests
         actual[1].ShouldBe(new MessageId(5, 6, 2, 1, Topic));
     }
 
+    // Additional coverage
     [Fact]
     public void Create_GivenSingleMessage_ShouldKeepTheBatchIndexOfTheReceipt()
     {
@@ -51,6 +53,7 @@ public sealed class BatchMessageIdsTests
         actual.BatchIndex.ShouldBe(-1);
     }
 
+    // Additional coverage
     [Fact]
     public void Create_GivenSingleMessageAndReceiptWithoutBatchIndex_ShouldUseTheDefaultBatchIndexOfTheReceipt()
     {
@@ -64,6 +67,7 @@ public sealed class BatchMessageIdsTests
         actual.BatchIndex.ShouldBe(receipt.BatchIndex);
     }
 
+    // Additional coverage
     [Fact]
     public void Create_GivenBatchIndexOfALargeBatch_ShouldReturnThatBatchIndex()
     {

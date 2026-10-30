@@ -37,6 +37,7 @@ public sealed class EncryptionRequiredTests : IDisposable
 
     public void Dispose() => _cts.Dispose();
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenEncryptionRequiredNamespaceAndEncryptedProducer_ShouldAcceptTheMessageAndTheConsumerDecryptsIt()
     {
@@ -68,6 +69,7 @@ public sealed class EncryptionRequiredTests : IDisposable
         actual.EncryptionContext.ShouldNotBeNull().Keys.Keys.ShouldBe(["my-app-key"]);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenEncryptionRequiredNamespaceAndProducerWithoutEncryption_ShouldNotBeAcceptedByTheBroker()
     {

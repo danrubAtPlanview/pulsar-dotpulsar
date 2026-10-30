@@ -21,6 +21,7 @@ public sealed class OneShotTimerTests
 {
     private static readonly TimeSpan _timeout = TimeSpan.FromSeconds(30);
 
+    // Additional coverage
     [Fact]
     public async Task Schedule_GivenDueTime_ShouldInvokeCallback()
     {
@@ -35,6 +36,7 @@ public sealed class OneShotTimerTests
         await invoked.Task.WaitAsync(_timeout, Current.CancellationToken);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Schedule_GivenNoSchedule_ShouldNotInvokeCallback()
     {
@@ -49,6 +51,7 @@ public sealed class OneShotTimerTests
         invocations.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Schedule_GivenInvokedCallback_ShouldNotInvokeItAgainUntilScheduledAgain()
     {
@@ -74,6 +77,7 @@ public sealed class OneShotTimerTests
         invocations.ShouldBe(2);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Schedule_GivenPendingSchedule_ShouldReplaceIt()
     {
@@ -89,6 +93,7 @@ public sealed class OneShotTimerTests
         await invoked.Task.WaitAsync(_timeout, Current.CancellationToken);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Schedule_GivenNegativeDueTime_ShouldInvokeCallbackImmediately()
     {
@@ -103,6 +108,7 @@ public sealed class OneShotTimerTests
         await invoked.Task.WaitAsync(_timeout, Current.CancellationToken);
     }
 
+    // Additional coverage
     [Fact]
     public void Schedule_GivenDueTimeAboveTheMaximumOfTheTimer_ShouldNotThrow()
     {
@@ -116,6 +122,7 @@ public sealed class OneShotTimerTests
         exception.ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Dispose_GivenScheduledTimer_ShouldNotInvokeCallback()
     {
@@ -132,6 +139,7 @@ public sealed class OneShotTimerTests
         invocations.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void Dispose_GivenCalledTwice_ShouldNotThrow()
     {
@@ -149,6 +157,7 @@ public sealed class OneShotTimerTests
         exception.ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public void Schedule_GivenDisposedTimer_ShouldNotThrow()
     {

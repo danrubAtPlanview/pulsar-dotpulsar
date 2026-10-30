@@ -21,6 +21,7 @@ using DotPulsar.Internal.PulsarApi;
 [Trait("Category", "Unit")]
 public sealed class CommandExtensionsTests
 {
+    // Additional coverage
     [Theory]
     [InlineData(ServerError.TransactionConflict, typeof(TransactionConflictException))]
     [InlineData(ServerError.NotAllowedError, typeof(NotAllowedException))]
@@ -43,6 +44,7 @@ public sealed class CommandExtensionsTests
         actual.GetType().ShouldBe(expected);
     }
 
+    // Additional coverage
     [Fact]
     public void ThrowIfAckError_GivenNoError_ShouldNotThrow()
     {
@@ -56,6 +58,7 @@ public sealed class CommandExtensionsTests
         actual.ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public void ThrowIfAckError_GivenError_ShouldKeepTheBrokerMessage()
     {
@@ -70,6 +73,7 @@ public sealed class CommandExtensionsTests
         actual.Message.ShouldBe("broker message");
     }
 
+    // Additional coverage
     [Fact]
     public void ThrowIfAckError_GivenCommandThatIsNotAnAckResponse_ShouldThrowUnexpectedResponse()
     {
@@ -83,6 +87,7 @@ public sealed class CommandExtensionsTests
         actual.ShouldNotBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public void Throw_GivenAckResponseWithTransactionNotFound_ShouldThrowTransactionNotFoundException()
     {
@@ -96,6 +101,7 @@ public sealed class CommandExtensionsTests
         actual.ShouldBeOfType<TransactionNotFoundException>();
     }
 
+    // Additional coverage
     [Fact]
     public void ToException_GivenServerError_ShouldReturnTheExceptionWithoutThrowing()
     {

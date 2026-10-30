@@ -84,6 +84,7 @@ public sealed class MessageCryptoTests
         return builder.Build();
     }
 
+    // Additional coverage
     [Fact]
     public void Encrypt_GivenTwoKeyNames_ShouldWriteSortedEncryptionKeysAndTwelveByteIv()
     {
@@ -103,6 +104,7 @@ public sealed class MessageCryptoTests
         actual.Length.ShouldBe(_payload.Length + 16);
     }
 
+    // Additional coverage
     [Fact]
     public void Encrypt_GivenMetadataWithCompressionAndBatchFields_ShouldLeaveThemUntouched()
     {
@@ -127,6 +129,7 @@ public sealed class MessageCryptoTests
         metadata.Properties.Count.ShouldBe(1);
     }
 
+    // Additional coverage
     [Fact]
     public void Encrypt_GivenKeyInfoWithMetadata_ShouldWriteTheKeyMetadata()
     {
@@ -142,6 +145,7 @@ public sealed class MessageCryptoTests
         metadata.EncryptionKeys[0].Metadata.ToDictionary(m => m.Key, m => m.Value).ShouldBe(new Dictionary<string, string> { ["version"] = "1.0", ["timestamp"] = "2026" });
     }
 
+    // Additional coverage
     [Fact]
     public void Encrypt_GivenKeyInfoWithoutMetadata_ShouldNotWriteKeyMetadata()
     {
@@ -157,6 +161,7 @@ public sealed class MessageCryptoTests
         metadata.EncryptionKeys[0].Metadata.Count.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void Encrypt_GivenMetadataWithExistingEncryptionKeys_ShouldReplaceThem()
     {
@@ -174,6 +179,7 @@ public sealed class MessageCryptoTests
         metadata.EncryptionKeys.Select(k => k.Key).ShouldBe(["rsa"]);
     }
 
+    // Additional coverage
     [Fact]
     public void Encrypt_GivenSamePayloadTwice_ShouldUseDifferentIvAndCiphertext()
     {
@@ -193,6 +199,7 @@ public sealed class MessageCryptoTests
         firstMetadata.EncryptionKeys[0].Value.ShouldBe(secondMetadata.EncryptionKeys[0].Value);
     }
 
+    // Additional coverage
     [Fact]
     public void Encrypt_GivenPayload_ShouldProduceCiphertextFollowedByTagThatAesGcmAcceptsWithoutAad()
     {
@@ -214,6 +221,7 @@ public sealed class MessageCryptoTests
         actual.ShouldBe(_payload);
     }
 
+    // Additional coverage
     [Fact]
     public void Encrypt_GivenEmptyPayload_ShouldReturnTheTagOnly()
     {
@@ -231,6 +239,7 @@ public sealed class MessageCryptoTests
         Decrypt(consumer, keyReader, metadata, actual).ShouldBe([]);
     }
 
+    // Additional coverage
     [Fact]
     public void Encrypt_GivenMultiSegmentSequence_ShouldProduceTheSameAsASingleSegment()
     {
@@ -249,6 +258,7 @@ public sealed class MessageCryptoTests
         Decrypt(consumer, keyReader, metadata, actual).ShouldBe(data);
     }
 
+    // Additional coverage
     [Fact]
     public void Encrypt_GivenNoKeysAdded_ShouldThrowCryptoExceptionAndLeaveTheMetadataUntouched()
     {
@@ -265,6 +275,7 @@ public sealed class MessageCryptoTests
         metadata.HasEncryptionParam.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void Encrypt_GivenDisposed_ShouldThrowObjectDisposedException()
     {
@@ -280,6 +291,7 @@ public sealed class MessageCryptoTests
         exception.ShouldBeOfType<ObjectDisposedException>();
     }
 
+    // Additional coverage
     [Fact]
     public void Encrypt_GivenConcurrentCalls_ShouldProduceDecryptableMessagesWithUniqueIvs()
     {
@@ -310,6 +322,7 @@ public sealed class MessageCryptoTests
             Decrypt(consumer, keyReader, result.Metadata, result.Encrypted).ShouldBe(result.Payload);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Encrypt_GivenConcurrentRotation_ShouldAlwaysMatchTheKeysWithTheCiphertext()
     {
@@ -350,6 +363,7 @@ public sealed class MessageCryptoTests
             Decrypt(consumer, keyReader, result.Metadata, result.Encrypted).ShouldBe(_payload);
     }
 
+    // Additional coverage
     [Theory]
     [InlineData("rsa")]
     [InlineData("rsa", "rsa-pkcs8")]
@@ -376,6 +390,7 @@ public sealed class MessageCryptoTests
         actual.ShouldBe((metadata.CalculateSize() - sizeBefore) + (int) (encrypted.Length - _payload.Length));
     }
 
+    // Additional coverage
     [Fact]
     public void GetMetadataOverhead_GivenNoKeysAdded_ShouldReturnZero()
     {
@@ -389,6 +404,7 @@ public sealed class MessageCryptoTests
         actual.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void AddPublicKeyCipher_GivenFailingSecondKey_ShouldKeepPreviousSnapshot()
     {
@@ -412,6 +428,7 @@ public sealed class MessageCryptoTests
         Decrypt(consumer, keyReader, after, encryptedAfter).ShouldBe(_payload);
     }
 
+    // Additional coverage
     [Fact]
     public void AddPublicKeyCipher_GivenFailingFirstCall_ShouldNotEnableEncryption()
     {
@@ -428,6 +445,7 @@ public sealed class MessageCryptoTests
         Should.Throw<CryptoException>(() => Encrypt(uut, CreateMetadata(), _payload));
     }
 
+    // Additional coverage
     [Fact]
     public void AddPublicKeyCipher_GivenNullKeyReader_ShouldThrowCryptoException()
     {
@@ -441,6 +459,7 @@ public sealed class MessageCryptoTests
         exception.ShouldBeOfType<CryptoException>().Message.ShouldBe("Keyname or KeyReader is null");
     }
 
+    // Additional coverage
     [Fact]
     public void AddPublicKeyCipher_GivenNullKeyName_ShouldThrowCryptoException()
     {
@@ -454,6 +473,7 @@ public sealed class MessageCryptoTests
         exception.ShouldBeOfType<CryptoException>().Message.ShouldBe("Keyname or KeyReader is null");
     }
 
+    // Additional coverage
     [Fact]
     public void AddPublicKeyCipher_GivenNoKeyNames_ShouldThrowArgumentException()
     {
@@ -467,6 +487,7 @@ public sealed class MessageCryptoTests
         exception.ShouldBeOfType<ArgumentException>();
     }
 
+    // Additional coverage
     [Fact]
     public void AddPublicKeyCipher_GivenKeyReaderReturningNull_ShouldThrowCryptoException()
     {
@@ -481,6 +502,7 @@ public sealed class MessageCryptoTests
         exception.ShouldBeOfType<CryptoException>().Message.ShouldStartWith("Failed to load public key rsa. ");
     }
 
+    // Additional coverage
     [Fact]
     public void AddPublicKeyCipher_GivenKeyReaderReturningEmptyKey_ShouldThrowCryptoException()
     {
@@ -495,6 +517,7 @@ public sealed class MessageCryptoTests
         exception.ShouldBeOfType<CryptoException>().Message.ShouldStartWith("Failed to load public key rsa. ");
     }
 
+    // Additional coverage
     [Fact]
     public void AddPublicKeyCipher_GivenKeyReaderThatThrows_ShouldThrowCryptoExceptionWithInnerException()
     {
@@ -513,6 +536,7 @@ public sealed class MessageCryptoTests
         cryptoException.InnerException.ShouldBe(inner);
     }
 
+    // Additional coverage
     [Fact]
     public void AddPublicKeyCipher_GivenInvalidPem_ShouldThrowCryptoException()
     {
@@ -527,6 +551,7 @@ public sealed class MessageCryptoTests
         exception.ShouldBeOfType<CryptoException>().Message.ShouldBe("Failed to load public key rsa. No PEM block was found");
     }
 
+    // Additional coverage
     [Fact]
     public void AddPublicKeyCipher_GivenPrivateKeyAsPublicKey_ShouldThrowCryptoException()
     {
@@ -541,6 +566,7 @@ public sealed class MessageCryptoTests
         exception.ShouldBeOfType<CryptoException>().Message.ShouldStartWith("Failed to load public key rsa. ");
     }
 
+    // Additional coverage
     [Fact]
     public void AddPublicKeyCipher_GivenKeyReader_ShouldCallGetPublicKeyOncePerKeyNameWithEmptyMetadata()
     {
@@ -559,6 +585,7 @@ public sealed class MessageCryptoTests
         keyReader.ReceivedCalls().Count().ShouldBe(2);
     }
 
+    // Additional coverage
     [Fact]
     public void AddPublicKeyCipher_GivenCalledTwice_ShouldRotateTheDataKeyAndKeepOldMessagesDecryptable()
     {
@@ -583,6 +610,7 @@ public sealed class MessageCryptoTests
         Decrypt(consumer, keyReader, secondMetadata, second).ShouldBe(_payload);
     }
 
+    // Additional coverage
     [Fact]
     public async Task AddPublicKeyCipher_GivenRefreshInterval_ShouldRotateTheDataKeyPeriodically()
     {
@@ -607,6 +635,7 @@ public sealed class MessageCryptoTests
         Decrypt(consumer, keyReader, lastMetadata, last).ShouldBe(_payload);
     }
 
+    // Additional coverage
     [Fact]
     public async Task AddPublicKeyCipher_GivenRefreshThatFails_ShouldKeepThePreviousDataKeyAndTryAgain()
     {
@@ -637,6 +666,7 @@ public sealed class MessageCryptoTests
         Decrypt(consumer, keyReader, lastMetadata, last).ShouldBe(_payload);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Dispose_GivenRefreshInterval_ShouldStopTheRefresh()
     {
@@ -657,6 +687,7 @@ public sealed class MessageCryptoTests
         counting.ReceivedCalls().Count().ShouldBe(callsAfterDispose);
     }
 
+    // Additional coverage
     [Fact]
     public void AddPublicKeyCipher_GivenConsumerMode_ShouldNotStartTheRefresh()
     {
@@ -674,6 +705,7 @@ public sealed class MessageCryptoTests
         counting.ReceivedCalls().Count().ShouldBe(1);
     }
 
+    // Additional coverage
     [Theory]
     [InlineData("rsa")]
     [InlineData("rsa-pkcs8")]
@@ -699,6 +731,7 @@ public sealed class MessageCryptoTests
         decrypted.ToArray().ShouldBe(_payload);
     }
 
+    // Additional coverage
     [Fact]
     public void TryDecrypt_GivenMultipleKeys_ShouldDecryptWithAnyOfThem()
     {
@@ -728,6 +761,7 @@ public sealed class MessageCryptoTests
         }
     }
 
+    // Additional coverage
     [Fact]
     public void TryDecrypt_GivenEncryptedPayload_ShouldUseLastKeyCacheWithoutCallingReaderTwice()
     {
@@ -752,6 +786,7 @@ public sealed class MessageCryptoTests
         keyReader.Received(1).GetPrivateKey("rsa", Arg.Any<IReadOnlyDictionary<string, string>>());
     }
 
+    // Additional coverage
     [Fact]
     public void TryDecrypt_GivenMessagesFromTwoProducersWithTheSameDataKey_ShouldOnlyCallTheReaderOnce()
     {
@@ -782,6 +817,7 @@ public sealed class MessageCryptoTests
         keyReader.Received(1).GetPrivateKey("rsa", Arg.Any<IReadOnlyDictionary<string, string>>());
     }
 
+    // Additional coverage
     [Fact]
     public void TryDecrypt_GivenRotatedDataKey_ShouldUnwrapTheNewKeyAndKeepUsingCachedKeysForOldMessages()
     {
@@ -811,6 +847,7 @@ public sealed class MessageCryptoTests
         keyReader.Received(2).GetPrivateKey("rsa", Arg.Any<IReadOnlyDictionary<string, string>>());
     }
 
+    // Additional coverage
     [Fact]
     public void TryDecrypt_GivenKeyMetadata_ShouldPassTheMetadataToTheKeyReader()
     {
@@ -831,6 +868,7 @@ public sealed class MessageCryptoTests
         keyReader.Received(1).GetPrivateKey("rsa", Arg.Is<IReadOnlyDictionary<string, string>>(m => m.Count == 1 && m["version"] == "1.0"));
     }
 
+    // Additional coverage
     [Fact]
     public void TryDecrypt_GivenWrongPrivateKey_ShouldReturnFalse()
     {
@@ -851,6 +889,7 @@ public sealed class MessageCryptoTests
     }
 
     // The upstream key 'private-key.client-mismatch-rsa.pem' is an EC key
+    // Additional coverage
     [Fact]
     public void TryDecrypt_GivenPrivateKeyOfAnotherType_ShouldReturnFalse()
     {
@@ -870,6 +909,7 @@ public sealed class MessageCryptoTests
         actual.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void TryDecrypt_GivenWrongPrivateKeyForEcKey_ShouldReturnFalse()
     {
@@ -889,6 +929,7 @@ public sealed class MessageCryptoTests
         actual.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void TryDecrypt_GivenKeyReaderWithoutTheKey_ShouldReturnFalse()
     {
@@ -907,6 +948,7 @@ public sealed class MessageCryptoTests
         actual.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void TryDecrypt_GivenKeyReaderThatThrows_ShouldReturnFalse()
     {
@@ -926,6 +968,7 @@ public sealed class MessageCryptoTests
         actual.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void TryDecrypt_GivenInvalidPrivateKey_ShouldReturnFalse()
     {
@@ -944,6 +987,7 @@ public sealed class MessageCryptoTests
         actual.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void TryDecrypt_GivenPublicKeyAsPrivateKey_ShouldReturnFalse()
     {
@@ -962,6 +1006,7 @@ public sealed class MessageCryptoTests
         actual.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void TryDecrypt_GivenFirstKeyThatCannotBeUsed_ShouldTryTheNextKey()
     {
@@ -982,6 +1027,7 @@ public sealed class MessageCryptoTests
         actual.ShouldBe(_payload);
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(0)]
     [InlineData(10)]
@@ -1005,6 +1051,7 @@ public sealed class MessageCryptoTests
         actual.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void TryDecrypt_GivenTamperedIv_ShouldReturnFalse()
     {
@@ -1025,6 +1072,7 @@ public sealed class MessageCryptoTests
         actual.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void TryDecrypt_GivenTamperedWrappedKey_ShouldReturnFalse()
     {
@@ -1045,6 +1093,7 @@ public sealed class MessageCryptoTests
         actual.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(0)]
     [InlineData(1)]
@@ -1065,6 +1114,7 @@ public sealed class MessageCryptoTests
         actual.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(0)]
     [InlineData(11)]
@@ -1086,6 +1136,7 @@ public sealed class MessageCryptoTests
         actual.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void TryDecrypt_GivenMetadataWithoutEncryptionKeys_ShouldReturnFalse()
     {
@@ -1104,6 +1155,7 @@ public sealed class MessageCryptoTests
         actual.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void TryDecrypt_GivenMultiSegmentSequence_ShouldDecrypt()
     {
@@ -1122,6 +1174,7 @@ public sealed class MessageCryptoTests
         actual.ShouldBe(data);
     }
 
+    // Additional coverage
     [Fact]
     public void TryDecrypt_GivenCachedKeyThatHasNotBeenUsedForMoreThanFourHours_ShouldCallTheReaderAgain()
     {
@@ -1152,6 +1205,7 @@ public sealed class MessageCryptoTests
         keyReader.Received(2).GetPrivateKey("rsa", Arg.Any<IReadOnlyDictionary<string, string>>());
     }
 
+    // Additional coverage
     [Fact]
     public void TryDecrypt_GivenDisposed_ShouldThrowObjectDisposedException()
     {
@@ -1170,6 +1224,7 @@ public sealed class MessageCryptoTests
         exception.ShouldBeOfType<ObjectDisposedException>();
     }
 
+    // Additional coverage
     [Fact]
     public void AddPublicKeyCipher_GivenDisposed_ShouldThrowObjectDisposedException()
     {
@@ -1184,6 +1239,7 @@ public sealed class MessageCryptoTests
         exception.ShouldBeOfType<ObjectDisposedException>();
     }
 
+    // Additional coverage
     [Fact]
     public void Dispose_GivenCalledTwice_ShouldNotThrow()
     {
@@ -1198,6 +1254,7 @@ public sealed class MessageCryptoTests
         exception.ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public void TryDecrypt_GivenNullKeyReaderAndAKeyThatIsNotCached_ShouldReturnFalse()
     {
@@ -1215,6 +1272,7 @@ public sealed class MessageCryptoTests
         actual.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void Encrypt_GivenSteadyState_ShouldOnlyAllocateTheOutputBufferAndTheIv()
     {
@@ -1233,6 +1291,7 @@ public sealed class MessageCryptoTests
         actual.ShouldBeLessThan(payloadLength + 16 + 100);
     }
 
+    // Additional coverage
     [Fact]
     public void TryDecrypt_GivenSteadyState_ShouldOnlyAllocateTheOutputBuffer()
     {
@@ -1254,6 +1313,7 @@ public sealed class MessageCryptoTests
         actual.ShouldBeLessThan(payloadLength + 100);
     }
 
+    // Additional coverage
     [Fact]
     public void TryDecrypt_GivenConcurrentCalls_ShouldDecryptAll()
     {

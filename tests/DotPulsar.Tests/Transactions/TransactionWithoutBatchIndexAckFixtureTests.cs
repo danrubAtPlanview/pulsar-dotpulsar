@@ -26,6 +26,7 @@ public sealed class TransactionWithoutBatchIndexAckFixtureTests : IDisposable
         _fixture = fixture;
     }
 
+    // Additional coverage
     [Fact]
     public async Task TransactionWithoutBatchIndexAckFixture_ShouldDisableBatchIndexAcknowledgment()
     {

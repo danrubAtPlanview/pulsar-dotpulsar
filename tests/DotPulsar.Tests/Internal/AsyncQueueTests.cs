@@ -127,6 +127,7 @@ public class AsyncQueueTests
         queue.Dispose();
     }
 
+    // Additional coverage
     [Fact]
     public void RemoveAll_GivenQueuedItems_ShouldReturnThemInOrderAndEmptyTheQueue()
     {
@@ -147,6 +148,7 @@ public class AsyncQueueTests
         queue.Dispose();
     }
 
+    // Additional coverage
     [Fact]
     public async Task RemoveAll_GivenQueuedItemsAndLaterEnqueue_ShouldOnlyDeliverTheNewItem()
     {
@@ -167,6 +169,7 @@ public class AsyncQueueTests
         queue.Dispose();
     }
 
+    // Additional coverage
     [Fact]
     public async Task RemoveAll_GivenPendingDequeue_ShouldNotCompleteIt()
     {
@@ -186,6 +189,7 @@ public class AsyncQueueTests
         queue.Dispose();
     }
 
+    // Additional coverage
     [Fact]
     public async Task RemoveWhere_GivenPredicate_ShouldReturnMatchingItemsAndKeepTheOthersInOrder()
     {
@@ -212,6 +216,7 @@ public class AsyncQueueTests
         queue.Dispose();
     }
 
+    // Additional coverage
     [Fact]
     public void RemoveWhere_GivenNoMatch_ShouldKeepAllItems()
     {
@@ -231,6 +236,7 @@ public class AsyncQueueTests
         queue.Dispose();
     }
 
+    // Additional coverage
     [Fact]
     public void RemoveAll_GivenDisposedQueue_ShouldThrowAsyncQueueDisposedException()
     {
@@ -245,6 +251,7 @@ public class AsyncQueueTests
         exception.ShouldBeOfType<AsyncQueueDisposedException>();
     }
 
+    // Additional coverage
     [Fact]
     public void RemoveWhere_GivenDisposedQueue_ShouldThrowAsyncQueueDisposedException()
     {

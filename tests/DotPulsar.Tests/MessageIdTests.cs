@@ -343,6 +343,7 @@ public class MessageIdTests
         batchMsgId2.GetHashCode().ShouldBe(msgId2.GetHashCode());
     }
 
+    // Additional coverage
     [Fact]
     public void BatchSize_ShouldNotTakePartInEqualityOrHashCode()
     {
@@ -359,6 +360,7 @@ public class MessageIdTests
         withBatchSize.ToString().ShouldBe(withoutBatchSize.ToString());
     }
 
+    // Additional coverage
     [Fact]
     public void TryParse_GivenValidString_ShouldNotSetBatchSize()
     {
@@ -372,6 +374,7 @@ public class MessageIdTests
         actual.GetBatchSize().ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void FirstChunkMessageId_GivenIdThatIsNotChunked_ShouldBeNull()
     {
@@ -383,6 +386,7 @@ public class MessageIdTests
         uut.GetChunkMessageIds().ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public void CreateChunked_GivenChunkIds_ShouldUseTheLastChunkAndNoBatchIndex()
     {
@@ -454,6 +458,7 @@ public class MessageIdTests
         chunkMessageId.Equals(otherId).ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void ToString_GivenChunkMessageId_ShouldBeTheStringOfTheLastChunkAndParseToAnIdThatIsNotChunked()
     {

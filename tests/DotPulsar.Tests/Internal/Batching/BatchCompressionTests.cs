@@ -27,6 +27,7 @@ public sealed class BatchCompressionTests
 {
     private const int MaxMessageSize = 5 * 1024 * 1024;
 
+    // Additional coverage
     [Theory]
     [InlineData(CompressionType.Lz4, BatcherType.Default)]
     [InlineData(CompressionType.Snappy, BatcherType.Default)]
@@ -72,6 +73,7 @@ public sealed class BatchCompressionTests
         }
     }
 
+    // Additional coverage
     [Fact]
     public void Compression_GivenBatchThatWasCompressedAndSentOnce_ShouldBeCompressedAgainWhenResent()
     {

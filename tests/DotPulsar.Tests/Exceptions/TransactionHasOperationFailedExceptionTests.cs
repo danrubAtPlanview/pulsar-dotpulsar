@@ -19,6 +19,7 @@ using DotPulsar.Exceptions;
 [Trait("Category", "Unit")]
 public sealed class TransactionHasOperationFailedExceptionTests
 {
+    // Additional coverage
     [Fact]
     public void Constructor_GivenNoArguments_ShouldUseUpstreamMessageVerbatim()
     {
@@ -30,6 +31,7 @@ public sealed class TransactionHasOperationFailedExceptionTests
         uut.ShouldBeAssignableTo<DotPulsarException>();
     }
 
+    // Additional coverage
     [Fact]
     public void Constructor_GivenMessage_ShouldUseMessage()
     {
@@ -40,6 +42,7 @@ public sealed class TransactionHasOperationFailedExceptionTests
         uut.Message.ShouldBe("message");
     }
 
+    // Additional coverage
     [Fact]
     public void Constructor_GivenMessageAndInnerException_ShouldUseBoth()
     {

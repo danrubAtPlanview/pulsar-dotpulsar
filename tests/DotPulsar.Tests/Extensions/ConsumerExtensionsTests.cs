@@ -23,6 +23,7 @@ public sealed class ConsumerExtensionsTests
     private static readonly MessageId _firstId = new(1, 2, 0, -1, "topic");
     private static readonly MessageId _secondId = new(1, 3, 0, -1, "topic");
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenMessageAndTransaction_ShouldAcknowledgeTheMessageIdAsPartOfTheTransaction()
     {
@@ -37,6 +38,7 @@ public sealed class ConsumerExtensionsTests
         await consumer.Received(1).Acknowledge(_firstId, transaction, Current.CancellationToken);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenMessagesAndTransaction_ShouldAcknowledgeTheMessageIdsAsPartOfTheTransaction()
     {
@@ -52,6 +54,7 @@ public sealed class ConsumerExtensionsTests
         await consumer.Received(1).Acknowledge(Arg.Is<IEnumerable<MessageId>>(messageIds => messageIds.SequenceEqual(new[] { _firstId, _secondId })), transaction, Current.CancellationToken);
     }
 
+    // Additional coverage
     [Fact]
     public async Task AcknowledgeCumulative_GivenMessageAndTransaction_ShouldAcknowledgeTheMessageIdCumulativelyAsPartOfTheTransaction()
     {
@@ -66,6 +69,7 @@ public sealed class ConsumerExtensionsTests
         await consumer.Received(1).AcknowledgeCumulative(_firstId, transaction, Current.CancellationToken);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenMessages_ShouldAcknowledgeTheMessageIds()
     {
@@ -80,6 +84,7 @@ public sealed class ConsumerExtensionsTests
         await consumer.Received(1).Acknowledge(Arg.Is<IEnumerable<MessageId>>(messageIds => messageIds.SequenceEqual(new[] { _firstId, _secondId })), Current.CancellationToken);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenMessage_ShouldAcknowledgeTheMessageIdWithoutTransaction()
     {

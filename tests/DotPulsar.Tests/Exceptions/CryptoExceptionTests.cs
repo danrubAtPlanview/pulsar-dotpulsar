@@ -19,6 +19,7 @@ using DotPulsar.Exceptions;
 [Trait("Category", "Unit")]
 public sealed class CryptoExceptionTests
 {
+    // Additional coverage
     [Fact]
     public void Constructor_GivenMessage_ShouldUseMessage()
     {
@@ -30,6 +31,7 @@ public sealed class CryptoExceptionTests
         uut.ShouldBeAssignableTo<DotPulsarException>();
     }
 
+    // Additional coverage
     [Fact]
     public void Constructor_GivenMessageAndInnerException_ShouldUseBoth()
     {

@@ -46,6 +46,7 @@ public sealed class ConsumerChannelFactoryTests
         subscriptions.Single().ConsumerEpoch.ShouldBe(2UL);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Create_GivenNoConsumerEpoch_ShouldNotSubscribeWithAnEpoch()
     {
@@ -62,6 +63,7 @@ public sealed class ConsumerChannelFactoryTests
         redeliveries.ShouldBeEmpty();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Create_GivenEpochUnchangedWhileSubscribing_ShouldNotSendRedeliver()
     {
@@ -76,6 +78,7 @@ public sealed class ConsumerChannelFactoryTests
         redeliveries.ShouldBeEmpty();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Create_GivenEpochIncreasedWhileSubscribing_ShouldSendRedeliverWithTheNewEpochBeforeAnyFlow()
     {
@@ -98,6 +101,7 @@ public sealed class ConsumerChannelFactoryTests
         await connection.DidNotReceive().Send(Arg.Any<CommandFlow>(), Arg.Any<CancellationToken>());
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(CommandSubscribe.Types.SubType.Exclusive, 2UL)]
     [InlineData(CommandSubscribe.Types.SubType.Failover, 2UL)]
@@ -141,6 +145,7 @@ public sealed class ConsumerChannelFactoryTests
         deadLetterHandler.Count.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Create_GivenTrackerAndDeadLetterHandler_ShouldGiveThemToTheChannel()
     {
@@ -165,6 +170,7 @@ public sealed class ConsumerChannelFactoryTests
     }
 
     // The chunks of a message can arrive on different channels, because the broker delivers the unacknowledged entries again after a reconnect
+    // Additional coverage
     [Fact(Timeout = 30_000)]
     public async Task Create_GivenTwoChannels_ShouldAssembleTheChunksThatArriveOnDifferentChannelsIntoOneMessage()
     {

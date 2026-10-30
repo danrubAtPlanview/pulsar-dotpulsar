@@ -53,6 +53,7 @@ public sealed class ProducerChunkingTests
         messageId.GetChunkMessageIds()!.Length.ShouldBe(sent.Count);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenChunkMaxMessageSize_ShouldWriteChunksOfThatSize()
     {
@@ -67,6 +68,7 @@ public sealed class ProducerChunkingTests
         connection.Sent.Select(message => message.Payload.Length).ShouldBe(Enumerable.Repeat(100, 10));
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenMessageThatFitsInOneFrame_ShouldWriteItWithoutChunkFields()
     {
@@ -106,6 +108,7 @@ public sealed class ProducerChunkingTests
         messageId.FirstChunkMessageId.ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenChunkingNotEnabled_ShouldWriteOneMessageThatTheConnectionChecks()
     {
@@ -123,6 +126,7 @@ public sealed class ProducerChunkingTests
         sent.SkipSizeCheck.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenMessageMetadata_ShouldNotChangeIt()
     {
@@ -167,6 +171,7 @@ public sealed class ProducerChunkingTests
         await tcClient.Received(1).Commit(transaction.Id, CancellationToken.None);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenChunkedMessageAndPartitionedTopic_ShouldCompleteWithTheIdsOfThePartition()
     {

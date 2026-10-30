@@ -95,6 +95,7 @@ public sealed class SubProducerChunkingTests
         messageId.FirstChunkMessageId!.EntryId.ShouldBe(10UL);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenMessageThatFitsInOneFrame_ShouldWriteOneEntryWithoutChunkFieldsAndCompleteWithAnIdThatIsNotChunked()
     {
@@ -117,6 +118,7 @@ public sealed class SubProducerChunkingTests
         messageId.EntryId.ShouldBe(1UL);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenChunkingThatIsNotEnabled_ShouldNotPlanChunks()
     {
@@ -184,6 +186,7 @@ public sealed class SubProducerChunkingTests
         messageId.FirstChunkMessageId!.EntryId.ShouldBe(1UL);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenReconnectBeforeAnyReceipt_ShouldWriteEveryChunkAgainWithoutPlanningAgain()
     {
@@ -230,6 +233,7 @@ public sealed class SubProducerChunkingTests
         sendOp.IsRemoved.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public async Task SendTimeout_GivenReceiptsOfTheChunksOfAMessageThatTimedOut_ShouldIgnoreThemAndCompleteTheNextMessageWithItsOwnId()
     {
@@ -286,6 +290,7 @@ public sealed class SubProducerChunkingTests
         messageId.GetChunkMessageIds()!.Length.ShouldBe(3);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenRegistrationGateThatFails_ShouldFailTheMessageWithoutPlanningItAndContinueWithTheNext()
     {
@@ -376,6 +381,7 @@ public sealed class SubProducerChunkingTests
         messageIds.Select(messageId => messageId.GetChunkMessageIds()?.Length).ShouldBe([10, 5, null, 3]);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenChunkedMessagesAndPlainMessagesInTurn_ShouldCompleteEveryMessageWithItsOwnId()
     {
@@ -428,6 +434,7 @@ public sealed class SubProducerChunkingTests
         channel.Entries.Select(entry => entry.SequenceId).ShouldBe([1UL, 1UL, 1UL, 2UL]);
     }
 
+    // Additional coverage
     [Fact]
     public void MakeChunked_GivenOp_ShouldMakeItAGroupOfOneThatHasNoRegistrationGate()
     {
@@ -451,6 +458,7 @@ public sealed class SubProducerChunkingTests
         sendOp.IsRemoved.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void LeaveGroup_GivenChunkedOp_ShouldForgetTheChunks()
     {
@@ -466,6 +474,7 @@ public sealed class SubProducerChunkingTests
         sendOp.BatchCount.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void MakeRemoved_GivenChunkedOp_ShouldMarkItRemoved()
     {

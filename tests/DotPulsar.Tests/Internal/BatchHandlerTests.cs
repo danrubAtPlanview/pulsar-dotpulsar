@@ -23,6 +23,7 @@ using System.Buffers;
 [Trait("Category", "Unit")]
 public sealed class BatchHandlerTests
 {
+    // Additional coverage
     [Fact]
     public void Add_GivenBrokerAckSet_ShouldSkipAcknowledgedIndexes()
     {
@@ -38,6 +39,7 @@ public sealed class BatchHandlerTests
         chargedButSkipped.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void Add_GivenEncryptionContext_ShouldGiveTheSameContextToEveryMessageOfTheBatch()
     {
@@ -56,6 +58,7 @@ public sealed class BatchHandlerTests
         uut.GetNext().ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public void Add_GivenNoEncryptionContext_ShouldDeliverMessagesWithoutOne()
     {
@@ -69,6 +72,7 @@ public sealed class BatchHandlerTests
         messages.ShouldAllBe(message => message.EncryptionContext == null);
     }
 
+    // Additional coverage
     [Fact]
     public void Add_GivenAllIndexesAcked_ShouldReturnNull()
     {
@@ -86,6 +90,7 @@ public sealed class BatchHandlerTests
         uut.TryGetBatchSize(BatchTestData.CreateBatchedId(1, 2, 0), out _).ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void Add_GivenCompactedOutMessage_ShouldSkipItAndReportChargedButSkipped()
     {
@@ -100,6 +105,7 @@ public sealed class BatchHandlerTests
         chargedButSkipped.ShouldBe(2);
     }
 
+    // Additional coverage
     [Fact]
     public void Add_GivenCompactedOutMessageThatIsAlsoAcknowledgedByBroker_ShouldNotCountItAsChargedButSkipped()
     {
@@ -114,6 +120,7 @@ public sealed class BatchHandlerTests
         chargedButSkipped.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void Add_GivenCompactedOutMessage_ShouldAllowTheBatchToBeCompletedByTheDeliveredMessages()
     {
@@ -130,6 +137,7 @@ public sealed class BatchHandlerTests
         isCompleteAfterSecond.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void Add_GivenAllMessagesCompactedOut_ShouldReturnNullAndNotTrackTheBatch()
     {
@@ -145,6 +153,7 @@ public sealed class BatchHandlerTests
         uut.TryGetBatchSize(BatchTestData.CreateBatchedId(1, 2, 0), out _).ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void Add_ShouldSetTopicAndBatchSizeOnMessageIds()
     {
@@ -160,6 +169,7 @@ public sealed class BatchHandlerTests
         messages.Select(message => message.MessageId.BatchIndex).ShouldBeSequence(0, 1, 2);
     }
 
+    // Additional coverage
     [Fact]
     public void Add_GivenBatchOfMoreThan64Messages_ShouldTrackAllIndexes()
     {
@@ -176,6 +186,7 @@ public sealed class BatchHandlerTests
         results[129].ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void Add_GivenTrackBatchesIsFalse_ShouldNotTrackTheBatch()
     {
@@ -212,6 +223,7 @@ public sealed class BatchHandlerTests
         ackSet.ShouldBeAckSet(0b00101);
     }
 
+    // Additional coverage
     [Fact]
     public void Add_GivenRedeliveryWithoutBrokerAckSet_ShouldRequireAllIndexesToBeAcknowledgedAgain()
     {
@@ -235,6 +247,7 @@ public sealed class BatchHandlerTests
     }
 
     // The hazard that makes merging unsafe: a cumulative acknowledgment of a transaction clears the bits of the tracker, and the transaction is aborted afterwards
+    // Additional coverage
     [Fact]
     public void Add_GivenRedeliveryAfterCumulativeAcknowledgment_ShouldRequireAllIndexesToBeAcknowledgedAgain()
     {
@@ -256,6 +269,7 @@ public sealed class BatchHandlerTests
         completed.ShouldBeSequence(false, false, false, false, true);
     }
 
+    // Additional coverage
     [Fact]
     public void Add_GivenRedeliveryOfOtherEntry_ShouldKeepTheTrackerOfTheFirstEntry()
     {
@@ -273,6 +287,7 @@ public sealed class BatchHandlerTests
         isComplete.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void Add_GivenRedeliveryOfTrackedEntry_ShouldNotCreateASecondTracker()
     {
@@ -294,6 +309,7 @@ public sealed class BatchHandlerTests
         third.ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public void Add_GivenRedeliveryOfTrackedEntryWithAllIndexesAcknowledged_ShouldRemoveTheTracker()
     {
@@ -308,6 +324,7 @@ public sealed class BatchHandlerTests
         uut.TryGetBatchSize(BatchTestData.CreateBatchedId(1, 2, 0), out _).ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void TryGetBatchSize_GivenTrackedEntry_ShouldReturnBatchSize()
     {
@@ -323,6 +340,7 @@ public sealed class BatchHandlerTests
         batchSize.ShouldBe(7);
     }
 
+    // Additional coverage
     [Fact]
     public void AcknowledgeIndividual_GivenLastIndex_ShouldRemoveTracker()
     {
@@ -340,6 +358,7 @@ public sealed class BatchHandlerTests
         uut.IsTracked(BatchTestData.CreateBatchedId(1, 2, 0)).ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void AcknowledgeIndividual_GivenUntrackedEntry_ShouldReturnNull()
     {
@@ -354,6 +373,7 @@ public sealed class BatchHandlerTests
         isComplete.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void AcknowledgeCumulative_ShouldPruneEarlierTrackersOfSamePartitionOnly()
     {
@@ -380,6 +400,7 @@ public sealed class BatchHandlerTests
         uut.IsTracked(BatchTestData.CreateBatchedId(1, 0, 0, 5)).ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void AcknowledgeCumulative_GivenLastIndex_ShouldRemoveTheTrackerOfTheBatch()
     {
@@ -396,6 +417,7 @@ public sealed class BatchHandlerTests
         uut.IsTracked(BatchTestData.CreateBatchedId(1, 2, 0)).ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void AcknowledgeCumulative_GivenUntrackedEntry_ShouldStillPruneEarlierTrackers()
     {
@@ -411,6 +433,7 @@ public sealed class BatchHandlerTests
         uut.IsTracked(BatchTestData.CreateBatchedId(1, 1, 0)).ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void PruneUpTo_ShouldRemoveTrackersUpToAndIncludingTheEntry()
     {
@@ -429,6 +452,7 @@ public sealed class BatchHandlerTests
         uut.IsTracked(BatchTestData.CreateBatchedId(1, 3, 0)).ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void Clear_ShouldRemoveAllTrackers()
     {
@@ -445,6 +469,7 @@ public sealed class BatchHandlerTests
         uut.IsTracked(BatchTestData.CreateBatchedId(1, 2, 0)).ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void Clear_ShouldRemoveQueuedMessages()
     {
@@ -460,6 +485,7 @@ public sealed class BatchHandlerTests
         uut.GetNext().ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public void Add_GivenInvalidBatchData_ShouldThrowAndNotTrackTheBatch()
     {
@@ -476,6 +502,7 @@ public sealed class BatchHandlerTests
         uut.GetNext().ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public void AcknowledgeIndividual_AfterWarmup_ShouldNotAllocate()
     {
@@ -525,6 +552,7 @@ public sealed class BatchHandlerTests
         batchSize.ShouldBe(5);
     }
 
+    // Additional coverage
     [Fact]
     public void ClearQueuedMessages_GivenNoUndeliveredMessages_ShouldReturnZero()
     {
@@ -561,6 +589,7 @@ public sealed class BatchHandlerTests
         remaining.Select(message => (message.MessageId.EntryId, message.MessageId.BatchIndex)).ShouldBeSequence((3UL, 1));
     }
 
+    // Additional coverage
     [Fact]
     public void RemoveQueuedMessages_GivenNoMatchingEntry_ShouldKeepAllMessagesInOrder()
     {
@@ -602,6 +631,7 @@ public sealed class BatchHandlerTests
         exceeded.ShouldBeEmpty();
     }
 
+    // Additional coverage
     [Fact]
     public void Add_GivenRedeliveryCountEqualToMax_ShouldRegisterTheMessagesAndReturnTheFirst()
     {
@@ -623,6 +653,7 @@ public sealed class BatchHandlerTests
         uut.GetNext().ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public void Add_GivenRedeliveryCountAboveMax_ShouldRegisterTheMessagesRequestRedeliveryOfTheEntryAndReturnNull()
     {
@@ -642,6 +673,7 @@ public sealed class BatchHandlerTests
         uut.TryGetBatchSize(BatchTestData.CreateBatchedId(1, 2, 0), out _).ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void Add_GivenRedeliveryCountAboveMaxAndTrackerOfEarlierDelivery_ShouldRemoveTheTracker()
     {
@@ -676,6 +708,7 @@ public sealed class BatchHandlerTests
         deadLetterHandler.Count.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void Add_GivenRedeliveryCountAboveMaxAndAllMessagesAcknowledgedByBroker_ShouldNotRegisterOrRequestRedelivery()
     {

@@ -19,6 +19,7 @@ using DotPulsar.Internal;
 [Trait("Category", "Unit")]
 public sealed class ConsumerEpochTests
 {
+    // Additional coverage
     [Fact]
     public void Value_GivenNewEpoch_ShouldBeZero()
     {
@@ -32,6 +33,7 @@ public sealed class ConsumerEpochTests
         actual.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void Increment_GivenEpoch_ShouldReturnAndStoreTheIncrementedValue()
     {
@@ -48,6 +50,7 @@ public sealed class ConsumerEpochTests
         uut.Value.ShouldBe(2);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Increment_GivenConcurrentUse_ShouldNotLoseIncrements()
     {

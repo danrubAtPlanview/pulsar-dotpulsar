@@ -179,6 +179,7 @@ public sealed class ConsumerChannelTests
         return (batchHandler, messageFactory, messages[0], messages[1]);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenAckReceiptEnabledAndProtocol19_ShouldSendWithResponseAndReturnResponse()
     {
@@ -202,6 +203,7 @@ public sealed class ConsumerChannelTests
         await connection.DidNotReceive().Send(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>());
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenAckReceiptEnabledAndProtocol14_ShouldSendWithoutRequestIdAndReturnNull()
     {
@@ -224,6 +226,7 @@ public sealed class ConsumerChannelTests
         await connection.DidNotReceive().SendWithResponse(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>());
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenAckReceiptDisabled_ShouldClearRequestIdOnPooledCommand()
     {
@@ -246,6 +249,7 @@ public sealed class ConsumerChannelTests
         await connection.Received(1).Send(command, Arg.Any<CancellationToken>());
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenAckReceiptEnabledAndPartialBatch_ShouldNotSendAndReturnNull()
     {
@@ -267,6 +271,7 @@ public sealed class ConsumerChannelTests
         await connection.DidNotReceive().Send(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>());
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenPartialBatchAndBatchIndexAckEnabled_ShouldSendEntryWithAckSet()
     {
@@ -292,6 +297,7 @@ public sealed class ConsumerChannelTests
         sent[0].ConsumerId.ShouldBe(1UL);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenTwoIndexesOfSameBatchInOneBulkAckAndBatchIndexAckEnabled_ShouldSendOneEntryWithMergedAckSet()
     {
@@ -313,6 +319,7 @@ public sealed class ConsumerChannelTests
         sent[0].MessageId[0].AckSet.ShouldBeAckSet(0b10101L);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenBulkAckOfWholeBatchAndBatchIndexAckEnabled_ShouldSendOneEntryWithoutAckSet()
     {
@@ -333,6 +340,7 @@ public sealed class ConsumerChannelTests
         sent[0].MessageId[0].AckSet.Count.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenIndividualAcksOfAllIndexesAndBatchIndexAckEnabled_ShouldSendAckSetsAndThenEntryWithoutAckSet()
     {
@@ -355,6 +363,7 @@ public sealed class ConsumerChannelTests
         sent.ShouldAllBe(ack => ack.MessageId[0].EntryId == 2 && ack.MessageId[0].BatchIndex == -1);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenCumulativeAckOfPartialBatchAndBatchIndexAckDisabled_ShouldAckPreviousEntryCumulatively()
     {
@@ -378,6 +387,7 @@ public sealed class ConsumerChannelTests
         sent[0].MessageId[0].AckSet.Count.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenCumulativeAckOfPartialBatchAndBatchIndexAckDisabled_ShouldAcknowledgeEntryWhenRemainingMessagesAreAcknowledged()
     {
@@ -402,6 +412,7 @@ public sealed class ConsumerChannelTests
         sent[0].MessageId[0].BatchIndex.ShouldBe(-1);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenCumulativeAckOfPartialBatchAndBatchIndexAckEnabled_ShouldSendCumulativeAckSet()
     {
@@ -423,6 +434,7 @@ public sealed class ConsumerChannelTests
         sent[0].MessageId[0].AckSet.ShouldBeAckSet(0b11000L);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenCumulativeAckAfterIndividualAckOfLaterIndexAndBatchIndexAckEnabled_ShouldKeepTheIndividualAckInTheAckSet()
     {
@@ -442,6 +454,7 @@ public sealed class ConsumerChannelTests
         sent[0].MessageId[0].AckSet.ShouldBeAckSet(0b01100L);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenCumulativeAckOfLastIndexOfBatch_ShouldAcknowledgeEntryCumulativelyWithoutAckSet()
     {
@@ -463,6 +476,7 @@ public sealed class ConsumerChannelTests
         sent[0].MessageId[0].AckSet.Count.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenCumulativeAckOfFirstEntryInLedgerAndBatchIndexAckDisabled_ShouldNotSend()
     {
@@ -480,6 +494,7 @@ public sealed class ConsumerChannelTests
         sent.ShouldBeEmpty();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenCumulativeAckOfLaterEntry_ShouldRemoveTrackersOfEarlierEntries()
     {
@@ -506,6 +521,7 @@ public sealed class ConsumerChannelTests
         otherLedger.Count.ShouldBe(3);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenCumulativeAckOfUnbatchedMessage_ShouldRemoveTrackersUpToThatEntry()
     {
@@ -530,6 +546,7 @@ public sealed class ConsumerChannelTests
         batchHandler.TryGetBatchSize(BatchTestData.CreateBatchedId(1, 4, 0), out _).ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenCompletedBatch_ShouldRemoveItsTracker()
     {
@@ -547,6 +564,7 @@ public sealed class ConsumerChannelTests
         batchHandler.TryGetBatchSize(BatchTestData.CreateBatchedId(1, 2, 0), out _).ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenBatchedIdWithoutTracker_ShouldAcknowledgeWholeEntry()
     {
@@ -568,6 +586,7 @@ public sealed class ConsumerChannelTests
         sent[0].MessageId[0].BatchIndex.ShouldBe(-1);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenCompletedBatch_ShouldNotLeakBrokerMessageIdDataIntoPooledCommand()
     {
@@ -591,6 +610,7 @@ public sealed class ConsumerChannelTests
         pooled.BatchIndex.ShouldBe(-1);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenCommandThatWasAlreadySent_ShouldSendItUnchangedWhenRetried()
     {
@@ -612,6 +632,7 @@ public sealed class ConsumerChannelTests
         sent[1].MessageId[0].AckSet.ShouldBeAckSet(0b11011L);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenBatchIndexAckEnabledAndAckReceiptEnabled_ShouldSendAckSetWithResponse()
     {
@@ -632,6 +653,7 @@ public sealed class ConsumerChannelTests
         await connection.Received(1).SendWithResponse(Arg.Is<CommandAck>(ack => ack.MessageId[0].AckSet.SequenceEqual(new long[] { 0b11110 })), Arg.Any<CancellationToken>());
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenBatchOfMoreThan64MessagesAndBatchIndexAckEnabled_ShouldSendMultipleWords()
     {
@@ -649,6 +671,7 @@ public sealed class ConsumerChannelTests
         sent[0].MessageId[0].AckSet.ShouldBeAckSet(-1L, unchecked((long) ~(1UL << 36)), 0b11L);
     }
 
+    // Additional coverage
     [Fact]
     public async Task SendTransactional_GivenIndividualAckOfBatchIndex2Of5_ShouldSendBatchSize5AndAckSetWithOnlyIndex2Cleared()
     {
@@ -676,6 +699,7 @@ public sealed class ConsumerChannelTests
         sent[0].MessageId[0].AckSet.ShouldBeAckSet(0b11011L);
     }
 
+    // Additional coverage
     [Fact]
     public async Task SendTransactional_GivenCumulativeAckOfBatchIndex2Of5_ShouldSendAckSetForIndexes3And4AndMutateTracker()
     {
@@ -707,6 +731,7 @@ public sealed class ConsumerChannelTests
         plainSent[0].MessageId[0].BatchIndex.ShouldBe(-1);
     }
 
+    // Additional coverage
     [Fact]
     public async Task SendTransactional_GivenNonBatchedId_ShouldSendNoAckSetNorBatchSize()
     {
@@ -727,6 +752,7 @@ public sealed class ConsumerChannelTests
         sent[0].MessageId[0].HasBatchSize.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public async Task SendTransactional_GivenBatchIndexAckDisabled_ShouldStillSendAckSet()
     {
@@ -744,6 +770,7 @@ public sealed class ConsumerChannelTests
         sent[0].MessageId[0].AckSet.ShouldBeAckSet(0b11110L);
     }
 
+    // Additional coverage
     [Fact]
     public async Task SendTransactional_GivenIndividualAckOfBatchIndex_ShouldNotChangeTracker()
     {
@@ -765,6 +792,7 @@ public sealed class ConsumerChannelTests
         batchHandler.TryGetBatchSize(BatchTestData.CreateBatchedId(1, 2, 0), out _).ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public async Task SendTransactional_GivenBatchOfMoreThan64Messages_ShouldSendMultipleWords()
     {
@@ -782,6 +810,7 @@ public sealed class ConsumerChannelTests
         sent[0].MessageId[0].AckSet.ShouldBeAckSet(0L, unchecked((long) ~((1UL << 7) - 1)), 0b11L);
     }
 
+    // Additional coverage
     [Fact]
     public async Task SendTransactional_GivenBatchedIdWithoutTrackerButWithBatchSize_ShouldUseBatchSizeOfId()
     {
@@ -803,6 +832,7 @@ public sealed class ConsumerChannelTests
         sent[0].MessageId[0].AckSet.ShouldBeAckSet(0b11011L);
     }
 
+    // Additional coverage
     [Fact]
     public async Task SendTransactional_GivenBatchedIdWithoutTrackerAndBatchSize_ShouldSendWholeEntry()
     {
@@ -823,6 +853,7 @@ public sealed class ConsumerChannelTests
         sent[0].MessageId[0].AckSet.Count.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public async Task SendTransactional_GivenMultipleIdsOfSameBatch_ShouldSendOneMessageIdDataPerId()
     {
@@ -842,6 +873,7 @@ public sealed class ConsumerChannelTests
         sent[0].MessageId[1].AckSet.ShouldBeAckSet(0b10111L);
     }
 
+    // Additional coverage
     [Fact]
     public async Task SendTransactional_GivenCommandThatWasAlreadySent_ShouldSendItUnchangedWhenRetried()
     {
@@ -862,6 +894,7 @@ public sealed class ConsumerChannelTests
         sent[1].MessageId[0].AckSet.ShouldBeAckSet(0b11000L);
     }
 
+    // Additional coverage
     [Fact]
     public async Task SendTransactional_GivenProtocolVersionWithoutAckReceipt_ShouldThrowNotSupportedExceptionAndNotChangeTracker()
     {
@@ -884,6 +917,7 @@ public sealed class ConsumerChannelTests
     }
 
     // A cumulative acknowledgment of a transaction clears the bits of the tracker. When the transaction is aborted, the broker delivers the entry again.
+    // Additional coverage
     [Fact]
     public async Task Send_GivenRedeliveryAfterTransactionalCumulativeAck_ShouldAcknowledgeEntryOnlyWhenAllIndexesAreAcknowledgedAgain()
     {
@@ -917,6 +951,7 @@ public sealed class ConsumerChannelTests
         plainSent[0].MessageId[0].AckSet.Count.ShouldBe(0);
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -950,6 +985,7 @@ public sealed class ConsumerChannelTests
         entryAcks.ShouldBeSequence(batchIndexAckEnabled ? [0, 0, 1] : [0, 0, 0, 0, 1]);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Receive_GivenEntryWithAllIndexesAcked_ShouldContinueToNextEntryAndKeepFlowAccounting()
     {
@@ -977,6 +1013,7 @@ public sealed class ConsumerChannelTests
         connection.ReceivedCalls().Count(call => call.GetArguments().FirstOrDefault() is CommandFlow).ShouldBe(2);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Receive_GivenCompactedOutMessagesInBatch_ShouldCountThemAsReceivedForFlow()
     {
@@ -1000,6 +1037,7 @@ public sealed class ConsumerChannelTests
         connection.ReceivedCalls().Count(call => call.GetArguments().FirstOrDefault() is CommandFlow).ShouldBe(2);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Receive_GivenBrokerAckSet_ShouldDeliverOnlyUnacknowledgedIndexes()
     {
@@ -1021,6 +1059,7 @@ public sealed class ConsumerChannelTests
         received.Select(message => message.MessageId.BatchIndex).ShouldBeSequence(1, 2, 4);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Receive_GivenBatch_ShouldReturnMessageIdsWithTopic()
     {
@@ -1067,6 +1106,7 @@ public sealed class ConsumerChannelTests
         queue.RemoveAll().ShouldBeEmpty();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenRedeliverAllWithPrefetchedBatch_ShouldRefundOnePermitForEveryMessageOfTheBatch()
     {
@@ -1085,6 +1125,7 @@ public sealed class ConsumerChannelTests
         GetRedeliverAndFlowCommands(connection).OfType<CommandFlow>().Single().MessagePermits.ShouldBe(6U);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenRedeliverAllWithMessagesUnpackedFromBatch_ShouldDropThemAndRefundThem()
     {
@@ -1107,6 +1148,7 @@ public sealed class ConsumerChannelTests
         next.MessageId.EntryId.ShouldBe(2UL);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenRedeliverAllWithNothingPrefetched_ShouldNotSendFlow()
     {
@@ -1122,6 +1164,7 @@ public sealed class ConsumerChannelTests
         GetRedeliverAndFlowCommands(connection).Single().ShouldBeOfType<CommandRedeliverUnacknowledgedMessages>();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenSelectiveRedeliver_ShouldPurgeOnlyMatchingEntries()
     {
@@ -1150,6 +1193,7 @@ public sealed class ConsumerChannelTests
         received.Select(message => message.MessageId.EntryId).ShouldBeSequence(1UL, 3UL);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenSelectiveRedeliverOfEntryWithBatchMessagesNotYetDelivered_ShouldDropThem()
     {
@@ -1173,6 +1217,7 @@ public sealed class ConsumerChannelTests
         next.MessageId.EntryId.ShouldBe(2UL);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenSelectiveRedeliverOfEntriesThatAreNotPrefetched_ShouldNotSendFlow()
     {
@@ -1195,6 +1240,7 @@ public sealed class ConsumerChannelTests
 
     // A transactional cumulative acknowledgment clears the bits of the tracker, and the messages that were not delivered yet are dropped by the redelivery.
     // The broker delivers the entry again, which replaces the tracker, so the entry is only acknowledged when all of its messages are acknowledged again.
+    // Additional coverage
     [Fact]
     public async Task Send_GivenRedeliverAllAfterTransactionalCumulativeAck_ShouldAcknowledgeEntryOnlyWhenAllIndexesAreAcknowledgedAgain()
     {
@@ -1246,6 +1292,7 @@ public sealed class ConsumerChannelTests
         actual.MessageId.EntryId.ShouldBe(2UL);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Receive_GivenMessageWithoutConsumerEpoch_ShouldNotSkipMessage()
     {
@@ -1265,6 +1312,7 @@ public sealed class ConsumerChannelTests
         actual.MessageId.EntryId.ShouldBe(1UL);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Receive_GivenConsumerEpochNewerThanTheChannel_ShouldNotSkipMessage()
     {
@@ -1282,6 +1330,7 @@ public sealed class ConsumerChannelTests
         actual.MessageId.EntryId.ShouldBe(1UL);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Receive_GivenNoConsumerEpoch_ShouldNotSkipMessage()
     {
@@ -1299,6 +1348,7 @@ public sealed class ConsumerChannelTests
         actual.MessageId.EntryId.ShouldBe(1UL);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Receive_GivenStaleBatchEntry_ShouldCountEveryMessageOfTheEntryAsReceivedForFlow()
     {
@@ -1342,6 +1392,7 @@ public sealed class ConsumerChannelTests
         tracker.Remove(1, 4).ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenIndividualAckOfCompletedBatch_ShouldRemoveTheEntryFromTrackerOnlyWhenTheLastMessageIsAcknowledged()
     {
@@ -1366,6 +1417,7 @@ public sealed class ConsumerChannelTests
         tracker.Count.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenIndividualAckOfBatchMessageWithBatchIndexAckEnabled_ShouldNotRemoveTheEntryFromTracker()
     {
@@ -1453,6 +1505,7 @@ public sealed class ConsumerChannelTests
         exceeded.ShouldBeEmpty();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Receive_GivenNonBatchedMessageWithMaxRedeliverCount_ShouldRegisterCandidateAndReturnTheMessage()
     {
@@ -1473,6 +1526,7 @@ public sealed class ConsumerChannelTests
         exceeded.ShouldBeEmpty();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Receive_GivenNonBatchedMessageAboveMaxRedeliverCount_ShouldSkipItAndRequestRedelivery()
     {
@@ -1494,6 +1548,7 @@ public sealed class ConsumerChannelTests
         exceeded.Select(messageId => (messageId.LedgerId, messageId.EntryId, messageId.BatchIndex)).ShouldBeSequence((1UL, 1UL, -1));
     }
 
+    // Additional coverage
     [Fact]
     public async Task Receive_GivenNonBatchedMessageAboveMaxRedeliverCount_ShouldCountItsPermitAsReceived()
     {
@@ -1515,6 +1570,7 @@ public sealed class ConsumerChannelTests
         connection.ReceivedCalls().Count(call => call.GetArguments().FirstOrDefault() is CommandFlow).ShouldBe(2);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Receive_GivenNoDeadLetterHandler_ShouldReturnMessageWithHighRedeliveryCount()
     {
@@ -1532,6 +1588,7 @@ public sealed class ConsumerChannelTests
         actual.RedeliveryCount.ShouldBe(100U);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenIndividualAckOfRegisteredEntry_ShouldRemoveCandidate()
     {
@@ -1553,6 +1610,7 @@ public sealed class ConsumerChannelTests
         deadLetterHandler.Contains(1, 4).ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenCumulativeAck_ShouldNotRemoveCandidate()
     {
@@ -1592,6 +1650,7 @@ public sealed class ConsumerChannelTests
         deadLetterHandler.Contains(1, 3).ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenIndividualAckOfBatchMessageWithBatchIndexAckEnabled_ShouldNotRemoveCandidateUntilTheBatchIsAcknowledged()
     {
@@ -1632,6 +1691,7 @@ public sealed class ConsumerChannelTests
         deadLetterHandler.Count.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenRedeliverAll_ShouldNotClearCandidates()
     {

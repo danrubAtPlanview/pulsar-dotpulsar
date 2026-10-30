@@ -36,6 +36,7 @@ public sealed class TransactionBuilderTests
         exception.ShouldBeOfType<ConfigurationException>().Message.ShouldBe("Transactions are not enabled");
     }
 
+    // Additional coverage
     [Fact]
     public async Task Create_GivenClientWithTransactionsDisabled_ShouldNotThrowBeforeTheTaskIsAwaited()
     {
@@ -49,6 +50,7 @@ public sealed class TransactionBuilderTests
         (await Record.ExceptionAsync(() => create.AsTask())).ShouldBeOfType<ConfigurationException>();
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(0)]
     [InlineData(-1)]
@@ -67,6 +69,7 @@ public sealed class TransactionBuilderTests
         await client.DidNotReceive().CreateTransaction(Arg.Any<TransactionOptions>(), Arg.Any<CancellationToken>());
     }
 
+    // Additional coverage
     [Fact]
     public async Task Create_GivenInfiniteTimeout_ShouldThrowConfigurationException()
     {
@@ -81,6 +84,7 @@ public sealed class TransactionBuilderTests
         exception.ShouldBeOfType<ConfigurationException>();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Create_GivenDefaultTimeout_ShouldCreateTransactionWithOneMinute()
     {
@@ -96,6 +100,7 @@ public sealed class TransactionBuilderTests
         await client.Received(1).CreateTransaction(Arg.Is<TransactionOptions>(options => options.Timeout == TimeSpan.FromMinutes(1)), Current.CancellationToken);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Create_GivenTimeout_ShouldCreateTransactionWithTheTimeout()
     {
@@ -111,6 +116,7 @@ public sealed class TransactionBuilderTests
         await client.Received(1).CreateTransaction(Arg.Is<TransactionOptions>(options => options.Timeout == TimeSpan.FromMilliseconds(200)), Current.CancellationToken);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Create_ShouldReturnTheTransactionOfTheClient()
     {
@@ -127,6 +133,7 @@ public sealed class TransactionBuilderTests
         result.ShouldBeSameAs(transaction);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Create_GivenClientThatFails_ShouldThrowTheException()
     {
@@ -143,6 +150,7 @@ public sealed class TransactionBuilderTests
         result.ShouldBeSameAs(exception);
     }
 
+    // Additional coverage
     [Fact]
     public void Timeout_ShouldReturnTheSameBuilder()
     {
@@ -156,6 +164,7 @@ public sealed class TransactionBuilderTests
         result.ShouldBeSameAs(uut);
     }
 
+    // Additional coverage
     [Fact]
     public async Task NewTransaction_ShouldReturnBuilderThatCreatesTransactionsWithTheClient()
     {

@@ -23,6 +23,7 @@ using System.Buffers;
 [Trait("Category", "Unit")]
 public sealed class ChunkingRoundTripTests
 {
+    // Additional coverage
     [Theory]
     [InlineData(1000, 1000, 100)]
     [InlineData(1001, 1000, 100)]
@@ -57,6 +58,7 @@ public sealed class ChunkingRoundTripTests
         uut.PendingCount.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void Process_GivenChunksOfAPlannedMessage_ShouldSeeEveryChunkAsAChunkAndNotAsABatch()
     {
@@ -110,6 +112,7 @@ public sealed class ChunkingRoundTripTests
         uut.PendingCount.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void Process_GivenChunksOfTheSamePlannedMessageSentTwice_ShouldAssembleOnceWithTheIdsOfTheLastFirstChunk()
     {

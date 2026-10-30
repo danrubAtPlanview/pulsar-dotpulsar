@@ -24,6 +24,7 @@ using System.Net.Sockets;
 [Trait("Category", "Unit")]
 public sealed class BlackHoleRelayTests
 {
+    // Additional coverage
     [Fact]
     public async Task SwallowSendCommands_GivenFramesThatAreCutInPieces_ShouldForwardEveryFrameButTheSendCommands()
     {
@@ -58,6 +59,7 @@ public sealed class BlackHoleRelayTests
         actualAfterSwallowing.ShouldBe(forwardedAfterSwallowing);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Pump_GivenBytesFromTheBroker_ShouldForwardThemToTheClientWhileSwallowingSendCommands()
     {

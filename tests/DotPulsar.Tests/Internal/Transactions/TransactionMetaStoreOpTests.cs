@@ -23,6 +23,7 @@ using DotPulsar.Internal.Transactions;
 [Trait("Category", "Unit")]
 public sealed class TransactionMetaStoreOpTests
 {
+    // Additional coverage
     [Fact]
     public void TryBeginSend_GivenSameConnectionTwice_ShouldReturnFalseTheSecondTime()
     {
@@ -39,6 +40,7 @@ public sealed class TransactionMetaStoreOpTests
         second.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void TryBeginSend_GivenCompletedOperation_ShouldReturnFalse()
     {
@@ -88,6 +90,7 @@ public sealed class TransactionMetaStoreOpTests
         result.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void TryBeginSend_GivenSendThatHasEnded_ShouldReturnTrue()
     {
@@ -104,6 +107,7 @@ public sealed class TransactionMetaStoreOpTests
         result.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void EndSend_GivenAnotherConnection_ShouldNotEndTheSend()
     {
@@ -119,6 +123,7 @@ public sealed class TransactionMetaStoreOpTests
         uut.TryBeginSend(connection).ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void TryScheduleRetry_GivenRetryAlreadyScheduled_ShouldReturnFalseUntilRetryElapsed()
     {
@@ -137,6 +142,7 @@ public sealed class TransactionMetaStoreOpTests
         third.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void NextRetryDelay_ShouldDoubleFromHundredMillisecondsToSixSeconds()
     {
@@ -155,6 +161,7 @@ public sealed class TransactionMetaStoreOpTests
         }
     }
 
+    // Additional coverage
     [Fact]
     public void TryClaimCompletion_ShouldSucceedOnce()
     {
@@ -170,6 +177,7 @@ public sealed class TransactionMetaStoreOpTests
         second.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public async Task SetResult_ShouldCompleteTheOperationAndCancelItsToken()
     {
@@ -185,6 +193,7 @@ public sealed class TransactionMetaStoreOpTests
         uut.CancellationToken.IsCancellationRequested.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public async Task SetException_ShouldFaultTheOperationAndCancelItsToken()
     {
@@ -200,6 +209,7 @@ public sealed class TransactionMetaStoreOpTests
         uut.CancellationToken.IsCancellationRequested.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenEachCommand_ShouldSendItOnTheMatchingOverload()
     {
@@ -224,6 +234,7 @@ public sealed class TransactionMetaStoreOpTests
         await connection.Received(1).Send(endTxn, cts.Token);
     }
 
+    // Additional coverage
     [Fact]
     public void TryGetError_GivenResponseWithError_ShouldReturnErrorAndMessage()
     {
@@ -248,6 +259,7 @@ public sealed class TransactionMetaStoreOpTests
         }
     }
 
+    // Additional coverage
     [Fact]
     public void TryGetError_GivenResponseWithoutError_ShouldReturnFalse()
     {
@@ -270,6 +282,7 @@ public sealed class TransactionMetaStoreOpTests
         }
     }
 
+    // Additional coverage
     [Fact]
     public void TryGetError_GivenResponseOfAnotherType_ShouldThrowUnexpectedResponseException()
     {
@@ -283,6 +296,7 @@ public sealed class TransactionMetaStoreOpTests
         exception.ShouldBeOfType<UnexpectedResponseException>();
     }
 
+    // Additional coverage
     [Fact]
     public void ResponseType_GivenEachOperation_ShouldBeTheTypeOfTheMatchingResponse()
     {

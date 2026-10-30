@@ -56,6 +56,7 @@ public sealed class ProducerChannelEncryptionTests
         Decrypt(actual).ShouldBe(payload.ToArray());
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenSeveralKeyNames_ShouldWriteTheKeysSortedByOrdinalOrder()
     {
@@ -95,6 +96,7 @@ public sealed class ProducerChannelEncryptionTests
     }
 
     // The metadata is pooled, and a message that is sent again after a reconnect is sent with the same metadata
+    // Additional coverage
     [Fact]
     public async Task Send_GivenMessageCrypto_ShouldNotLeaveTheEncryptionFieldsInTheMetadataAfterTheSend()
     {
@@ -112,6 +114,7 @@ public sealed class ProducerChannelEncryptionTests
         metadata.HasEncryptionAlgo.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenTheConnectionFailsToSend_ShouldStillNotLeaveTheEncryptionFieldsInTheMetadata()
     {
@@ -129,6 +132,7 @@ public sealed class ProducerChannelEncryptionTests
         metadata.HasEncryptionParam.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenNoMessageCrypto_ShouldWriteThePayloadAsItIsWithoutEncryptionFields()
     {
@@ -169,6 +173,7 @@ public sealed class ProducerChannelEncryptionTests
         Decrypt(actual).ShouldBe(compressed);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenCompressionAndMessageCrypto_ShouldResetTheCompressionAndTheEncryptionOfTheMetadata()
     {
@@ -188,6 +193,7 @@ public sealed class ProducerChannelEncryptionTests
         metadata.HasEncryptionParam.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenPayloadInSeveralSegments_ShouldEncryptAllOfIt()
     {
@@ -275,6 +281,7 @@ public sealed class ProducerChannelEncryptionTests
         metadata.HasEncryptionParam.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenEncryptionFailsAfterCompressionAndFailAction_ShouldResetTheCompression()
     {
@@ -313,6 +320,7 @@ public sealed class ProducerChannelEncryptionTests
         actual.Metadata.HasEncryptionParam.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenTheMessageCryptoIsDisposedAndSendAction_ShouldNotSendTheMessageUnencrypted()
     {
@@ -351,6 +359,7 @@ public sealed class ProducerChannelEncryptionTests
         encryptedState.TotalChunks.ShouldBeGreaterThan(plainState.TotalChunks);
     }
 
+    // Additional coverage
     [Fact]
     public void PlanChunking_GivenMoreKeyNames_ShouldSubtractMoreFromTheChunkSize()
     {
@@ -368,6 +377,7 @@ public sealed class ProducerChannelEncryptionTests
         withTwo.ChunkSize.ShouldBeLessThan(withOne.ChunkSize - 256);
     }
 
+    // Additional coverage
     [Fact]
     public void PlanChunking_GivenChunkMaxMessageSizeBelowWhatFits_ShouldUseItAsItIs()
     {
@@ -383,6 +393,7 @@ public sealed class ProducerChannelEncryptionTests
         state.TotalChunks.ShouldBe(50);
     }
 
+    // Additional coverage
     [Fact]
     public void PlanChunking_GivenPayloadThatFitsInOneFrameOnlyWithoutEncryption_ShouldSplitIt()
     {
@@ -401,6 +412,7 @@ public sealed class ProducerChannelEncryptionTests
         encryptedState.TotalChunks.ShouldBe(2);
     }
 
+    // Additional coverage
     [Fact]
     public void PlanChunking_GivenMetadataAndEncryptionThatDoNotFitInTheMaxMessageSize_ShouldThrowTooLargeMessageException()
     {
@@ -445,6 +457,7 @@ public sealed class ProducerChannelEncryptionTests
     }
 
     // The chunk size is reduced by the bytes that encryption adds, so that an encrypted chunk is as large as the maximum message size, and not larger
+    // Additional coverage
     [Fact]
     public async Task SendChunk_GivenMessageCrypto_ShouldFillTheMaxMessageSizeWithTheEncryptedChunkAndItsMetadata()
     {
@@ -466,6 +479,7 @@ public sealed class ProducerChannelEncryptionTests
         sizes[^1].ShouldBeLessThanOrEqualTo(_maxMessageSize);
     }
 
+    // Additional coverage
     [Fact]
     public async Task SendChunk_GivenMessageThatIsNotSplit_ShouldEncryptItAndItFitsTheMaxMessageSize()
     {
@@ -489,6 +503,7 @@ public sealed class ProducerChannelEncryptionTests
         Decrypt(actual).ShouldBe(payload.ToArray());
     }
 
+    // Additional coverage
     [Fact]
     public async Task SendChunk_GivenMessageCrypto_ShouldNotLeaveTheEncryptionFieldsInTheMetadataThatTheChunksShare()
     {
@@ -507,6 +522,7 @@ public sealed class ProducerChannelEncryptionTests
         }
     }
 
+    // Additional coverage
     [Fact]
     public async Task SendChunk_GivenTheChunkIsSentAgain_ShouldEncryptItAgainWithAnotherIv()
     {
@@ -528,6 +544,7 @@ public sealed class ProducerChannelEncryptionTests
         Decrypt(written[0]).ShouldBe(state.GetChunk(1).ToArray());
     }
 
+    // Additional coverage
     [Fact]
     public async Task SendChunk_GivenNoMessageCrypto_ShouldWriteTheChunkWithoutEncryptionFields()
     {
@@ -586,6 +603,7 @@ public sealed class ProducerChannelEncryptionTests
     }
 
     // A message crypto that is disposed is not a failure to encrypt, so the Send action does not send the chunk unencrypted. The fields of the chunks before it are not left on the metadata that they share.
+    // Additional coverage
     [Fact]
     public async Task SendChunk_GivenTheMessageCryptoIsDisposedAfterAChunkAndSendAction_ShouldThrowAndNotLeaveTheEncryptionFieldsOfTheEarlierChunk()
     {

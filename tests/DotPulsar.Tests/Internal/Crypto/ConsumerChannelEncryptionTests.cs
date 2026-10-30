@@ -57,6 +57,7 @@ public sealed class ConsumerChannelEncryptionTests
         uut.Acks.ShouldBeEmpty();
     }
 
+    // Additional coverage
     [Fact(Timeout = 30_000)]
     public async Task Receive_GivenMessageThatIsNotEncrypted_ShouldDeliverItWithoutEncryptionContextAndNotUseTheKeyReader()
     {
@@ -73,6 +74,7 @@ public sealed class ConsumerChannelEncryptionTests
         keyReader.ReceivedCalls().ShouldBeEmpty();
     }
 
+    // Additional coverage
     [Fact(Timeout = 30_000)]
     public async Task Receive_GivenMessageThatIsNotEncryptedAndNoCryptoKeyReader_ShouldDeliverItWhateverTheFailureAction()
     {
@@ -138,6 +140,7 @@ public sealed class ConsumerChannelEncryptionTests
         third.EncryptionContext.ShouldBeSameAs(first.EncryptionContext);
     }
 
+    // Additional coverage
     [Fact(Timeout = 30_000)]
     public async Task Receive_GivenSecondEncryptedMessageOfTheProducer_ShouldNotReadTheKeyAgain()
     {
@@ -185,6 +188,7 @@ public sealed class ConsumerChannelEncryptionTests
         uut.Acks.ShouldBeEmpty();
     }
 
+    // Additional coverage
     [Fact(Timeout = 30_000)]
     public async Task Receive_GivenUndecryptableCompressedMessageAndConsume_ShouldNotDecompressIt()
     {
@@ -277,6 +281,7 @@ public sealed class ConsumerChannelEncryptionTests
         tracker.Remove(Ledger, 5).ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact(Timeout = 30_000)]
     public async Task Receive_GivenUndecryptableMessageAndFailWithoutAckTimeout_ShouldNeitherAcknowledgeNorDeliverIt()
     {
@@ -294,6 +299,7 @@ public sealed class ConsumerChannelEncryptionTests
         uut.Acks.ShouldBeEmpty();
     }
 
+    // Additional coverage
     [Fact(Timeout = 30_000)]
     public async Task Receive_GivenUndecryptableBatchAndFail_ShouldTrackTheEntry()
     {
@@ -350,6 +356,7 @@ public sealed class ConsumerChannelEncryptionTests
     }
 
     // The prefetch count of 20 is halved by the first flow, so the second flow is due after 10 messages. The batch counts as 5 of them.
+    // Additional coverage
     [Theory(Timeout = 30_000)]
     [InlineData(ConsumerCryptoFailureAction.Fail)]
     [InlineData(ConsumerCryptoFailureAction.Discard)]
@@ -379,6 +386,7 @@ public sealed class ConsumerChannelEncryptionTests
         CountFlows(uut).ShouldBe(2);
     }
 
+    // Additional coverage
     [Fact(Timeout = 30_000)]
     public async Task Receive_GivenUndecryptableMessageThatIsNotABatch_ShouldCountItAsOneMessageReceived()
     {
@@ -418,6 +426,7 @@ public sealed class ConsumerChannelEncryptionTests
     }
 
     // The chunks of a message are encrypted on their own, so the assembler cannot make a message of them as long as they are encrypted. A chunk is handled as if the action was 'Fail'.
+    // Additional coverage
     [Fact(Timeout = 30_000)]
     public async Task Receive_GivenUndecryptableChunksAndConsume_ShouldTrackEveryChunkAndDeliverNone()
     {
@@ -439,6 +448,7 @@ public sealed class ConsumerChannelEncryptionTests
         uut.Assembler.PendingCount.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact(Timeout = 30_000)]
     public async Task Receive_GivenUndecryptableChunksAndDiscard_ShouldRejectEveryChunk()
     {
@@ -457,6 +467,7 @@ public sealed class ConsumerChannelEncryptionTests
         uut.Acks.SelectMany(ack => ack.MessageId).Select(id => id.EntryId).ShouldBeSequence(10UL, 11UL, 12UL);
     }
 
+    // Additional coverage
     [Fact(Timeout = 30_000)]
     public async Task Receive_GivenUndecryptableChunksAndFail_ShouldTrackEveryChunkAndAcknowledgeNone()
     {
@@ -475,6 +486,7 @@ public sealed class ConsumerChannelEncryptionTests
         tracker.Count.ShouldBe(3);
     }
 
+    // Additional coverage
     [Fact(Timeout = 30_000)]
     public async Task Receive_GivenDisposedMessageCrypto_ShouldThrowObjectDisposedException()
     {

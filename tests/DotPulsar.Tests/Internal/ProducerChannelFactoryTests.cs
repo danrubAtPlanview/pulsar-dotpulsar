@@ -25,6 +25,7 @@ using ProducerAccessMode = DotPulsar.Internal.PulsarApi.ProducerAccessMode;
 [Trait("Category", "Unit")]
 public sealed class ProducerChannelFactoryTests
 {
+    // Additional coverage
     [Fact]
     public async Task Create_GivenTransactionsEnabled_ShouldSetTxnEnabled()
     {
@@ -41,6 +42,7 @@ public sealed class ProducerChannelFactoryTests
         command.TxnEnabled.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Create_GivenTransactionsDisabled_ShouldNotSetTxnEnabled()
     {
@@ -73,6 +75,7 @@ public sealed class ProducerChannelFactoryTests
         command.Encrypted.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Create_GivenNoMessageCrypto_ShouldNotSetEncrypted()
     {
@@ -87,6 +90,7 @@ public sealed class ProducerChannelFactoryTests
         connection.CommandProducers.Single().HasEncrypted.ShouldBeFalse("the bytes that a client without encryption sends do not change");
     }
 
+    // Additional coverage
     [Fact]
     public async Task Create_GivenMessageCryptoAndTheProducerIsCreatedAgain_ShouldSetEncryptedAgain()
     {
@@ -105,6 +109,7 @@ public sealed class ProducerChannelFactoryTests
     }
 
     // The message crypto belongs to the sub producer, and the channel that the factory creates is replaced when the sub producer reconnects, so every channel gets the same one
+    // Additional coverage
     [Theory]
     [InlineData(ProducerCryptoFailureAction.Fail)]
     [InlineData(ProducerCryptoFailureAction.Send)]
@@ -130,6 +135,7 @@ public sealed class ProducerChannelFactoryTests
         Record.Exception(() => messageCrypto.Encrypt(new MessageMetadata(), payload)).ShouldBeNull("a channel does not dispose the message crypto");
     }
 
+    // Additional coverage
     [Fact]
     public async Task Create_GivenFailureActionSend_ShouldCreateChannelsThatSendTheMessageUnencryptedIfEncryptionFails()
     {
@@ -146,6 +152,7 @@ public sealed class ProducerChannelFactoryTests
         connection.Sent.Single().Payload.ShouldBe([1, 2, 3]);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Create_GivenFailureActionFail_ShouldCreateChannelsThatThrowIfEncryptionFails()
     {
@@ -202,6 +209,7 @@ public sealed class ProducerChannelFactoryTests
         commands.Single().InitialSubscriptionName.ShouldBe("my-initial-subscription");
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(null)]
     [InlineData("")]

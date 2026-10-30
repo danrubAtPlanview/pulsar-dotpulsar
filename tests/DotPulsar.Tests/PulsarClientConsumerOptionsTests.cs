@@ -41,6 +41,7 @@ public sealed class PulsarClientConsumerOptionsTests
         exception.ShouldBeOfType<ConfigurationException>().Message.ShouldBe("ConsumerOptions.AckTimeout must be TimeSpan.Zero (disabled) or at least 1 second");
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(99)]
     [InlineData(0)]
@@ -75,6 +76,7 @@ public sealed class PulsarClientConsumerOptionsTests
         exception.ShouldBeOfType<ConfigurationException>().Message.ShouldBe("MaxRedeliverCount must be > 0.");
     }
 
+    // Additional coverage
     [Fact]
     public async Task CreateConsumer_GivenNegativeNegativeAcknowledgeRedeliveryDelay_ShouldThrowConfigurationException()
     {
@@ -90,6 +92,7 @@ public sealed class PulsarClientConsumerOptionsTests
         exception.ShouldBeOfType<ConfigurationException>().Message.ShouldBe("ConsumerOptions.NegativeAcknowledgeRedeliveryDelay may not be negative");
     }
 
+    // Additional coverage
     [Fact]
     public async Task CreateConsumer_GivenNegativeExpireTimeOfIncompleteChunkedMessage_ShouldThrowConfigurationException()
     {
@@ -105,6 +108,7 @@ public sealed class PulsarClientConsumerOptionsTests
         exception.ShouldBeOfType<ConfigurationException>().Message.ShouldBe("ConsumerOptions.ExpireTimeOfIncompleteChunkedMessage may not be negative");
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(3)]
     [InlineData(-1)]
@@ -123,6 +127,7 @@ public sealed class PulsarClientConsumerOptionsTests
         exception.ShouldBeOfType<ConfigurationException>().Message.ShouldBe("ConsumerOptions.CryptoFailureAction is not a valid ConsumerCryptoFailureAction");
     }
 
+    // Additional coverage
     [Fact]
     public void ConsumerOptions_GivenNoChanges_ShouldHaveTheDefaultsOfTheChunkSettings()
     {
@@ -135,6 +140,7 @@ public sealed class PulsarClientConsumerOptionsTests
         uut.ExpireTimeOfIncompleteChunkedMessage.ShouldBe(TimeSpan.FromMinutes(1));
     }
 
+    // Additional coverage
     [Fact]
     public void ConsumerOptions_GivenNoChanges_ShouldHaveTheDefaultsOfTheRedeliverySettings()
     {

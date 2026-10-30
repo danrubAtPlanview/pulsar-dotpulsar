@@ -55,6 +55,7 @@ public sealed class TransactionCoordinatorClientTests
         uut.State.ShouldBe(TransactionCoordinatorClientState.Ready);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Start_GivenStartInProgress_ShouldThrowTransactionCoordinatorClientStateException()
     {
@@ -75,6 +76,7 @@ public sealed class TransactionCoordinatorClientTests
         uut.State.ShouldBe(TransactionCoordinatorClientState.Ready);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Start_GivenDiscoveryFails_ShouldResetToNoneAndAllowRetry()
     {
@@ -115,6 +117,7 @@ public sealed class TransactionCoordinatorClientTests
         await pool.DidNotReceive().FindConnectionForTopic(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
+    // Additional coverage
     [Fact]
     public async Task EnsureStarted_GivenStartedClient_ShouldReturnWithoutStartingAgain()
     {
@@ -135,6 +138,7 @@ public sealed class TransactionCoordinatorClientTests
         uut.State.ShouldBe(TransactionCoordinatorClientState.Ready);
     }
 
+    // Additional coverage
     [Fact]
     public async Task EnsureStarted_GivenConcurrentCallers_ShouldStartOnce()
     {
@@ -186,6 +190,7 @@ public sealed class TransactionCoordinatorClientTests
         discoveries.ShouldBeEmpty();
     }
 
+    // Additional coverage
     [Fact]
     public async Task EnsureStarted_GivenCancelledCallerAndFailedStart_ShouldRetryOnNextCall()
     {
@@ -212,6 +217,7 @@ public sealed class TransactionCoordinatorClientTests
         discoveries.ShouldBeEmpty();
     }
 
+    // Additional coverage
     [Fact]
     public async Task EnsureStarted_GivenCallerCancels_ShouldNotCancelTheStart()
     {
@@ -235,6 +241,7 @@ public sealed class TransactionCoordinatorClientTests
         await discovery.Received(1).Start(CancellationToken.None);
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -253,6 +260,7 @@ public sealed class TransactionCoordinatorClientTests
         exception.ShouldBeOfType<TransactionCoordinatorClientStateException>().Message.ShouldBe("Can not send a request while current state is Closed");
     }
 
+    // Additional coverage
     [Fact]
     public async Task NewTransaction_GivenNotStarted_ShouldThrowStateException()
     {
@@ -304,6 +312,7 @@ public sealed class TransactionCoordinatorClientTests
         coordinator.Requests.ShouldBeEmpty();
     }
 
+    // Additional coverage
     [Fact]
     public async Task AllRequests_GivenDisposed_ShouldThrowStateExceptionAndStateClosed()
     {
@@ -322,6 +331,7 @@ public sealed class TransactionCoordinatorClientTests
         handler.ReceivedCalls().ShouldBeEmpty();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Requests_GivenStartedClient_ShouldDisposeHandlersWithoutPendingOperations()
     {
@@ -347,6 +357,7 @@ public sealed class TransactionCoordinatorClientTests
         uut.Handlers.ShouldBeEmpty();
     }
 
+    // Additional coverage
     [Fact]
     public async Task NewTransaction_GivenNoHandler_ShouldThrowTransactionCoordinatorClientException()
     {
@@ -363,6 +374,7 @@ public sealed class TransactionCoordinatorClientTests
         exception.ShouldBeOfType<TransactionCoordinatorClientException>().Message.ShouldBe("No transaction coordinator is currently available");
     }
 
+    // Additional coverage
     [Fact]
     public async Task NewTransaction_ShouldUseNextHandler()
     {
@@ -381,6 +393,7 @@ public sealed class TransactionCoordinatorClientTests
         discovery.Received(1).NextHandler();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Commit_GivenUnknownCoordinatorId_ShouldThrowMetaStoreHandlerNotExistsException()
     {
@@ -395,6 +408,7 @@ public sealed class TransactionCoordinatorClientTests
         exception.ShouldBeOfType<MetaStoreHandlerNotExistsException>();
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(Request.AddPublishPartitionToTxn)]
     [InlineData(Request.AddSubscriptionToTxn)]
@@ -413,6 +427,7 @@ public sealed class TransactionCoordinatorClientTests
         exception.ShouldBeOfType<MetaStoreHandlerNotExistsException>().Message.ShouldBe("Transaction meta store handler for transaction meta store 5 not exists.");
     }
 
+    // Additional coverage
     [Fact]
     public async Task Commit_ShouldRouteToHandlerForMostSigBits()
     {
@@ -430,6 +445,7 @@ public sealed class TransactionCoordinatorClientTests
         await handlers[1].DidNotReceive().EndTxn(Arg.Any<TransactionId>(), Arg.Any<TxnAction>(), Arg.Any<CancellationToken>());
     }
 
+    // Additional coverage
     [Fact]
     public async Task Abort_ShouldRouteToHandlerForMostSigBits()
     {
@@ -447,6 +463,7 @@ public sealed class TransactionCoordinatorClientTests
         await handlers[2].DidNotReceive().EndTxn(Arg.Any<TransactionId>(), Arg.Any<TxnAction>(), Arg.Any<CancellationToken>());
     }
 
+    // Additional coverage
     [Fact]
     public async Task AddSubscriptionToTxn_ShouldRouteToHandlerForMostSigBits()
     {
@@ -463,6 +480,7 @@ public sealed class TransactionCoordinatorClientTests
         await handlers[0].DidNotReceive().AddSubscriptionToTxn(Arg.Any<TransactionId>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
+    // Additional coverage
     [Fact]
     public async Task AddPublishPartitionToTxn_ShouldRouteToHandlerForMostSigBits()
     {
@@ -542,6 +560,7 @@ public sealed class TransactionCoordinatorClientTests
         handler.AvailableRequestPermits.ShouldBe(1000);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Request_GivenClientDisposedWhileHandlerIsLookedUp_ShouldThrowTransactionCoordinatorClientStateException()
     {
@@ -564,6 +583,7 @@ public sealed class TransactionCoordinatorClientTests
         exception.ShouldBeOfType<TransactionCoordinatorClientStateException>();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Handlers_GivenStartedClient_ShouldReturnTheHandlersOfTheDiscovery()
     {
@@ -600,6 +620,7 @@ public sealed class TransactionCoordinatorClientTests
         await discovery.Received(1).DisposeAsync();
     }
 
+    // Additional coverage
     [Fact]
     public async Task DisposeAsync_GivenNotStarted_ShouldCloseClient()
     {
@@ -613,6 +634,7 @@ public sealed class TransactionCoordinatorClientTests
         uut.State.ShouldBe(TransactionCoordinatorClientState.Closed);
     }
 
+    // Additional coverage
     [Fact]
     public async Task DisposeAsync_GivenDiscoveryThatFailsToDispose_ShouldStillCloseClient()
     {
@@ -630,6 +652,7 @@ public sealed class TransactionCoordinatorClientTests
         uut.State.ShouldBe(TransactionCoordinatorClientState.Closed);
     }
 
+    // Additional coverage
     [Fact]
     public async Task DisposeAsync_GivenStartInProgress_ShouldNotBeUndoneWhenStartCompletes()
     {
@@ -650,6 +673,7 @@ public sealed class TransactionCoordinatorClientTests
         await discovery.Received(2).DisposeAsync(); // The discovery is disposed when the client closes, and again when the start finds out that the client has closed
     }
 
+    // Additional coverage
     [Fact]
     public async Task DisposeAsync_GivenStartInProgressThatFails_ShouldStayClosed()
     {

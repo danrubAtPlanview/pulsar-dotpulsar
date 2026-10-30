@@ -28,6 +28,7 @@ public sealed class EncryptionContextFactoryTests
         return metadata;
     }
 
+    // Additional coverage
     [Fact]
     public void Create_GivenEncryptedMetadata_ShouldCreateTheContext()
     {
@@ -59,6 +60,7 @@ public sealed class EncryptionContextFactoryTests
         actual.IsEncrypted.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void Create_GivenMetadataWithoutAlgorithmAndBatch_ShouldReturnNulls()
     {
@@ -76,6 +78,7 @@ public sealed class EncryptionContextFactoryTests
         actual.IsEncrypted.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void Create_GivenDuplicateKeyName_ShouldKeepTheLast()
     {
@@ -92,6 +95,7 @@ public sealed class EncryptionContextFactoryTests
         actual.Keys["key"].KeyValue.ShouldBe([2]);
     }
 
+    // Additional coverage
     [Fact]
     public void Create_GivenMetadataThatIsChangedAfterwards_ShouldNotChangeTheContext()
     {

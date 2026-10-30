@@ -19,6 +19,7 @@ using DotPulsar.Internal.Batching;
 [Trait("Category", "Unit")]
 public sealed class BatchMessageContainerFactoryTests
 {
+    // Additional coverage
     [Fact]
     public void Create_GivenDefaultBatcher_ShouldReturnBatchMessageContainer()
     {
@@ -29,6 +30,7 @@ public sealed class BatchMessageContainerFactoryTests
         actual.ShouldBeOfType<BatchMessageContainer<TestBatchItem>>();
     }
 
+    // Additional coverage
     [Fact]
     public void Create_GivenKeyBasedBatcher_ShouldReturnKeyBasedBatchMessageContainer()
     {
@@ -39,6 +41,7 @@ public sealed class BatchMessageContainerFactoryTests
         actual.ShouldBeOfType<KeyBasedBatchMessageContainer<TestBatchItem>>();
     }
 
+    // Additional coverage
     [Fact]
     public void Create_GivenUnknownBatcher_ShouldThrowArgumentOutOfRangeException()
     {
@@ -49,6 +52,7 @@ public sealed class BatchMessageContainerFactoryTests
         exception.ShouldBeOfType<ArgumentOutOfRangeException>();
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(BatcherType.Default)]
     [InlineData(BatcherType.KeyBased)]
@@ -68,6 +72,7 @@ public sealed class BatchMessageContainerFactoryTests
         uut.GetRemainingPublishDelay().ShouldBe(TimeSpan.Zero);
     }
 
+    // Additional coverage
     [Fact]
     public void BatcherType_GivenDefinition_ShouldBeBackedByByteWithDefaultFirst()
     {

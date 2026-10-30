@@ -40,6 +40,7 @@ public sealed class SubConsumerTests
         _channel = Substitute.For<IConsumerChannel<byte[]>>();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenAckResponseWithoutError_ShouldComplete()
     {
@@ -54,6 +55,7 @@ public sealed class SubConsumerTests
         exception.ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenNoReceiptRequested_ShouldCompleteWithoutResponse()
     {
@@ -69,6 +71,7 @@ public sealed class SubConsumerTests
         await _channel.Received(1).Send(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>());
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenAckResponseWithTransactionConflictError_ShouldThrowTransactionConflictExceptionAndNotFaultConsumer()
     {
@@ -84,6 +87,7 @@ public sealed class SubConsumerTests
         _eventRegister.DidNotReceive().Register(Arg.Is<IEvent>(e => e is ExecutorFaulted));
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenAckResponseWithConsumerNotFound_ShouldThrowConsumerNotFoundExceptionWithoutRetry()
     {
@@ -99,6 +103,7 @@ public sealed class SubConsumerTests
         await _channel.Received(1).Send(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>());
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenConnectionLostWhileWaiting_ShouldRetryOnNewChannel()
     {
@@ -117,6 +122,7 @@ public sealed class SubConsumerTests
         calls.ShouldBe(2);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenCallerCancellation_ShouldThrowOperationCanceledException()
     {
@@ -133,6 +139,7 @@ public sealed class SubConsumerTests
         exception.ShouldBeAssignableTo<OperationCanceledException>();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenNoReceiptWithinOperationTimeout_ShouldThrowOperationTimeoutExceptionAndNotFaultConsumer()
     {
@@ -148,6 +155,7 @@ public sealed class SubConsumerTests
         _eventRegister.DidNotReceive().Register(Arg.Is<IEvent>(e => e is ExecutorFaulted));
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenPooledCommandReuse_ShouldResetTxnAndRequestIdFields()
     {
@@ -178,6 +186,7 @@ public sealed class SubConsumerTests
         observed[1].ShouldBe((false, false, false, false, 0));
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenPooledCommandWithAckSetFromPreviousAck_ShouldResetAckSetAndBatchSize()
     {
@@ -207,6 +216,7 @@ public sealed class SubConsumerTests
         observed[1].ShouldBe((0, false, false));
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenCompletedBatchFollowedByAnotherAck_ShouldNotModifyTheMessageIdOfTheBroker()
     {
@@ -234,6 +244,7 @@ public sealed class SubConsumerTests
         sent[1].MessageId[0].EntryId.ShouldBe(9UL);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenPartialBatchAndBatchIndexAckEnabled_ShouldSendAckSetAndNotLeakItIntoTheNextAck()
     {
@@ -256,6 +267,7 @@ public sealed class SubConsumerTests
         sent[1].MessageId[0].HasBatchSize.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenTwoIndexesOfSameBatchAndBatchIndexAckEnabled_ShouldSendOneEntryWithMergedAckSet()
     {
@@ -276,6 +288,7 @@ public sealed class SubConsumerTests
         sent[0].MessageId[0].AckSet.ShouldBeAckSet(0b01110);
     }
 
+    // Additional coverage
     [Fact]
     public async Task AcknowledgeCumulative_GivenPartialBatchAndBatchIndexAckDisabled_ShouldAcknowledgePreviousEntryCumulatively()
     {
@@ -295,6 +308,7 @@ public sealed class SubConsumerTests
         sent[0].MessageId[0].BatchIndex.ShouldBe(-1);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenPartialBatchAndBatchIndexAckDisabledAndAckReceiptEnabled_ShouldCompleteWithoutSending()
     {
@@ -313,6 +327,7 @@ public sealed class SubConsumerTests
         await connection.DidNotReceive().SendWithResponse(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>());
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenTransaction_ShouldSendTransactionalAckWithTransactionIdAndIndividualAckType()
     {
@@ -337,6 +352,7 @@ public sealed class SubConsumerTests
         await _channel.DidNotReceive().Send(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>());
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenTransactionAndSeveralMessageIds_ShouldSendOneCommandWithAllMessageIds()
     {
@@ -355,6 +371,7 @@ public sealed class SubConsumerTests
         sent[0].MessageId.Select(messageId => messageId.EntryId).ShouldBeSequence(2UL, 3UL, 4UL);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenTransactionAndNoMessageIds_ShouldNeitherSendNorRegisterAnything()
     {
@@ -370,6 +387,7 @@ public sealed class SubConsumerTests
         await tcClient.DidNotReceive().AddSubscriptionToTxn(Arg.Any<TransactionId>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
+    // Additional coverage
     [Fact]
     public async Task AcknowledgeCumulative_GivenTransaction_ShouldSendTransactionalAckWithCumulativeAckType()
     {
@@ -389,6 +407,7 @@ public sealed class SubConsumerTests
         sent[0].TxnidLeastBits.ShouldBe(_transactionId.LeastSigBits);
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(SubscriptionType.Shared)]
     [InlineData(SubscriptionType.KeyShared)]
@@ -408,6 +427,7 @@ public sealed class SubConsumerTests
         await tcClient.DidNotReceive().AddSubscriptionToTxn(Arg.Any<TransactionId>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(SubscriptionType.Exclusive)]
     [InlineData(SubscriptionType.Failover)]
@@ -425,6 +445,7 @@ public sealed class SubConsumerTests
         await _channel.Received(1).SendTransactional(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>());
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenTransaction_ShouldRegisterTheTopicAndSubscriptionWithTheTransactionOnce()
     {
@@ -443,6 +464,7 @@ public sealed class SubConsumerTests
         await _channel.Received(3).SendTransactional(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>());
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenTransaction_ShouldRegisterAckOpSoThatCommitWaitsForTheReceipt()
     {
@@ -467,6 +489,7 @@ public sealed class SubConsumerTests
         transaction.CurrentState.ShouldBe(TransactionState.Committed);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenTransactionAndAckResponseWithTransactionConflictError_ShouldThrowTransactionConflictExceptionAndNotFaultConsumer()
     {
@@ -484,6 +507,7 @@ public sealed class SubConsumerTests
         _eventRegister.DidNotReceive().Register(Arg.Is<IEvent>(e => e is ExecutorFaulted));
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenTransactionAndAckResponseWithConsumerNotFound_ShouldThrowConsumerNotFoundExceptionWithoutRetry()
     {
@@ -500,6 +524,7 @@ public sealed class SubConsumerTests
         await _channel.Received(1).SendTransactional(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>());
     }
 
+    // Additional coverage
     [Fact]
     public async Task Commit_GivenTransactionalAckThatFailed_ShouldAbortAndThrowTransactionHasOperationFailedException()
     {
@@ -519,6 +544,7 @@ public sealed class SubConsumerTests
         transaction.CurrentState.ShouldBe(TransactionState.Aborted);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenTransactionAndRegistrationOfSubscriptionFails_ShouldFailWithTheSameExceptionAndNotSend()
     {
@@ -539,6 +565,7 @@ public sealed class SubConsumerTests
         _eventRegister.DidNotReceive().Register(Arg.Is<IEvent>(e => e is ExecutorFaulted));
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenTransactionThatIsNotOpen_ShouldThrowInvalidTransactionStatusExceptionAndNotSend()
     {
@@ -556,6 +583,7 @@ public sealed class SubConsumerTests
         await tcClient.DidNotReceive().AddSubscriptionToTxn(Arg.Any<TransactionId>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenMessageIdsAndTransactionThatIsNotOpen_ShouldThrowInvalidTransactionStatusExceptionAndNotSend()
     {
@@ -573,6 +601,7 @@ public sealed class SubConsumerTests
     }
 
     // Java only checks that the transaction is open for the acknowledgment of a single message id, and it does not register that failure as an operation of the transaction
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenTransactionThatIsCommitting_ShouldThrowInvalidTransactionStatusExceptionWithoutFailingTheCommit()
     {
@@ -596,6 +625,7 @@ public sealed class SubConsumerTests
         transaction.CurrentState.ShouldBe(TransactionState.Committed);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenTransactionThatWasNotCreatedByDotPulsar_ShouldThrowArgumentException()
     {
@@ -615,6 +645,7 @@ public sealed class SubConsumerTests
         await _channel.DidNotReceive().SendTransactional(Arg.Any<CommandAck>(), Arg.Any<CancellationToken>());
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenTransactionAndBatchMessageId_ShouldSetBatchSizeAndKeepBatchIndexForTheChannel()
     {
@@ -631,6 +662,7 @@ public sealed class SubConsumerTests
         sent.ShouldBe([(3, 5)]);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenTransactionalAckFollowedByPlainAck_ShouldNotSendTransactionIdsOrRequestIdWithThePlainAck()
     {
@@ -653,6 +685,7 @@ public sealed class SubConsumerTests
         observed.ShouldAllBe(command => !command.HasTxnMostBits && !command.HasTxnLeastBits && !command.HasRequestId && !command.HasValidationError);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenTransactionAndConnectionLostWhileWaiting_ShouldRetryOnNewChannelWithTheSameCommand()
     {
@@ -674,6 +707,7 @@ public sealed class SubConsumerTests
         commands[1].ShouldBeSameAs(commands[0]);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenTransactionAndNoReceiptWithinOperationTimeout_ShouldThrowOperationTimeoutExceptionAndNotFaultConsumer()
     {
@@ -690,6 +724,7 @@ public sealed class SubConsumerTests
         _eventRegister.DidNotReceive().Register(Arg.Is<IEvent>(e => e is ExecutorFaulted));
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenTransactionAndCallerCancellation_ShouldThrowOperationCanceledExceptionAndFailTheOperation()
     {
@@ -710,6 +745,7 @@ public sealed class SubConsumerTests
         await tcClient.Received(1).Abort(_transactionId, CancellationToken.None);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenTransactionAndBrokerWithoutSupportForAckReceipts_ShouldThrowNotSupportedExceptionAndNotFaultConsumer()
     {
@@ -730,6 +766,7 @@ public sealed class SubConsumerTests
         _eventRegister.DidNotReceive().Register(Arg.Is<IEvent>(e => e is ExecutorFaulted));
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenTransactionAndBatchMessage_ShouldNotBeSwallowedByTheBatchHandlerAndSendBatchSizeAndAckSet()
     {
@@ -754,6 +791,7 @@ public sealed class SubConsumerTests
         sent[0].MessageId[0].AckSet.ShouldBeAckSet(0b11011);
     }
 
+    // Additional coverage
     [Fact]
     public async Task AcknowledgeCumulative_GivenTransactionAndBatchMessage_ShouldSendAckSetOfTheLaterIndexes()
     {
@@ -775,6 +813,7 @@ public sealed class SubConsumerTests
     }
 
     // The messages of an aborted transaction are delivered again by the broker. Acknowledging every message of the new delivery must then acknowledge the whole batch.
+    // Additional coverage
     [Fact]
     public async Task AcknowledgeCumulative_GivenAbortedTransactionAndRedeliveryOfTheBatch_ShouldAcknowledgeEntryOnlyWhenAllIndexesAreAcknowledgedAgain()
     {
@@ -833,6 +872,7 @@ public sealed class SubConsumerTests
         await _channel.DidNotReceive().Send(Arg.Any<CommandRedeliverUnacknowledgedMessages>(), Arg.Any<CancellationToken>());
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(SubscriptionType.Shared)]
     [InlineData(SubscriptionType.KeyShared)]
@@ -859,6 +899,7 @@ public sealed class SubConsumerTests
         sent[0].HasConsumerEpoch.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public async Task RedeliverUnacknowledgedMessages_GivenMoreThanOneThousandEntries_ShouldSendThemInCommandsOfOneThousand()
     {
@@ -875,6 +916,7 @@ public sealed class SubConsumerTests
         sent.SelectMany(command => command.MessageIds).Select(messageId => messageId.EntryId).ShouldBeSequence(messageIds.Select(messageId => messageId.EntryId).ToArray());
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(SubscriptionType.Exclusive)]
     [InlineData(SubscriptionType.Failover)]
@@ -895,6 +937,7 @@ public sealed class SubConsumerTests
         consumerEpoch.Value.ShouldBe(1);
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(SubscriptionType.Exclusive, 2)]
     [InlineData(SubscriptionType.Failover, 2)]
@@ -918,6 +961,7 @@ public sealed class SubConsumerTests
         sent[1].ConsumerEpoch.ShouldBe((ulong) expectedEpoch);
     }
 
+    // Additional coverage
     [Fact]
     public async Task RedeliverUnacknowledgedMessages_GivenDisposedConsumer_ShouldThrowConsumerDisposedException()
     {
@@ -956,6 +1000,7 @@ public sealed class SubConsumerTests
         tracker.Count.ShouldBe(1);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Track_GivenNoTracker_ShouldNotTrackAnything()
     {
@@ -999,6 +1044,7 @@ public sealed class SubConsumerTests
         tracker.Count.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenTransactionAndBatchIndex_ShouldNotUntrackTheEntry()
     {
@@ -1017,6 +1063,7 @@ public sealed class SubConsumerTests
         tracker.Count.ShouldBe(1);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenTransactionAndMessageIdList_ShouldUntrackTheEntriesWithoutBatchIndex()
     {
@@ -1038,6 +1085,7 @@ public sealed class SubConsumerTests
         tracker.Remove(1, 3).ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public async Task AcknowledgeCumulative_GivenTransaction_ShouldUntrackAllEntriesUpToAndIncludingTheEntry()
     {
@@ -1061,6 +1109,7 @@ public sealed class SubConsumerTests
         tracker.Remove(1, 5).ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenTransactionThatIsNotOpen_ShouldNotUntrackTheEntry()
     {
@@ -1098,6 +1147,7 @@ public sealed class SubConsumerTests
         tracker.Count.ShouldBe(0);
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(SubscriptionType.Exclusive, 0)]
     [InlineData(SubscriptionType.Failover, 0)]
@@ -1135,6 +1185,7 @@ public sealed class SubConsumerTests
         negativeAcknowledgeTracker.Count.ShouldBe(1);
     }
 
+    // Additional coverage
     [Fact]
     public async Task NegativeAcknowledge_GivenMessageIdsOfTheSameEntry_ShouldTrackTheEntryOnce()
     {
@@ -1151,6 +1202,7 @@ public sealed class SubConsumerTests
         negativeAcknowledgeTracker.Count.ShouldBe(1);
     }
 
+    // Additional coverage
     [Fact]
     public async Task NegativeAcknowledge_GivenDisposedConsumer_ShouldThrowConsumerDisposedException()
     {
@@ -1165,6 +1217,7 @@ public sealed class SubConsumerTests
         exception.ShouldBeOfType<ConsumerDisposedException>();
     }
 
+    // Additional coverage
     [Fact]
     public async Task NegativeAcknowledge_GivenDueEntry_ShouldRedeliverItThroughTheConsumer()
     {
@@ -1209,6 +1262,7 @@ public sealed class SubConsumerTests
         negativeAcknowledgeTracker.Add(negativelyAcknowledged).ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public async Task ChannelFaulted_GivenTracker_ShouldDisposeIt()
     {
@@ -1249,6 +1303,7 @@ public sealed class SubConsumerTests
         sent[0].MessageIds.Select(messageId => messageId.EntryId).ShouldBeSequence(3UL);
     }
 
+    // Additional coverage
     [Fact]
     public async Task RedeliverUnacknowledgedMessages_GivenOnlyDeadLetterCandidates_ShouldNotSendRedeliverCommand()
     {
@@ -1267,6 +1322,7 @@ public sealed class SubConsumerTests
         deadLetterHandler.Count.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public async Task RedeliverUnacknowledgedMessages_GivenDeadLetterFailure_ShouldRedeliverTheEntry()
     {
@@ -1286,6 +1342,7 @@ public sealed class SubConsumerTests
         deadLetterHandler.Contains(1, 2).ShouldBeTrue();
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(SubscriptionType.Exclusive)]
     [InlineData(SubscriptionType.Failover)]
@@ -1306,6 +1363,7 @@ public sealed class SubConsumerTests
         sent[0].MessageIds.Count.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public async Task DisposeAsync_GivenDeadLetterHandler_ShouldDisposeIt()
     {

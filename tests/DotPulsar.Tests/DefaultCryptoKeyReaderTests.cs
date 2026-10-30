@@ -112,6 +112,7 @@ public sealed class DefaultCryptoKeyReaderTests : IDisposable
         actualPrivate3!.Key.ShouldBe(Bytes("private3"));
     }
 
+    // Additional coverage
     [Fact]
     public void GetKeys_GivenDictionariesThatAreChangedAfterwards_ShouldNotSeeTheChanges()
     {
@@ -185,6 +186,7 @@ public sealed class DefaultCryptoKeyReaderTests : IDisposable
         uut.GetPrivateKey("key3", _noMetadata).ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public void GetPublicKey_GivenKeyInfo_ShouldHaveEmptyMetadata()
     {
@@ -198,6 +200,7 @@ public sealed class DefaultCryptoKeyReaderTests : IDisposable
         actual!.Metadata.ShouldBeEmpty();
     }
 
+    // Additional coverage
     [Fact]
     public void GetPublicKey_GivenAbsoluteFileUriWithTwoSlashes_ShouldReturnTheKey()
     {
@@ -212,6 +215,7 @@ public sealed class DefaultCryptoKeyReaderTests : IDisposable
         actual!.Key.ShouldBe(Bytes("public"));
     }
 
+    // Additional coverage
     [Fact]
     public void GetPublicKey_GivenAbsoluteFilePathAfterTheScheme_ShouldReturnTheKey()
     {
@@ -226,6 +230,7 @@ public sealed class DefaultCryptoKeyReaderTests : IDisposable
         actual!.Key.ShouldBe(Bytes("public"));
     }
 
+    // Additional coverage
     [Fact]
     public void GetPublicKey_GivenUppercaseScheme_ShouldReturnTheKey()
     {
@@ -240,6 +245,7 @@ public sealed class DefaultCryptoKeyReaderTests : IDisposable
         actual!.Key.ShouldBe(Bytes("public"));
     }
 
+    // Additional coverage
     [Theory]
     [InlineData("file:")]
     [InlineData("file:does-not-exist.pem")]
@@ -272,6 +278,7 @@ public sealed class DefaultCryptoKeyReaderTests : IDisposable
         actualDefault.ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public void GetPublicKey_GivenDataUriWithPemMediaTypeInUpperCase_ShouldReturnTheKey()
     {
@@ -286,6 +293,7 @@ public sealed class DefaultCryptoKeyReaderTests : IDisposable
         actual!.Key.ShouldBe(Encoding.UTF8.GetBytes("key"));
     }
 
+    // Additional coverage
     [Fact]
     public void GetKeys_GivenKeyNameThatIsInTheWrongDictionary_ShouldUseTheDefault()
     {

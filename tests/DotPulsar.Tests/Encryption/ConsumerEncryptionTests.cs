@@ -158,6 +158,7 @@ public sealed class ConsumerEncryptionTests : IDisposable
     }
 
     // The chunks cannot be assembled as long as they are encrypted, so the chunks of a message that cannot be decrypted are not delivered, whatever the action is
+    // Additional coverage
     [Fact]
     public async Task Receive_GivenEncryptedChunkedMessageAndConsumeWithoutCryptoKeyReader_ShouldNeitherDeliverNorAcknowledgeTheChunks()
     {
@@ -251,6 +252,7 @@ public sealed class ConsumerEncryptionTests : IDisposable
     }
 
     // The data key is wrapped for every key name, so the consumer of every key can decrypt the message with its own private key
+    // Additional coverage
     [Fact]
     public async Task Receive_GivenMessagesEncryptedWithTwoKeys_ShouldDecryptWithEitherPrivateKey()
     {
@@ -412,6 +414,7 @@ public sealed class ConsumerEncryptionTests : IDisposable
     }
 
     // The message is redelivered when the ack timeout expires, so it is delivered when the key can be read
+    // Additional coverage
     [Fact]
     public async Task Receive_GivenMessageThatCannotBeDecryptedAndFailAndAckTimeout_ShouldRedeliverItAfterTheAckTimeout()
     {
@@ -499,6 +502,7 @@ public sealed class ConsumerEncryptionTests : IDisposable
     }
 
     // The messages of a batch are encrypted together, decrypted together, and they share the encryption context
+    // Additional coverage
     [Fact]
     public async Task Receive_GivenEncryptedBatch_ShouldUnpackItAfterDecryptingIt()
     {
@@ -564,6 +568,7 @@ public sealed class ConsumerEncryptionTests : IDisposable
         (await Record.ExceptionAsync(() => receiving)).ShouldBeAssignableTo<OperationCanceledException>();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Receive_GivenMessageThatIsNotEncryptedAndCryptoKeyReader_ShouldDeliverItWithoutEncryptionContext()
     {
@@ -583,6 +588,7 @@ public sealed class ConsumerEncryptionTests : IDisposable
         actual.EncryptionContext.ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Receive_GivenReaderWithCryptoKeyReader_ShouldDecryptTheMessages()
     {
@@ -606,6 +612,7 @@ public sealed class ConsumerEncryptionTests : IDisposable
         actual.ShouldAllBe(message => message.EncryptionContext != null && !message.EncryptionContext.IsEncrypted);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Receive_GivenReaderWithConsumeActionAndNoCryptoKeyReader_ShouldDeliverTheEncryptedPayload()
     {
@@ -628,6 +635,7 @@ public sealed class ConsumerEncryptionTests : IDisposable
         actual.EncryptionContext.ShouldNotBeNull().IsEncrypted.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(ConsumerCryptoFailureAction.Fail)]
     [InlineData(ConsumerCryptoFailureAction.Discard)]

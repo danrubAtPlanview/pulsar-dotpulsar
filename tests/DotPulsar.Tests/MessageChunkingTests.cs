@@ -648,6 +648,7 @@ public sealed class MessageChunkingTests : IDisposable
         await WaitUntil(async () => await GetBacklog(topic, subscription) == 0);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenChunkedMessagesAndPartitionedTopic_ShouldDeliverEveryMessageAssembled()
     {

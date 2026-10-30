@@ -20,6 +20,7 @@ using System.Security.Cryptography;
 [Trait("Category", "Unit")]
 public sealed class Kdf2Sha1Tests
 {
+    // Additional coverage
     [Fact]
     public void Generate_GivenVectorInput_ShouldReturnExpectedBytes()
     {
@@ -33,6 +34,7 @@ public sealed class Kdf2Sha1Tests
         Convert.ToHexString(actual).ToLowerInvariant().ShouldBe("a98ffb7caef3bd518fb7bc1b6cc89dbdef59cde6e6b6e6b5e405eb5e6ffb080c390c2cd82363d25a79fcf567c36336e9");
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(0)]
     [InlineData(1)]

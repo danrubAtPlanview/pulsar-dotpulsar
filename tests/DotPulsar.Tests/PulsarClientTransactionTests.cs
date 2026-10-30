@@ -28,6 +28,7 @@ public sealed class PulsarClientTransactionTests
     private static readonly Uri _serviceUrl = new("pulsar://localhost:6650");
     private static readonly TimeSpan _timeout = TimeSpan.FromSeconds(10);
 
+    // Additional coverage
     [Fact]
     public async Task Build_GivenEnableTransaction_ShouldExposeNotStartedTransactionCoordinatorClient()
     {
@@ -42,6 +43,7 @@ public sealed class PulsarClientTransactionTests
         client.State.ShouldBe(TransactionCoordinatorClientState.None);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Build_GivenTransactionsNotEnabled_ShouldHaveNullTransactionCoordinatorClient()
     {
@@ -55,6 +57,7 @@ public sealed class PulsarClientTransactionTests
         transactionCoordinatorClient.ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Build_GivenTransactionsExplicitlyDisabledAfterEnabled_ShouldHaveNullTransactionCoordinatorClient()
     {
@@ -68,6 +71,7 @@ public sealed class PulsarClientTransactionTests
         transactionCoordinatorClient.ShouldBeNull();
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(0)]
     [InlineData(-1000)]
@@ -83,6 +87,7 @@ public sealed class PulsarClientTransactionTests
         exception.ShouldBeOfType<ConfigurationException>().Message.ShouldBe("OperationTimeout must be greater than zero");
     }
 
+    // Additional coverage
     [Fact]
     public void EnableTransaction_ShouldReturnTheSameBuilder()
     {
@@ -96,6 +101,7 @@ public sealed class PulsarClientTransactionTests
         result.ShouldBeSameAs(uut);
     }
 
+    // Additional coverage
     [Fact]
     public async Task CreateTransaction_GivenTransactionsNotEnabled_ShouldThrowConfigurationException()
     {
@@ -109,6 +115,7 @@ public sealed class PulsarClientTransactionTests
         exception.ShouldBeOfType<ConfigurationException>().Message.ShouldBe("Transactions are not enabled");
     }
 
+    // Additional coverage
     [Fact]
     public async Task CreateTransaction_ShouldStartTheCoordinatorClientAndCreateTransactionWithIdAndTimeoutFromTheCoordinator()
     {
@@ -131,6 +138,7 @@ public sealed class PulsarClientTransactionTests
         });
     }
 
+    // Additional coverage
     [Fact]
     public async Task CreateTransaction_GivenDefaultOptions_ShouldCreateTransactionWithSixtySecondsInMilliseconds()
     {
@@ -145,6 +153,7 @@ public sealed class PulsarClientTransactionTests
         await tcClient.Received(1).NewTransaction(TimeSpan.FromMilliseconds(60000), Current.CancellationToken);
     }
 
+    // Additional coverage
     [Fact]
     public async Task CreateTransaction_ShouldReturnTransactionThatEndsWithTheCoordinatorClient()
     {
@@ -166,6 +175,7 @@ public sealed class PulsarClientTransactionTests
         await tcClient.Received(1).Abort(new TransactionId(0, 9), CancellationToken.None);
     }
 
+    // Additional coverage
     [Fact]
     public async Task CreateTransaction_GivenFailedStartThenCoordinatorAvailable_ShouldSucceedOnRetry()
     {
@@ -191,6 +201,7 @@ public sealed class PulsarClientTransactionTests
         tcClient.State.ShouldBe(TransactionCoordinatorClientState.Ready);
     }
 
+    // Additional coverage
     [Fact]
     public async Task CreateTransaction_GivenConcurrentCalls_ShouldStartTheCoordinatorClientOnce()
     {
@@ -220,6 +231,7 @@ public sealed class PulsarClientTransactionTests
         factoryCalls.ShouldBe(1);
     }
 
+    // Additional coverage
     [Fact]
     public async Task CreateTransaction_GivenCancellationWhileStarting_ShouldThrowOperationCanceledExceptionAndNotCancelTheStart()
     {
@@ -293,6 +305,7 @@ public sealed class PulsarClientTransactionTests
         transactionToAbort.CurrentState.ShouldBe(TransactionState.Aborting);
     }
 
+    // Additional coverage
     [Fact]
     public async Task DisposeAsync_GivenTransactionCoordinatorClient_ShouldDisposeItBeforeConnectionPool()
     {
@@ -312,6 +325,7 @@ public sealed class PulsarClientTransactionTests
         });
     }
 
+    // Additional coverage
     [Fact]
     public async Task DisposeAsync_GivenTransactionCoordinatorClientThatThrows_ShouldStillDisposeConnectionPool()
     {
@@ -329,6 +343,7 @@ public sealed class PulsarClientTransactionTests
         await connectionPool.Received(1).DisposeAsync();
     }
 
+    // Additional coverage
     [Fact]
     public async Task DisposeAsync_GivenCalledTwice_ShouldDisposeTransactionCoordinatorClientOnce()
     {
@@ -344,6 +359,7 @@ public sealed class PulsarClientTransactionTests
         await tcClient.Received(1).DisposeAsync();
     }
 
+    // Additional coverage
     [Fact]
     public async Task DisposeAsync_GivenConsumer_ShouldDisposeConsumerBeforeTransactionCoordinatorClient()
     {

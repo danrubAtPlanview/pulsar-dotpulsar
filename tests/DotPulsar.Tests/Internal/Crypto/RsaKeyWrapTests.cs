@@ -20,6 +20,7 @@ using System.Security.Cryptography;
 [Trait("Category", "Unit")]
 public sealed class RsaKeyWrapTests
 {
+    // Additional coverage
     [Theory]
     [InlineData("ClientRsa")]
     [InlineData("ClientRsaPkcs8")]
@@ -40,6 +41,7 @@ public sealed class RsaKeyWrapTests
         actual.ShouldBe(dataKey);
     }
 
+    // Additional coverage
     [Fact]
     public void Wrap_GivenSameInputTwice_ShouldReturnDifferentOutput()
     {
@@ -55,6 +57,7 @@ public sealed class RsaKeyWrapTests
         first.ShouldNotBe(second);
     }
 
+    // Additional coverage
     [Fact]
     public void Wrap_GivenKey_ShouldUseOaepWithSha1()
     {
@@ -71,6 +74,7 @@ public sealed class RsaKeyWrapTests
         Should.Throw<CryptographicException>(() => privateKey.Decrypt(wrapped, RSAEncryptionPadding.OaepSHA256));
     }
 
+    // Additional coverage
     [Fact]
     public void Unwrap_GivenWrongPrivateKey_ShouldThrow()
     {
@@ -86,6 +90,7 @@ public sealed class RsaKeyWrapTests
         exception.ShouldBeAssignableTo<CryptographicException>();
     }
 
+    // Additional coverage
     [Fact]
     public void Unwrap_GivenTamperedWrappedKey_ShouldThrow()
     {

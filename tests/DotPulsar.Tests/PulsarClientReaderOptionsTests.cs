@@ -21,6 +21,7 @@ public sealed class PulsarClientReaderOptionsTests
 {
     private static readonly Uri _serviceUrl = new("pulsar://localhost:6650");
 
+    // Additional coverage
     [Fact]
     public async Task CreateReader_GivenNegativeExpireTimeOfIncompleteChunkedMessage_ShouldThrowConfigurationException()
     {
@@ -38,6 +39,7 @@ public sealed class PulsarClientReaderOptionsTests
         exception.ShouldBeOfType<ConfigurationException>().Message.ShouldBe("ReaderOptions.ExpireTimeOfIncompleteChunkedMessage may not be negative");
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(3)]
     [InlineData(-1)]

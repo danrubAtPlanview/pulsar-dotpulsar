@@ -20,6 +20,7 @@ using DotPulsar.Internal.PulsarApi;
 [Trait("Category", "Unit")]
 public sealed class ChunkMessageIdExpanderTests
 {
+    // Additional coverage
     [Fact]
     public void IsChunked_GivenNull_ShouldBeFalse()
     {
@@ -30,6 +31,7 @@ public sealed class ChunkMessageIdExpanderTests
         actual.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void IsChunked_GivenEmptyIds_ShouldBeFalse()
     {
@@ -40,6 +42,7 @@ public sealed class ChunkMessageIdExpanderTests
         actual.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void IsChunked_GivenOneId_ShouldBeFalse()
     {
@@ -50,6 +53,7 @@ public sealed class ChunkMessageIdExpanderTests
         actual.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void IsChunked_GivenTwoIds_ShouldBeTrue()
     {
@@ -76,6 +80,7 @@ public sealed class ChunkMessageIdExpanderTests
         destination.ShouldBe(ids);
     }
 
+    // Additional coverage
     [Fact]
     public void TryExpand_GivenDestinationOfTheAckCommand_ShouldAddEveryId()
     {
@@ -92,6 +97,7 @@ public sealed class ChunkMessageIdExpanderTests
         command.MessageId[1].EntryId.ShouldBe(11UL);
     }
 
+    // Additional coverage
     [Fact]
     public void TryExpand_GivenNull_ShouldAddNothing()
     {
@@ -106,6 +112,7 @@ public sealed class ChunkMessageIdExpanderTests
         destination.ShouldBeEmpty();
     }
 
+    // Additional coverage
     [Fact]
     public void TryExpand_GivenOneId_ShouldAddNothing()
     {

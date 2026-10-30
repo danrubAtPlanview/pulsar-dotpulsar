@@ -23,6 +23,7 @@ public sealed class TransactionOperationTests
 {
     private static readonly TransactionId _id = new(0, 5);
 
+    // Additional coverage
     [Fact]
     public async Task Commit_GivenBeginOpWithoutEndOp_ShouldWaitForEndOpBeforeEndTxn()
     {
@@ -45,6 +46,7 @@ public sealed class TransactionOperationTests
         uut.CurrentState.ShouldBe(TransactionState.Committed);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Commit_GivenSeveralOps_ShouldWaitForTheLastEndOp()
     {
@@ -69,6 +71,7 @@ public sealed class TransactionOperationTests
         uut.CurrentState.ShouldBe(TransactionState.Committed);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Commit_GivenFailedOp_ShouldAbortAndThrowTransactionHasOperationFailedException()
     {
@@ -90,6 +93,7 @@ public sealed class TransactionOperationTests
         await tcClient.Received(1).Abort(_id, CancellationToken.None);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Abort_GivenBeginOpWithoutEndOp_ShouldWaitForEndOpBeforeEndTxn()
     {
@@ -110,6 +114,7 @@ public sealed class TransactionOperationTests
         uut.CurrentState.ShouldBe(TransactionState.Aborted);
     }
 
+    // Additional coverage
     [Fact]
     public async Task EndOp_GivenConcurrentOps_ShouldCompleteWhenAllHaveEnded()
     {

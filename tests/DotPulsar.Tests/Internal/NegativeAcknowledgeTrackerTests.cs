@@ -31,6 +31,7 @@ public sealed class NegativeAcknowledgeTrackerTests
         _redelivered = new ConcurrentQueue<MessageId[]>();
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(0, 100)]
     [InlineData(1, 100)]
@@ -51,6 +52,7 @@ public sealed class NegativeAcknowledgeTrackerTests
         _timers.Timer.Scheduled.ShouldBe([TimeSpan.FromMilliseconds(expectedMs)]);
     }
 
+    // Additional coverage
     [Fact]
     public void Constructor_GivenTracker_ShouldNotCreateTimerBeforeFirstAdd()
     {
@@ -89,6 +91,7 @@ public sealed class NegativeAcknowledgeTrackerTests
         unAckedMessageTracker.Count.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void Add_GivenThreeBatchMessageIdsOfSameEntry_ShouldOnlyTrackTheFirst()
     {
@@ -108,6 +111,7 @@ public sealed class NegativeAcknowledgeTrackerTests
         uut.Count.ShouldBe(1);
     }
 
+    // Additional coverage
     [Fact]
     public void Add_GivenMessageIdsOfDifferentEntries_ShouldTrackEachEntry()
     {
@@ -123,6 +127,7 @@ public sealed class NegativeAcknowledgeTrackerTests
         uut.Count.ShouldBe(3);
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(0, 8, 0)]
     [InlineData(255, 8, 0)]
@@ -142,6 +147,7 @@ public sealed class NegativeAcknowledgeTrackerTests
         actual.ShouldBe(expected);
     }
 
+    // Additional coverage
     [Fact]
     public void TrimLowerBits_GivenEightBits_ShouldBucketBy256MillisecondsAndNeverBeLaterThanRequested()
     {
@@ -153,6 +159,7 @@ public sealed class NegativeAcknowledgeTrackerTests
         results.Select(result => result.trimmed).Distinct().Count().ShouldBe(8);
     }
 
+    // Additional coverage
     [Fact]
     public void Fire_GivenNacksWithinTheSameBucket_ShouldRedeliverThemTogether()
     {
@@ -204,6 +211,7 @@ public sealed class NegativeAcknowledgeTrackerTests
         _timers.Timer.Pending.ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public void Fire_GivenTimerFiresBeforeEntryIsDue_ShouldRescheduleForTheRemainingTime()
     {
@@ -221,6 +229,7 @@ public sealed class NegativeAcknowledgeTrackerTests
         _timers.Timer.Pending.ShouldBe(TimeSpan.FromMilliseconds(1));
     }
 
+    // Additional coverage
     [Fact]
     public void Add_GivenAllEntriesRedelivered_ShouldScheduleTimerAgainOnNextAdd()
     {
@@ -239,6 +248,7 @@ public sealed class NegativeAcknowledgeTrackerTests
         _timers.Timer.Pending.ShouldBe(TimeSpan.FromMilliseconds(1000));
     }
 
+    // Additional coverage
     [Fact]
     public void Add_GivenTimerAlreadyScheduled_ShouldNotScheduleItAgain()
     {
@@ -277,6 +287,7 @@ public sealed class NegativeAcknowledgeTrackerTests
         _timers.Timer.Pending.ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public void Add_GivenEntryRedeliveredAndNackedAgain_ShouldTrackItAgain()
     {
@@ -295,6 +306,7 @@ public sealed class NegativeAcknowledgeTrackerTests
         uut.Count.ShouldBe(1);
     }
 
+    // Additional coverage
     [Fact]
     public void Fire_GivenBatchMessageId_ShouldRedeliverTheEntryLevelMessageIdWithPartitionAndTopic()
     {
@@ -311,6 +323,7 @@ public sealed class NegativeAcknowledgeTrackerTests
         actual.ShouldBe(new MessageId(3, 1, 2, -1, "persistent://public/default/topic-partition-2"));
     }
 
+    // Additional coverage
     [Fact]
     public void Fire_GivenEntryLevelMessageId_ShouldRedeliverTheSameInstance()
     {
@@ -327,6 +340,7 @@ public sealed class NegativeAcknowledgeTrackerTests
         _redelivered.Single().Single().ShouldBeSameAs(messageId);
     }
 
+    // Additional coverage
     [Fact]
     public void Fire_GivenRedeliverThrows_ShouldKeepRedeliveringLaterEntries()
     {
@@ -355,6 +369,7 @@ public sealed class NegativeAcknowledgeTrackerTests
         uut.Count.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void Fire_GivenRedeliverFaults_ShouldKeepRedeliveringLaterEntries()
     {
@@ -382,6 +397,7 @@ public sealed class NegativeAcknowledgeTrackerTests
         redeliveries.ShouldBe(2);
     }
 
+    // Additional coverage
     [Fact]
     public void Fire_GivenRedelivery_ShouldCallRedeliverOutsideOfTheLock()
     {
@@ -414,6 +430,7 @@ public sealed class NegativeAcknowledgeTrackerTests
         canUseTrackerFromAnotherThread.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void Dispose_GivenPendingEntries_ShouldDisposeTimerAndClear()
     {
@@ -431,6 +448,7 @@ public sealed class NegativeAcknowledgeTrackerTests
         _timers.Timer.Pending.ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public void Dispose_GivenTimerAlreadyQueued_ShouldNotRedeliver()
     {
@@ -447,6 +465,7 @@ public sealed class NegativeAcknowledgeTrackerTests
         _redelivered.ShouldBeEmpty();
     }
 
+    // Additional coverage
     [Fact]
     public void Add_GivenDisposedTracker_ShouldNotTrackOrSchedule()
     {
@@ -463,6 +482,7 @@ public sealed class NegativeAcknowledgeTrackerTests
         _timers.Created.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void Dispose_GivenCalledTwice_ShouldNotThrow()
     {
@@ -481,6 +501,7 @@ public sealed class NegativeAcknowledgeTrackerTests
         exception.ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public void Dispose_GivenRedeliverInFlight_ShouldCancelTheToken()
     {
@@ -509,6 +530,7 @@ public sealed class NegativeAcknowledgeTrackerTests
         token.IsCancellationRequested.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public async Task AddAndFire_GivenConcurrentUse_ShouldRedeliverEveryEntryExactlyOnce()
     {
@@ -561,6 +583,7 @@ public sealed class NegativeAcknowledgeTrackerTests
         redelivered.Select(messageId => (messageId.LedgerId, messageId.EntryId)).Distinct().Count().ShouldBe(added);
     }
 
+    // Additional coverage
     [Fact]
     public async Task AddAndDispose_GivenConcurrentUse_ShouldNotThrow()
     {

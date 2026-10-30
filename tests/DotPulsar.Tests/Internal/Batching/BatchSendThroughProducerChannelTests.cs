@@ -32,6 +32,7 @@ public sealed class BatchSendThroughProducerChannelTests
 {
     private const int MaxMessageSize = 5 * 1024 * 1024;
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenBatchAndCompression_ShouldGiveTheConnectionTheBatchMetadataAndTheCompressedPayload()
     {
@@ -69,6 +70,7 @@ public sealed class BatchSendThroughProducerChannelTests
         batch.Return();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenBatchThatIsSentTwice_ShouldSendTheSamePayloadAndMetadataBothTimes()
     {
@@ -95,6 +97,7 @@ public sealed class BatchSendThroughProducerChannelTests
         batch.Return();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenBatchWithoutCompression_ShouldGiveTheConnectionTheUncompressedPayload()
     {
@@ -151,6 +154,7 @@ public sealed class BatchSendThroughProducerChannelTests
     }
 
     // The batch is kept until the broker has acknowledged it, and it is sent again after a reconnect
+    // Additional coverage
     [Fact]
     public async Task Send_GivenBatchThatIsSentTwiceAndEncryption_ShouldEncryptItAgainWithAFreshIvAndLeaveNoEncryptionFieldsInTheBatch()
     {

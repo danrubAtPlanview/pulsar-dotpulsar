@@ -62,6 +62,7 @@ public sealed class DeadLetterHandlerTests
         RecordSends(_producer);
     }
 
+    // Additional coverage
     [Theory]
     [InlineData("persistent://public/default/t", "sub", "persistent://public/default/t-sub-DLQ")]
     [InlineData("persistent://public/default/t-partition-0", "sub", "persistent://public/default/t-partition-0-sub-DLQ")]
@@ -75,6 +76,7 @@ public sealed class DeadLetterHandlerTests
         uut.DeadLetterTopic.ShouldBe(expected);
     }
 
+    // Additional coverage
     [Theory]
     [InlineData("")]
     [InlineData("   ")]
@@ -90,6 +92,7 @@ public sealed class DeadLetterHandlerTests
         uut.DeadLetterTopic.ShouldBe($"{Topic}-{Subscription}-DLQ");
     }
 
+    // Additional coverage
     [Fact]
     public void Constructor_GivenCustomDeadLetterTopic_ShouldUseIt()
     {
@@ -103,6 +106,7 @@ public sealed class DeadLetterHandlerTests
         uut.DeadLetterTopic.ShouldBe("persistent://public/default/my-custom-dlq");
     }
 
+    // Additional coverage
     [Fact]
     public void Constructor_GivenPolicy_ShouldExposeMaxRedeliverCountAndInitialSubscriptionName()
     {
@@ -117,6 +121,7 @@ public sealed class DeadLetterHandlerTests
         uut.InitialSubscriptionName.ShouldBe("dlq-subscription");
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(null)]
     [InlineData("")]
@@ -133,6 +138,7 @@ public sealed class DeadLetterHandlerTests
         uut.InitialSubscriptionName.ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public void Constructor_GivenHandler_ShouldNotCreateProducer()
     {
@@ -159,6 +165,7 @@ public sealed class DeadLetterHandlerTests
         _acknowledged.ShouldBeEmpty();
     }
 
+    // Additional coverage
     [Fact]
     public async Task TryDeadLetter_GivenRegisteredEntry_ShouldSendAllMessagesThenAcknowledgeEntryAndRemove()
     {
@@ -195,6 +202,7 @@ public sealed class DeadLetterHandlerTests
         uut.Contains(1, 2).ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public async Task TryDeadLetter_GivenNonBatchedMessage_ShouldSendItAndAcknowledgeItsId()
     {
@@ -212,6 +220,7 @@ public sealed class DeadLetterHandlerTests
         _acknowledged.ShouldBe([messageId]);
     }
 
+    // Additional coverage
     [Fact]
     public async Task TryDeadLetter_GivenSendFails_ShouldReturnFalseAndKeepEntry()
     {
@@ -230,6 +239,7 @@ public sealed class DeadLetterHandlerTests
         _acknowledged.ShouldBeEmpty();
     }
 
+    // Additional coverage
     [Fact]
     public async Task TryDeadLetter_GivenSendThrowsSynchronously_ShouldReturnFalseAndKeepEntry()
     {
@@ -247,6 +257,7 @@ public sealed class DeadLetterHandlerTests
         uut.Contains(1, 2).ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public async Task TryDeadLetter_GivenSecondMessageOfBatchFails_ShouldReturnFalseKeepEntryAndNotAcknowledge()
     {
@@ -269,6 +280,7 @@ public sealed class DeadLetterHandlerTests
         _acknowledged.ShouldBeEmpty();
     }
 
+    // Additional coverage
     [Fact]
     public async Task TryDeadLetter_GivenAcknowledgeFails_ShouldReturnFalseAndEntryRemoved()
     {
@@ -287,6 +299,7 @@ public sealed class DeadLetterHandlerTests
         uut.Contains(1, 2).ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public async Task TryDeadLetter_GivenFaultedProducer_ShouldDisposeAndRecreateProducerOnNextCall()
     {
@@ -313,6 +326,7 @@ public sealed class DeadLetterHandlerTests
         _sentPayloads.ShouldBe(["payload-0"]);
     }
 
+    // Additional coverage
     [Fact]
     public async Task TryDeadLetter_GivenProducerFaultedBetweenCalls_ShouldDisposeAndRecreateProducer()
     {
@@ -336,6 +350,7 @@ public sealed class DeadLetterHandlerTests
         _sentPayloads.ShouldBe(["payload-0", "payload-1"]);
     }
 
+    // Additional coverage
     [Fact]
     public async Task TryDeadLetter_GivenSendFailsButProducerIsUsable_ShouldKeepTheProducer()
     {
@@ -358,6 +373,7 @@ public sealed class DeadLetterHandlerTests
         await _producer.DidNotReceive().DisposeAsync();
     }
 
+    // Additional coverage
     [Fact]
     public async Task TryDeadLetter_GivenProducerFactoryThrows_ShouldReturnFalseKeepEntryAndRetryOnNextCall()
     {
@@ -377,6 +393,7 @@ public sealed class DeadLetterHandlerTests
         _producerFactory.ReceivedWithAnyArgs(2)(default!, default);
     }
 
+    // Additional coverage
     [Fact]
     public async Task TryDeadLetter_GivenCalledTwice_ShouldCreateOneProducer()
     {
@@ -393,6 +410,7 @@ public sealed class DeadLetterHandlerTests
         _producerFactory.ReceivedWithAnyArgs(1)(default!, default);
     }
 
+    // Additional coverage
     [Fact]
     public async Task TryDeadLetter_GivenCalledConcurrently_ShouldCreateOneProducer()
     {
@@ -425,6 +443,7 @@ public sealed class DeadLetterHandlerTests
         _acknowledged.Count.ShouldBe(entries);
     }
 
+    // Additional coverage
     [Fact]
     public async Task TryDeadLetter_GivenFirstUse_ShouldCreateProducerWithDeadLetterTopicSchemaAndName()
     {
@@ -503,6 +522,7 @@ public sealed class DeadLetterHandlerTests
         options.CryptoKeyReader.ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public async Task TryDeadLetter_GivenNoInitialSubscriptionName_ShouldCreateProducerWithoutIt()
     {
@@ -541,6 +561,7 @@ public sealed class DeadLetterHandlerTests
         Regex.IsMatch(options.ProducerName, $"^{Regex.Escape(Topic)}-{Subscription}-{ConsumerName}-[a-zA-Z0-9]{{5}}-DLQ$").ShouldBeTrue(options.ProducerName);
     }
 
+    // Additional coverage
     [Fact]
     public async Task TryDeadLetter_GivenMessageOfAnotherType_ShouldSendTheRawPayload()
     {
@@ -561,6 +582,7 @@ public sealed class DeadLetterHandlerTests
         _sentPayloads.ShouldBe(["string-payload"]);
     }
 
+    // Additional coverage
     [Fact]
     public async Task TryDeadLetter_GivenSendNeverCompletes_ShouldReturnFalseAfterTheSendTimeoutAndKeepEntry()
     {
@@ -579,6 +601,7 @@ public sealed class DeadLetterHandlerTests
         _acknowledged.ShouldBeEmpty();
     }
 
+    // Additional coverage
     [Fact]
     public async Task TryDeadLetter_GivenCancelledToken_ShouldThrowAndKeepEntry()
     {
@@ -596,6 +619,7 @@ public sealed class DeadLetterHandlerTests
         uut.Contains(1, 2).ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public async Task TryDeadLetter_GivenTokenCancelledWhileSending_ShouldThrowAndKeepEntry()
     {
@@ -623,6 +647,7 @@ public sealed class DeadLetterHandlerTests
         _acknowledged.ShouldBeEmpty();
     }
 
+    // Additional coverage
     [Fact]
     public async Task TryDeadLetter_GivenDisposedHandler_ShouldReturnFalseAndNotCreateProducer()
     {
@@ -639,6 +664,7 @@ public sealed class DeadLetterHandlerTests
         _producerFactory.DidNotReceiveWithAnyArgs()(default!, default);
     }
 
+    // Additional coverage
     [Fact]
     public async Task TryDeadLetter_GivenRegisteredAgainWhileFirstCandidateIsKept_ShouldSendTheLatestMessages()
     {
@@ -654,6 +680,7 @@ public sealed class DeadLetterHandlerTests
         _sentPayloads.ShouldBe(["new-1"]);
     }
 
+    // Additional coverage
     [Fact]
     public async Task DisposeAsync_GivenCreatedProducer_ShouldDisposeItOnce()
     {
@@ -670,6 +697,7 @@ public sealed class DeadLetterHandlerTests
         await _producer.Received(1).DisposeAsync();
     }
 
+    // Additional coverage
     [Fact]
     public async Task DisposeAsync_GivenNoProducer_ShouldNotCreateOneAndClearCandidates()
     {
@@ -685,6 +713,7 @@ public sealed class DeadLetterHandlerTests
         uut.Count.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public async Task DisposeAsync_GivenProducerDisposeThrows_ShouldNotThrow()
     {
@@ -701,6 +730,7 @@ public sealed class DeadLetterHandlerTests
         exception.ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public async Task DisposeAsync_GivenProducerBeingCreated_ShouldDisposeTheCreatedProducer()
     {
@@ -728,6 +758,7 @@ public sealed class DeadLetterHandlerTests
         await _producer.Received(1).DisposeAsync();
     }
 
+    // Additional coverage
     [Fact]
     public void Register_GivenNonBatchedMessage_ShouldAddCandidate()
     {
@@ -742,6 +773,7 @@ public sealed class DeadLetterHandlerTests
         uut.Count.ShouldBe(1);
     }
 
+    // Additional coverage
     [Fact]
     public void Register_GivenBatchedMessages_ShouldAddOneCandidatePerEntry()
     {
@@ -759,6 +791,7 @@ public sealed class DeadLetterHandlerTests
         uut.Contains(2, 2).ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void Register_GivenNoBatchedMessages_ShouldNotAddCandidate()
     {
@@ -772,6 +805,7 @@ public sealed class DeadLetterHandlerTests
         uut.Count.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public void Register_GivenNoBatchedMessagesForRegisteredEntry_ShouldRemoveCandidate()
     {
@@ -786,6 +820,7 @@ public sealed class DeadLetterHandlerTests
         uut.Contains(1, 2).ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void Remove_GivenRegisteredEntry_ShouldRemove()
     {
@@ -802,6 +837,7 @@ public sealed class DeadLetterHandlerTests
         uut.Contains(1, 3).ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void Remove_GivenUnregisteredEntry_ShouldNotThrow()
     {
@@ -815,6 +851,7 @@ public sealed class DeadLetterHandlerTests
         exception.ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public void Clear_ShouldRemoveAll()
     {
@@ -830,6 +867,7 @@ public sealed class DeadLetterHandlerTests
         uut.Count.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public async Task RegisterRemoveAndTryDeadLetter_GivenConcurrentUse_ShouldSendEveryEntryAndEndEmpty()
     {
@@ -932,6 +970,7 @@ public sealed class DeadLetterHandlerTests
         });
     }
 
+    // Additional coverage
     [Fact]
     public void CreateMetadata_GivenNonBatchedMessage_ShouldUseTheJavaFormatForTheOriginMessageId()
     {
@@ -947,6 +986,7 @@ public sealed class DeadLetterHandlerTests
         actual["ORIGIN_MESSAGE_IDY_TIME"].ShouldBe("5:6:3");
     }
 
+    // Additional coverage
     [Fact]
     public void CreateMetadata_GivenBase64Key_ShouldCopyKeyBytes()
     {
@@ -967,6 +1007,7 @@ public sealed class DeadLetterHandlerTests
         GetApiMetadata(actual).PartitionKey.ShouldBe(Convert.ToBase64String(key));
     }
 
+    // Additional coverage
     [Fact]
     public void CreateMetadata_GivenNoKeyAndNoOrderingKey_ShouldNotSetThem()
     {
@@ -984,6 +1025,7 @@ public sealed class DeadLetterHandlerTests
         GetApiMetadata(actual).OrderingKey.IsEmpty.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void CreateMetadata_GivenMessage_ShouldNotCopySequenceIdProducerNamePublishTimeOrSchemaVersion()
     {
@@ -1004,6 +1046,7 @@ public sealed class DeadLetterHandlerTests
         api.SchemaVersion.IsEmpty.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public async Task TryDeadLetter_GivenRegisteredMessages_ShouldSendMetadataOfEachMessage()
     {
@@ -1019,6 +1062,7 @@ public sealed class DeadLetterHandlerTests
         _sentMetadata.ShouldAllBe(metadata => metadata["REAL_TOPIC"] == Topic && metadata["REAL_SUBSCRIPTION"] == Subscription);
     }
 
+    // Additional coverage
     [Fact]
     public async Task OnRedeliveryCountExceeded_GivenCallback_ShouldInvokeItWithTheMessageId()
     {
@@ -1040,6 +1084,7 @@ public sealed class DeadLetterHandlerTests
         actual.ShouldBeSameAs(entryMessageId);
     }
 
+    // Additional coverage
     [Fact]
     public void OnRedeliveryCountExceeded_GivenNoCallback_ShouldNotThrow()
     {
@@ -1053,6 +1098,7 @@ public sealed class DeadLetterHandlerTests
         exception.ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public void OnRedeliveryCountExceeded_GivenCallbackThatThrows_ShouldNotThrow()
     {
@@ -1067,6 +1113,7 @@ public sealed class DeadLetterHandlerTests
         exception.ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public void OnRedeliveryCountExceeded_GivenCallbackThatFaults_ShouldNotThrow()
     {
@@ -1081,6 +1128,7 @@ public sealed class DeadLetterHandlerTests
         exception.ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public void OnRedeliveryCountExceeded_GivenCallbackThatNeverCompletes_ShouldReturnWithoutWaiting()
     {

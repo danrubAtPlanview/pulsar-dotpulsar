@@ -19,6 +19,7 @@ using DotPulsar.Internal.Batching;
 [Trait("Category", "Unit")]
 public sealed class BatchKeyTests
 {
+    // Additional coverage
     [Fact]
     public void Equals_GivenSamePartitionKey_ShouldReturnTrueAndSameHashCode()
     {
@@ -34,6 +35,7 @@ public sealed class BatchKeyTests
         uut.GetHashCode().ShouldBe(other.GetHashCode());
     }
 
+    // Additional coverage
     [Fact]
     public void Equals_GivenOtherPartitionKey_ShouldReturnFalse()
     {
@@ -47,6 +49,7 @@ public sealed class BatchKeyTests
         actual.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void Equals_GivenSameOrderingKeyBytes_ShouldReturnTrueAndSameHashCode()
     {
@@ -62,6 +65,7 @@ public sealed class BatchKeyTests
         uut.GetHashCode().ShouldBe(other.GetHashCode());
     }
 
+    // Additional coverage
     [Fact]
     public void Equals_GivenOtherOrderingKeyBytes_ShouldReturnFalse()
     {
@@ -75,6 +79,7 @@ public sealed class BatchKeyTests
         actual.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void Equals_GivenOrderingKeyAndPartitionKey_ShouldPreferTheOrderingKey()
     {
@@ -90,6 +95,7 @@ public sealed class BatchKeyTests
         samePartitionKeyWithoutOrderingKey.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void Equals_GivenNoKeys_ShouldReturnTrueAndSameHashCode()
     {
@@ -105,6 +111,7 @@ public sealed class BatchKeyTests
         uut.GetHashCode().ShouldBe(other.GetHashCode());
     }
 
+    // Additional coverage
     [Fact]
     public void Equals_GivenEmptyPartitionKeyAndNoKey_ShouldReturnFalse()
     {
@@ -118,6 +125,7 @@ public sealed class BatchKeyTests
         actual.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void Equals_GivenEmptyOrderingKeyAndNoKey_ShouldReturnFalse()
     {
@@ -131,6 +139,7 @@ public sealed class BatchKeyTests
         actual.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void Equals_GivenObjectThatIsNotABatchKey_ShouldReturnFalse()
     {
@@ -144,6 +153,7 @@ public sealed class BatchKeyTests
         actual.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void Equals_GivenBoxedBatchKey_ShouldCompareTheKeys()
     {
@@ -157,6 +167,7 @@ public sealed class BatchKeyTests
         actual.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void Dictionary_GivenKeysOfDifferentMessages_ShouldFindTheValueOfEqualKeys()
     {

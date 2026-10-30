@@ -23,6 +23,7 @@ public sealed class BatchAckTrackerTests
 {
     private static readonly MessageIdData _entryId = BatchTestData.CreateEntryId(1, 2, 3);
 
+    // Additional coverage
     [Fact]
     public void Constructor_GivenNoBrokerAckSet_ShouldKeepAllIndexesUnacknowledged()
     {
@@ -38,6 +39,7 @@ public sealed class BatchAckTrackerTests
         Enumerable.Range(0, 70).ShouldAllBe(index => !uut.IsAcked(index));
     }
 
+    // Additional coverage
     [Fact]
     public void Constructor_GivenBrokerAckSet_ShouldOnlyKeepUnackedIndexes()
     {
@@ -52,6 +54,7 @@ public sealed class BatchAckTrackerTests
         uut.IsAcked(4).ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void Constructor_GivenBrokerAckSetWithFewerWordsThanTheBatch_ShouldTreatTheMissingWordsAsAcknowledged()
     {
@@ -64,6 +67,7 @@ public sealed class BatchAckTrackerTests
         uut.IsAcked(69).ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void Constructor_GivenEmptyBrokerAckSet_ShouldKeepAllIndexesUnacknowledged()
     {
@@ -74,6 +78,7 @@ public sealed class BatchAckTrackerTests
         Enumerable.Range(0, 5).ShouldAllBe(index => !uut.IsAcked(index));
     }
 
+    // Additional coverage
     [Fact]
     public void Constructor_GivenBrokerAckSetWithAllIndexesAcknowledged_ShouldBeEmpty()
     {
@@ -84,6 +89,7 @@ public sealed class BatchAckTrackerTests
         uut.IsEmpty.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void Constructor_GivenBrokerAckSetWithScatteredBits_ShouldOnlyBeEmptyAfterAcknowledgingAllSetBits()
     {
@@ -98,6 +104,7 @@ public sealed class BatchAckTrackerTests
         results.ShouldBeSequence(false, false, false, false, false, true);
     }
 
+    // Additional coverage
     [Fact]
     public void AckIndividual_GivenAllIndexes_ShouldOnlyBeEmptyAfterTheLast()
     {
@@ -112,6 +119,7 @@ public sealed class BatchAckTrackerTests
         uut.IsEmpty.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void AckIndividual_GivenTheSameIndexTwice_ShouldNotBeEmpty()
     {
@@ -128,6 +136,7 @@ public sealed class BatchAckTrackerTests
         uut.IsAcked(0).ShouldBeFalse();
     }
 
+    // Additional coverage
     [Theory]
     [InlineData(-1)]
     [InlineData(3)]
@@ -145,6 +154,7 @@ public sealed class BatchAckTrackerTests
         Enumerable.Range(0, 3).ShouldAllBe(index => !uut.IsAcked(index));
     }
 
+    // Additional coverage
     [Fact]
     public void AckIndividual_GivenIndexesOfAllWordsOfALargeBatch_ShouldOnlyBeEmptyAfterTheLast()
     {
@@ -163,6 +173,7 @@ public sealed class BatchAckTrackerTests
         results[199].ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void AckCumulative_GivenIndex4OfBatch10_ShouldLeaveIndexes5To9()
     {
@@ -178,6 +189,7 @@ public sealed class BatchAckTrackerTests
         Enumerable.Range(5, 5).ShouldAllBe(index => !uut.IsAcked(index));
     }
 
+    // Additional coverage
     [Fact]
     public void AckCumulative_GivenLastIndex_ShouldBeEmpty()
     {
@@ -192,6 +204,7 @@ public sealed class BatchAckTrackerTests
         uut.IsEmpty.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void AckCumulative_GivenIndexBeyondBatch_ShouldAcknowledgeAll()
     {
@@ -205,6 +218,7 @@ public sealed class BatchAckTrackerTests
         actual.ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void AckCumulative_GivenIndexInSecondWord_ShouldCountRemainingIndexesCorrectly()
     {
@@ -226,6 +240,7 @@ public sealed class BatchAckTrackerTests
         results.Last().ShouldBeTrue();
     }
 
+    // Additional coverage
     [Fact]
     public void AckCumulative_GivenNegativeIndex_ShouldBeIgnored()
     {
@@ -240,6 +255,7 @@ public sealed class BatchAckTrackerTests
         uut.IsAcked(0).ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public void CopyAckSetTo_GivenPartiallyAcknowledgedBatch_ShouldWriteTheUnacknowledgedIndexes()
     {
@@ -256,6 +272,7 @@ public sealed class BatchAckTrackerTests
         target.ShouldBeAckSet(0L, 0b110100L);
     }
 
+    // Additional coverage
     [Fact]
     public void CopyAckSetTo_GivenAllIndexesAcknowledged_ShouldWriteEmptyList()
     {

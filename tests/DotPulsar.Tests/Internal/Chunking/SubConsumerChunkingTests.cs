@@ -51,6 +51,7 @@ public sealed class SubConsumerChunkingTests
         sent[0].MessageId.Select(id => (id.LedgerId, id.EntryId)).ShouldBeSequence((1UL, 10UL), (1UL, 11UL), (1UL, 12UL));
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenChunkedMessageIdFollowedByAnotherMessageId_ShouldNotChangeTheIdsOfTheChunksAndOnlyAcknowledgeTheOtherId()
     {
@@ -69,6 +70,7 @@ public sealed class SubConsumerChunkingTests
         chunkedMessageId.GetChunkMessageIds()!.Select(id => (id.LedgerId, id.EntryId)).ShouldBeSequence((1UL, 10UL), (1UL, 11UL), (1UL, 12UL));
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenMessageIdThatIsNotChunkedAfterChunkedMessageId_ShouldAcknowledgeBothCorrectlyEveryTime()
     {
@@ -103,6 +105,7 @@ public sealed class SubConsumerChunkingTests
         sent[0].MessageId.Select(id => (id.LedgerId, id.EntryId)).ShouldBeSequence((1UL, 12UL));
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenListWithChunkedAndOtherMessageIds_ShouldExpandOnlyTheChunkedOnes()
     {
@@ -141,6 +144,7 @@ public sealed class SubConsumerChunkingTests
     }
 
     // C# deviation: the list overload of Java does not expand chunked messages
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenChunkedMessageIdsAndTransaction_ShouldAcknowledgeEveryChunkInOneCommandWithTheTransaction()
     {
@@ -175,6 +179,7 @@ public sealed class SubConsumerChunkingTests
         sent[0].MessageId.Select(id => id.EntryId).ShouldBeSequence(12UL);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Acknowledge_GivenChunkedMessageIdAndTransactionAndTrackedMessage_ShouldNoLongerWaitForTheMessage()
     {
@@ -213,6 +218,7 @@ public sealed class SubConsumerChunkingTests
         sent[0].MessageIds.ShouldAllBe(id => !id.HasBatchIndex);
     }
 
+    // Additional coverage
     [Fact]
     public async Task RedeliverUnacknowledgedMessages_GivenChunkedMessageIdAndItsChunksAndOtherIds_ShouldSendEveryEntryOnce()
     {
@@ -235,6 +241,7 @@ public sealed class SubConsumerChunkingTests
         sent[0].MessageIds.Select(id => id.EntryId).ShouldBeSequence(11UL, 10UL, 12UL, 13UL);
     }
 
+    // Additional coverage
     [Fact]
     public async Task RedeliverUnacknowledgedMessages_GivenChunkedMessageIdWithMoreThanOneThousandChunks_ShouldSendTheChunksInCommandsOfOneThousand()
     {
@@ -273,6 +280,7 @@ public sealed class SubConsumerChunkingTests
         sent.ShouldBeEmpty();
     }
 
+    // Additional coverage
     [Fact]
     public async Task RedeliverUnacknowledgedMessages_GivenChunkedMessageIdThatIsNotADeadLetterCandidate_ShouldRedeliverEveryChunk()
     {
@@ -379,6 +387,7 @@ public sealed class SubConsumerChunkingTests
         sent.Single().MessageId.EntryId.ShouldBe(10UL);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Seek_GivenMessageIdThatIsNotChunked_ShouldSeekToIt()
     {
@@ -411,6 +420,7 @@ public sealed class SubConsumerChunkingTests
         sent[0].MessageId.Select(id => id.EntryId).ShouldBeSequence(10UL, 11UL);
     }
 
+    // Additional coverage
     [Fact]
     public async Task AcknowledgeChunks_GivenDisposedConsumer_ShouldNotAcknowledgeAnything()
     {
@@ -426,6 +436,7 @@ public sealed class SubConsumerChunkingTests
         sent.ShouldBeEmpty();
     }
 
+    // Additional coverage
     [Fact]
     public async Task AcknowledgeChunks_GivenFaultedConsumer_ShouldNotAcknowledgeAnything()
     {
@@ -456,6 +467,7 @@ public sealed class SubConsumerChunkingTests
         FeedTwoChunks(assembler).ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public async Task ChannelFaulted_ShouldDisposeTheChunkAssembler()
     {
@@ -470,6 +482,7 @@ public sealed class SubConsumerChunkingTests
         FeedTwoChunks(assembler).ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public async Task DisposeAsync_GivenAssemblerThatIsNotDisposed_ShouldAssembleChunks()
     {

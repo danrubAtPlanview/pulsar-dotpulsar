@@ -28,6 +28,7 @@ public sealed class MessageFactoryTests
     public MessageFactoryTests()
         => _uut = new MessageFactory<byte[]>(DotPulsar.Schema.ByteArray);
 
+    // Additional coverage
     [Fact]
     public void Create_GivenBatchedMessageWithOrderingKeyInSingleMetadata_ShouldUseTheOrderingKeyOfTheSingleMessage()
     {
@@ -43,6 +44,7 @@ public sealed class MessageFactoryTests
         actual.OrderingKey.ShouldBe("single-key"u8.ToArray());
     }
 
+    // Additional coverage
     [Fact]
     public void Create_GivenBatchedMessageWithoutOrderingKeyInSingleMetadata_ShouldNotUseTheOrderingKeyOfTheBatch()
     {
@@ -58,6 +60,7 @@ public sealed class MessageFactoryTests
         actual.OrderingKey.ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public void Create_GivenUnbatchedMessageWithOrderingKey_ShouldUseTheOrderingKeyOfTheMetadata()
     {
@@ -71,6 +74,7 @@ public sealed class MessageFactoryTests
         actual.OrderingKey.ShouldBe("message-key"u8.ToArray());
     }
 
+    // Additional coverage
     [Fact]
     public void Create_GivenNoEncryptionContext_ShouldCreateMessageWithoutOne()
     {
@@ -84,6 +88,7 @@ public sealed class MessageFactoryTests
         actual.EncryptionContext.ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public void Create_GivenEncryptionContext_ShouldGiveItToTheMessage()
     {
@@ -98,6 +103,7 @@ public sealed class MessageFactoryTests
         actual.EncryptionContext.ShouldBeSameAs(encryptionContext);
     }
 
+    // Additional coverage
     [Fact]
     public void Create_GivenBatchedMessageAndEncryptionContext_ShouldGiveItToTheMessage()
     {

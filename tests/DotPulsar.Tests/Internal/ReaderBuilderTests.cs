@@ -22,6 +22,7 @@ using DotPulsar.Tests.Internal.Crypto;
 [Trait("Category", "Unit")]
 public sealed class ReaderBuilderTests
 {
+    // Additional coverage
     [Fact]
     public void Create_GivenNoChunkSettings_ShouldUseTheDefaults()
     {
@@ -56,6 +57,7 @@ public sealed class ReaderBuilderTests
         options().ExpireTimeOfIncompleteChunkedMessage.ShouldBe(TimeSpan.FromMilliseconds(12));
     }
 
+    // Additional coverage
     [Fact]
     public void Builder_GivenChunkSettings_ShouldReturnTheBuilder()
     {
@@ -68,6 +70,7 @@ public sealed class ReaderBuilderTests
         uut.ExpireTimeOfIncompleteChunkedMessage(TimeSpan.Zero).ShouldBeSameAs(uut);
     }
 
+    // Additional coverage
     [Fact]
     public void ReaderOptions_GivenNoChanges_ShouldHaveTheDefaultChunkSettings()
     {
@@ -115,6 +118,7 @@ public sealed class ReaderBuilderTests
         options().CryptoFailureAction.ShouldBe(cryptoFailureAction);
     }
 
+    // Additional coverage
     [Fact]
     public void Builder_GivenCryptoSettings_ShouldReturnTheBuilder()
     {
@@ -126,6 +130,7 @@ public sealed class ReaderBuilderTests
         uut.CryptoFailureAction(ConsumerCryptoFailureAction.Consume).ShouldBeSameAs(uut);
     }
 
+    // Additional coverage
     [Fact]
     public void ReaderOptions_GivenNoChanges_ShouldHaveTheDefaultCryptoSettings()
     {

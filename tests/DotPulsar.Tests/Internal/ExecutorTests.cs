@@ -24,10 +24,12 @@ public sealed class ExecutorTests
 {
     private readonly IRegisterEvent _eventRegister = Substitute.For<IRegisterEvent>();
 
+    // Additional coverage
     [Fact]
     public void ExecutionResult_ShouldBeAValueType()
         => typeof(ExecutionResult<string>).IsValueType.ShouldBeTrue();
 
+    // Additional coverage
     [Fact]
     public void ExecutionResult_GivenDefault_ShouldNotBeSuccessful()
     {
@@ -39,6 +41,7 @@ public sealed class ExecutorTests
         uut.Result.ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Execute_GivenFuncThatReturnsResult_ShouldReturnTheResult()
     {
@@ -52,6 +55,7 @@ public sealed class ExecutorTests
         result.ShouldBe("result");
     }
 
+    // Additional coverage
     [Fact]
     public async Task Execute_GivenFuncThatReturnsTaskOfResult_ShouldReturnTheResult()
     {
@@ -65,6 +69,7 @@ public sealed class ExecutorTests
         result.ShouldBe("result");
     }
 
+    // Additional coverage
     [Fact]
     public async Task Execute_GivenFuncThatReturnsValueTaskOfResult_ShouldReturnTheResult()
     {
@@ -78,6 +83,7 @@ public sealed class ExecutorTests
         result.ShouldBe("result");
     }
 
+    // Additional coverage
     [Fact]
     public async Task Execute_GivenFuncThatReturnsNull_ShouldReturnNull()
     {
@@ -91,6 +97,7 @@ public sealed class ExecutorTests
         result.ShouldBeNull();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Execute_GivenFuncThatFailsWithExceptionThatIsRetried_ShouldCallTheFuncAgainAndReturnTheResult()
     {
@@ -107,6 +114,7 @@ public sealed class ExecutorTests
         _eventRegister.DidNotReceive().Register(Arg.Any<IEvent>());
     }
 
+    // Additional coverage
     [Fact]
     public async Task Execute_GivenTaskThatFailsWithExceptionThatIsRetried_ShouldCallTheFuncAgainAndReturnTheResult()
     {
@@ -122,6 +130,7 @@ public sealed class ExecutorTests
         calls.ShouldBe(2);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Execute_GivenFuncWithoutResultThatFailsWithExceptionThatIsRetried_ShouldCallTheFuncAgain()
     {
@@ -136,6 +145,7 @@ public sealed class ExecutorTests
         calls.ShouldBe(2);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Execute_GivenFuncThatFailsWithExceptionThatIsRethrown_ShouldThrowAndRegisterExecutorFaulted()
     {
@@ -158,6 +168,7 @@ public sealed class ExecutorTests
         _eventRegister.Received(1).Register(Arg.Is<IEvent>(e => e is ExecutorFaulted && ((ExecutorFaulted) e).CorrelationId == correlationId && ((ExecutorFaulted) e).Exception == exception));
     }
 
+    // Additional coverage
     [Fact]
     public async Task Execute_GivenFuncThatFailsAndCancellationWasRequested_ShouldRethrowWithoutAskingTheHandler()
     {
@@ -180,6 +191,7 @@ public sealed class ExecutorTests
         _eventRegister.DidNotReceive().Register(Arg.Any<IEvent>());
     }
 
+    // Additional coverage
     [Fact]
     public async Task TryExecuteOnce_GivenFuncThatReturnsResult_ShouldReturnSuccessfulResult()
     {
@@ -199,6 +211,7 @@ public sealed class ExecutorTests
         }
     }
 
+    // Additional coverage
     [Fact]
     public async Task TryExecuteOnce_GivenFuncThatFailsWithExceptionThatIsRetried_ShouldReturnUnsuccessfulResultWithoutRunningTheFuncAgain()
     {
@@ -224,6 +237,7 @@ public sealed class ExecutorTests
     }
 
     // The executor does not allocate for a result, which the acknowledgment and the receive of every message use. It did, when the result was a class.
+    // Additional coverage
     [Fact]
     public async Task Execute_GivenValueTaskOfResultThatCompletesAtOnce_ShouldNotAllocate()
     {
@@ -239,6 +253,7 @@ public sealed class ExecutorTests
         allocated.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Execute_GivenTaskOfResultThatCompletesAtOnce_ShouldNotAllocate()
     {
@@ -255,6 +270,7 @@ public sealed class ExecutorTests
         allocated.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Execute_GivenFuncOfResultThatCompletesAtOnce_ShouldNotAllocate()
     {
@@ -270,6 +286,7 @@ public sealed class ExecutorTests
         allocated.ShouldBe(0);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Execute_GivenValueTaskWithoutResultThatCompletesAtOnce_ShouldNotAllocate()
     {

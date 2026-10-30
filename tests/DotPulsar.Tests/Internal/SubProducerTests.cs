@@ -52,6 +52,7 @@ public class SubProducerTests
         exception.ShouldNotBeOfType<ObjectDisposedException>();
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenRegistrationGateNotCompleted_ShouldNotWriteTheMessageOrTheMessagesBehindItBeforeTheGateCompletes()
     {
@@ -76,6 +77,7 @@ public class SubProducerTests
         channel.Written.ShouldBe([1UL, 2UL]);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenRegistrationGateAlreadyCompleted_ShouldWriteTheMessage()
     {
@@ -93,6 +95,7 @@ public class SubProducerTests
         channel.Written.ShouldBe([1UL]);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenRegistrationGateFails_ShouldFailOnlyThatMessageWithoutReceiptAndContinueWithTheNext()
     {
@@ -115,6 +118,7 @@ public class SubProducerTests
         channel.Written.ShouldBe([2UL]);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenRegistrationGateFailsLater_ShouldFailOnlyThatMessageAndContinueWithTheNext()
     {
@@ -137,6 +141,7 @@ public class SubProducerTests
         channel.Written.ShouldBe([2UL]);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenCallerCancelsWhileWaitingForRegistration_ShouldNotWaitForRegistrationAndContinueWithTheNext()
     {
@@ -159,6 +164,7 @@ public class SubProducerTests
         channel.Written.ShouldBe([2UL]);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenReceiptCompletedWhileWaitingForRegistration_ShouldNotWriteTheMessageAndContinueWithTheNext()
     {
@@ -182,6 +188,7 @@ public class SubProducerTests
         await Should.ThrowAsync<OperationTimeoutException>(expiredOp.ReceiptTcs.Task);
     }
 
+    // Additional coverage
     [Fact]
     public async Task EstablishNewChannel_GivenDispatcherWaitingForRegistration_ShouldNotWaitForRegistrationAndWriteTheMessageWhenItCompletes()
     {
@@ -203,6 +210,7 @@ public class SubProducerTests
         channel.Written.ShouldBe([1UL]);
     }
 
+    // Additional coverage
     [Fact]
     public async Task ResponseProcessor_GivenNotAllowedSendError_ShouldFailOnlyThatMessage()
     {
@@ -230,6 +238,7 @@ public class SubProducerTests
         registerEvent.ReceivedCalls().Select(x => x.GetArguments()[0]).ShouldNotContain(x => x is ExecutorFaulted || x is SendReceiptWrongOrdering);
     }
 
+    // Additional coverage
     [Fact]
     public async Task ResponseProcessor_GivenPersistenceSendError_ShouldFaultProducer()
     {
@@ -248,6 +257,7 @@ public class SubProducerTests
         sendOp.ReceiptTcs.Task.IsCompleted.ShouldBeFalse();
     }
 
+    // Additional coverage
     [Fact]
     public async Task ResponseProcessor_GivenNotAllowedSendErrorForMessageBehindTheHead_ShouldReconnectInsteadOfFailingTheWrongMessage()
     {
@@ -303,6 +313,7 @@ public class SubProducerTests
         registerEvent.ReceivedCalls().Select(x => x.GetArguments()[0]).ShouldNotContain(x => x is ExecutorFaulted || x is ChannelDisconnected);
     }
 
+    // Additional coverage
     [Fact]
     public async Task Send_GivenMessageThatIsTooLargeAndMaxPendingMessagesReached_ShouldReleaseTheQueueForTheNextMessage()
     {

@@ -253,6 +253,7 @@ public class StateManagerTests
         exception.ShouldBeOfType<TaskCanceledException>();
     }
 
+    // Additional coverage
     [Fact]
     public void SetState_GivenStateChanges_ShouldNotAllocate()
     {
