@@ -19,6 +19,7 @@ using DotPulsar.Exceptions;
 using DotPulsar.Internal.Abstractions;
 using DotPulsar.Internal.Chunking;
 using DotPulsar.Internal.Compression;
+using DotPulsar.Internal.Crypto;
 using DotPulsar.Internal.PulsarApi;
 
 public sealed class Reader<TMessage> : IReader<TMessage>
@@ -298,11 +299,14 @@ public sealed class Reader<TMessage> : IReader<TMessage>
             static () => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
             static _ => default);
 
-        var factory = new ConsumerChannelFactory<TMessage>(correlationId, _processManager, _connectionPool, subscribe, messagePrefetchCount, batchHandler, messageFactory, decompressorFactories, topic, false, false, null, null, null, chunkAssembler);
+        // Upstream: ConsumerImpl#ConsumerImpl (msgCrypto)
+        var messageCrypto = _readerOptions.CryptoKeyReader is not null ? new MessageCrypto(false) : null;
+
+        var factory = new ConsumerChannelFactory<TMessage>(correlationId, _processManager, _connectionPool, subscribe, messagePrefetchCount, batchHandler, messageFactory, decompressorFactories, topic, false, false, null, null, null, chunkAssembler, messageCrypto, _readerOptions.CryptoKeyReader, _readerOptions.CryptoFailureAction);
         var stateManager = new StateManager<ReaderState>(ReaderState.Disconnected, ReaderState.Closed, ReaderState.ReachedEndOfTopic, ReaderState.Faulted);
         var initialChannel = new NotReadyChannel<TMessage>();
         var executor = new Executor(correlationId, _processManager, _exceptionHandler);
-        var subReader = new SubReader<TMessage>(correlationId, ServiceUrl, topic, _processManager, initialChannel, executor, stateManager, factory, chunkAssembler);
+        var subReader = new SubReader<TMessage>(correlationId, ServiceUrl, topic, _processManager, initialChannel, executor, stateManager, factory, chunkAssembler, messageCrypto);
         var process = new ReaderProcess(correlationId, stateManager, subReader);
         _processManager.Add(process);
         process.Start();

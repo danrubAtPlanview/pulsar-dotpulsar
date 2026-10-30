@@ -110,6 +110,7 @@ public sealed class SubReaderChunkingTests
             new Executor(correlationId, eventRegister, new DefaultExceptionHandler()),
             Substitute.For<IState<ReaderState>>(),
             Substitute.For<IConsumerChannelFactory<byte[]>>(),
-            assembler);
+            assembler,
+            null);
     }
 }

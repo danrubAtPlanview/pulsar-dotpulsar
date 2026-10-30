@@ -203,7 +203,10 @@ public sealed class ConsumerChannelFactoryTests
             consumerEpoch,
             tracker,
             deadLetterHandler,
-            ChunkTestData.CreateAssembler());
+            ChunkTestData.CreateAssembler(),
+            null,
+            null,
+            ConsumerCryptoFailureAction.Fail);
     }
 
     private static IConnection CreateConnection(List<CommandSubscribe>? subscriptions = null, List<CommandRedeliverUnacknowledgedMessages>? redeliveries = null, Action<IChannel>? onSubscribe = null)

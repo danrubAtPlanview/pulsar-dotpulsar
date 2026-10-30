@@ -18,6 +18,7 @@ using DotPulsar.Abstractions;
 using DotPulsar.Exceptions;
 using DotPulsar.Internal.Abstractions;
 using DotPulsar.Internal.Chunking;
+using DotPulsar.Internal.Crypto;
 using DotPulsar.Internal.Events;
 using DotPulsar.Internal.PulsarApi;
 
@@ -30,6 +31,7 @@ public sealed class SubReader<TMessage> : IContainsChannel, IReader<TMessage>
     private readonly IState<ReaderState> _state;
     private readonly IConsumerChannelFactory<TMessage> _factory;
     private readonly ChunkedMessageAssembler _chunkAssembler;
+    private readonly MessageCrypto? _messageCrypto;
     private int _isDisposed;
     private Exception? _faultException;
 
@@ -46,7 +48,8 @@ public sealed class SubReader<TMessage> : IContainsChannel, IReader<TMessage>
         IExecute executor,
         IState<ReaderState> state,
         IConsumerChannelFactory<TMessage> factory,
-        ChunkedMessageAssembler chunkAssembler)
+        ChunkedMessageAssembler chunkAssembler,
+        MessageCrypto? messageCrypto)
     {
         _correlationId = correlationId;
         ServiceUrl = serviceUrl;
@@ -57,6 +60,7 @@ public sealed class SubReader<TMessage> : IContainsChannel, IReader<TMessage>
         _state = state;
         _factory = factory;
         _chunkAssembler = chunkAssembler;
+        _messageCrypto = messageCrypto;
         _isDisposed = 0;
 
         _eventRegister.Register(new ReaderCreated(_correlationId));
@@ -104,6 +108,7 @@ public sealed class SubReader<TMessage> : IContainsChannel, IReader<TMessage>
 
         _eventRegister.Register(new ReaderDisposed(_correlationId));
         _chunkAssembler.Dispose();
+        _messageCrypto?.Dispose();
         await DisposeChannel().ConfigureAwait(false);
     }
 
@@ -146,6 +151,7 @@ public sealed class SubReader<TMessage> : IContainsChannel, IReader<TMessage>
     {
         _faultException = exception;
         _chunkAssembler.Dispose();
+        _messageCrypto?.Dispose();
         await DisposeChannel().ConfigureAwait(false);
     }
     public ValueTask<IEnumerable<MessageId>> GetLastMessageIds(CancellationToken cancellationToken = default) =>

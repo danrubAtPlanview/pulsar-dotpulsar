@@ -784,7 +784,7 @@ public sealed class SubConsumerTests
         var connection = CreateTransactionalConnection(out _);
         var plainSent = new List<CommandAck>();
         connection.Send(Arg.Do<CommandAck>(ack => plainSent.Add(ack.Clone())), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
-        var channel = new ConsumerChannel<byte[]>(1, 100, queue, connection, batchHandler, messageFactory, [], BatchTestData.Topic, false, false, null, null, null, ChunkTestData.CreateAssembler());
+        var channel = new ConsumerChannel<byte[]>(1, 100, queue, connection, batchHandler, messageFactory, [], BatchTestData.Topic, false, false, null, null, null, ChunkTestData.CreateAssembler(), null, null, ConsumerCryptoFailureAction.Fail);
         await using var uut = CreateSubConsumer(false, channel: channel);
         queue.Enqueue(BatchTestData.CreateBatchPackage(BatchTestData.CreateEntryId(1, 2), 5));
         var delivered = new List<DotPulsar.Abstractions.IMessage<byte[]>>();
@@ -1378,7 +1378,7 @@ public sealed class SubConsumerTests
     }
 
     private static ConsumerChannel<byte[]> CreateChannel(IConnection connection, BatchHandler<byte[]> batchHandler, MessageFactory<byte[]> messageFactory, bool batchIndexAckEnabled, bool ackReceiptEnabled = false)
-        => new(1, 100, new AsyncQueue<MessagePackage>(), connection, batchHandler, messageFactory, [], BatchTestData.Topic, ackReceiptEnabled, batchIndexAckEnabled, null, null, null, ChunkTestData.CreateAssembler());
+        => new(1, 100, new AsyncQueue<MessagePackage>(), connection, batchHandler, messageFactory, [], BatchTestData.Topic, ackReceiptEnabled, batchIndexAckEnabled, null, null, null, ChunkTestData.CreateAssembler(), null, null, ConsumerCryptoFailureAction.Fail);
 
     private static Transaction CreateTransaction(out ITransactionCoordinatorClient tcClient)
     {
@@ -1421,7 +1421,8 @@ public sealed class SubConsumerTests
             tracker,
             negativeAcknowledgeTracker ?? negativeAcknowledgeTrackerFactory?.Invoke((ids, ct) => subConsumer!.RedeliverUnacknowledgedMessages(ids, ct)) ?? new NegativeAcknowledgeTracker(TimeSpan.FromMinutes(1), (_, _) => default),
             deadLetterHandler,
-            chunkAssembler ?? ChunkTestData.CreateAssembler());
+            chunkAssembler ?? ChunkTestData.CreateAssembler(),
+            null);
 
         return subConsumer;
     }

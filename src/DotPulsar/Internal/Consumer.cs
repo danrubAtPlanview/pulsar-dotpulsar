@@ -20,6 +20,7 @@ using DotPulsar.Extensions;
 using DotPulsar.Internal.Abstractions;
 using DotPulsar.Internal.Chunking;
 using DotPulsar.Internal.Compression;
+using DotPulsar.Internal.Crypto;
 using DotPulsar.Internal.PulsarApi;
 using System.Buffers;
 
@@ -557,12 +558,15 @@ public sealed class Consumer<TMessage> : IConsumer<TMessage>
             static () => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
             chunkMessageIds => subConsumer!.AcknowledgeChunks(chunkMessageIds));
 
+        // Upstream: ConsumerImpl#ConsumerImpl (msgCrypto)
+        var messageCrypto = _consumerOptions.CryptoKeyReader is not null ? new MessageCrypto(false) : null;
+
         var batchHandler = new BatchHandler<TMessage>(true, messageFactory, topic, deadLetterHandler);
-        var consumerChannelFactory = new ConsumerChannelFactory<TMessage>(correlationId, _processManager, _connectionPool, subscribe, messagePrefetchCount, batchHandler, messageFactory, decompressorFactories, topic, _consumerOptions.AckReceiptEnabled, _consumerOptions.BatchIndexAckEnabled, consumerEpoch, unAckedMessageTracker, deadLetterHandler, chunkAssembler);
+        var consumerChannelFactory = new ConsumerChannelFactory<TMessage>(correlationId, _processManager, _connectionPool, subscribe, messagePrefetchCount, batchHandler, messageFactory, decompressorFactories, topic, _consumerOptions.AckReceiptEnabled, _consumerOptions.BatchIndexAckEnabled, consumerEpoch, unAckedMessageTracker, deadLetterHandler, chunkAssembler, messageCrypto, _consumerOptions.CryptoKeyReader, _consumerOptions.CryptoFailureAction);
         var stateManager = CreateStateManager();
         var initialChannel = new NotReadyChannel<TMessage>();
         var executor = new Executor(correlationId, _processManager, _exceptionHandler);
-        subConsumer = new SubConsumer<TMessage>(correlationId, ServiceUrl, _consumerOptions.SubscriptionName, _consumerOptions.SubscriptionType, topic, _processManager, initialChannel, executor, stateManager, consumerChannelFactory, _consumerOptions.AckReceiptEnabled, _operationTimeout, consumerEpoch, unAckedMessageTracker, negativeAcknowledgeTracker, deadLetterHandler, chunkAssembler);
+        subConsumer = new SubConsumer<TMessage>(correlationId, ServiceUrl, _consumerOptions.SubscriptionName, _consumerOptions.SubscriptionType, topic, _processManager, initialChannel, executor, stateManager, consumerChannelFactory, _consumerOptions.AckReceiptEnabled, _operationTimeout, consumerEpoch, unAckedMessageTracker, negativeAcknowledgeTracker, deadLetterHandler, chunkAssembler, messageCrypto);
         var process = new ConsumerProcess(correlationId, stateManager, subConsumer, _consumerOptions.SubscriptionType == SubscriptionType.Failover);
         _processManager.Add(process);
         process.Start();

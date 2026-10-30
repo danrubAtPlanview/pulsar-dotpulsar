@@ -492,7 +492,8 @@ public sealed class SubConsumerChunkingTests
             tracker,
             negativeAcknowledgeTrackerFactory?.Invoke((ids, ct) => subConsumer!.RedeliverUnacknowledgedMessages(ids, ct)) ?? new NegativeAcknowledgeTracker(TimeSpan.FromMinutes(1), (_, _) => default),
             deadLetterHandler,
-            assembler ?? ChunkTestData.CreateAssembler());
+            assembler ?? ChunkTestData.CreateAssembler(),
+            null);
 
         return subConsumer;
     }

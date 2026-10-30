@@ -568,7 +568,7 @@ public sealed class SubConsumerTransactionalAckTests
     }
 
     private static ConsumerChannel<byte[]> CreateChannel(IConnection connection, BatchHandler<byte[]> batchHandler, MessageFactory<byte[]> messageFactory, bool ackReceiptEnabled = false)
-        => new(1, 100, new AsyncQueue<MessagePackage>(), connection, batchHandler, messageFactory, [], Topic, ackReceiptEnabled, false, null, null, null, ChunkTestData.CreateAssembler());
+        => new(1, 100, new AsyncQueue<MessagePackage>(), connection, batchHandler, messageFactory, [], Topic, ackReceiptEnabled, false, null, null, null, ChunkTestData.CreateAssembler(), null, null, ConsumerCryptoFailureAction.Fail);
 
     private static IConnection CreateTransactionalConnection(out List<CommandAck> sent)
     {
@@ -607,7 +607,8 @@ public sealed class SubConsumerTransactionalAckTests
             null,
             new NegativeAcknowledgeTracker(TimeSpan.FromMinutes(1), (_, _) => default),
             null,
-            ChunkTestData.CreateAssembler());
+            ChunkTestData.CreateAssembler(),
+            null);
     }
 
     private static BaseCommand CreateAckResponse(ServerError? error)

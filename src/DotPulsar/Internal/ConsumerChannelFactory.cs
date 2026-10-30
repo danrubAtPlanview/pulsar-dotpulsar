@@ -14,8 +14,10 @@
 
 namespace DotPulsar.Internal;
 
+using DotPulsar.Abstractions;
 using DotPulsar.Internal.Abstractions;
 using DotPulsar.Internal.Chunking;
+using DotPulsar.Internal.Crypto;
 using DotPulsar.Internal.PulsarApi;
 
 public sealed class ConsumerChannelFactory<TMessage> : IConsumerChannelFactory<TMessage>
@@ -35,6 +37,9 @@ public sealed class ConsumerChannelFactory<TMessage> : IConsumerChannelFactory<T
     private readonly UnAckedMessageTracker? _unAckedMessageTracker;
     private readonly DeadLetterHandler<TMessage>? _deadLetterHandler;
     private readonly ChunkedMessageAssembler _chunkAssembler;
+    private readonly MessageCrypto? _messageCrypto;
+    private readonly ICryptoKeyReader? _cryptoKeyReader;
+    private readonly ConsumerCryptoFailureAction _cryptoFailureAction;
 
     public ConsumerChannelFactory(
         Guid correlationId,
@@ -51,7 +56,10 @@ public sealed class ConsumerChannelFactory<TMessage> : IConsumerChannelFactory<T
         ConsumerEpoch? consumerEpoch,
         UnAckedMessageTracker? unAckedMessageTracker,
         DeadLetterHandler<TMessage>? deadLetterHandler,
-        ChunkedMessageAssembler chunkAssembler)
+        ChunkedMessageAssembler chunkAssembler,
+        MessageCrypto? messageCrypto,
+        ICryptoKeyReader? cryptoKeyReader,
+        ConsumerCryptoFailureAction cryptoFailureAction)
     {
         _correlationId = correlationId;
         _eventRegister = eventRegister;
@@ -68,6 +76,9 @@ public sealed class ConsumerChannelFactory<TMessage> : IConsumerChannelFactory<T
         _unAckedMessageTracker = unAckedMessageTracker;
         _deadLetterHandler = deadLetterHandler;
         _chunkAssembler = chunkAssembler;
+        _messageCrypto = messageCrypto;
+        _cryptoKeyReader = cryptoKeyReader;
+        _cryptoFailureAction = cryptoFailureAction;
     }
 
     public async Task<IConsumerChannel<TMessage>> Create(CancellationToken cancellationToken)
@@ -96,6 +107,6 @@ public sealed class ConsumerChannelFactory<TMessage> : IConsumerChannelFactory<T
         }
 
         var filterEpoch = _subscribe.SubType is CommandSubscribe.Types.SubType.Exclusive or CommandSubscribe.Types.SubType.Failover ? _consumerEpoch : null;
-        return new ConsumerChannel<TMessage>(response.ConsumerId, _messagePrefetchCount, messageQueue, connection, _batchHandler, _messageFactory, _decompressorFactories, _topic, _ackReceiptEnabled, _batchIndexAckEnabled, filterEpoch, _unAckedMessageTracker, _deadLetterHandler, _chunkAssembler);
+        return new ConsumerChannel<TMessage>(response.ConsumerId, _messagePrefetchCount, messageQueue, connection, _batchHandler, _messageFactory, _decompressorFactories, _topic, _ackReceiptEnabled, _batchIndexAckEnabled, filterEpoch, _unAckedMessageTracker, _deadLetterHandler, _chunkAssembler, _messageCrypto, _cryptoKeyReader, _cryptoFailureAction);
     }
 }

@@ -456,7 +456,7 @@ public sealed class ConsumerChannelChunkingTests
         var messageFactory = new MessageFactory<byte[]>(DotPulsar.Schema.ByteArray);
         var batchHandler = new BatchHandler<byte[]>(true, messageFactory, BatchTestData.Topic, deadLetterHandler);
         IDecompressorFactory[] decompressors = decompressor is null ? [] : [decompressor];
-        var channel = new ConsumerChannel<byte[]>(1, prefetchCount, queue, connection, batchHandler, messageFactory, decompressors, BatchTestData.Topic, false, false, null, tracker, deadLetterHandler, assembler);
+        var channel = new ConsumerChannel<byte[]>(1, prefetchCount, queue, connection, batchHandler, messageFactory, decompressors, BatchTestData.Topic, false, false, null, tracker, deadLetterHandler, assembler, null, null, ConsumerCryptoFailureAction.Fail);
 
         return new Context(channel, queue, connection, acks, assembler);
     }

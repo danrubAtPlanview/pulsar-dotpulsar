@@ -1729,7 +1729,7 @@ public sealed class ConsumerChannelTests
         UnAckedMessageTracker? unAckedMessageTracker = null,
         DeadLetterHandler<byte[]>? deadLetterHandler = null,
         ChunkedMessageAssembler? chunkAssembler = null)
-        => new(1, prefetchCount, queue ?? new AsyncQueue<MessagePackage>(), connection, batchHandler, messageFactory, [], BatchTestData.Topic, ackReceiptEnabled, batchIndexAckEnabled, consumerEpoch, unAckedMessageTracker, deadLetterHandler, chunkAssembler ?? ChunkTestData.CreateAssembler());
+        => new(1, prefetchCount, queue ?? new AsyncQueue<MessagePackage>(), connection, batchHandler, messageFactory, [], BatchTestData.Topic, ackReceiptEnabled, batchIndexAckEnabled, consumerEpoch, unAckedMessageTracker, deadLetterHandler, chunkAssembler ?? ChunkTestData.CreateAssembler(), null, null, ConsumerCryptoFailureAction.Fail);
 
     private static MessageIdData ToProtocolId(MessageId messageId)
         => new()

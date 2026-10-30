@@ -23,6 +23,9 @@ public enum ConsumerCryptoFailureAction : byte
     /// <summary>
     /// Do not deliver the message and do not acknowledge it. This is the default.
     /// </summary>
+    /// <remarks>
+    /// The message is redelivered after the ack timeout, if it is enabled, or when the consumer reconnects.
+    /// </remarks>
     Fail = 0,
 
     /// <summary>
@@ -33,5 +36,8 @@ public enum ConsumerCryptoFailureAction : byte
     /// <summary>
     /// Deliver the encrypted (and possibly compressed) payload. 'IMessage.EncryptionContext' has the information needed to decrypt it.
     /// </summary>
+    /// <remarks>
+    /// A batch is delivered as one message. A chunk of a chunked message is not delivered, because the chunks can not be assembled while they are encrypted. It is handled as with 'Fail'.
+    /// </remarks>
     Consume = 2
 }

@@ -18,6 +18,7 @@ using DotPulsar.Abstractions;
 using DotPulsar.Exceptions;
 using DotPulsar.Internal.Abstractions;
 using DotPulsar.Internal.Chunking;
+using DotPulsar.Internal.Crypto;
 using DotPulsar.Internal.Extensions;
 using DotPulsar.Internal.PulsarApi;
 using Google.Protobuf.Collections;
@@ -40,6 +41,9 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
     private readonly UnAckedMessageTracker? _unAckedMessageTracker;
     private readonly DeadLetterHandler<TMessage>? _deadLetterHandler;
     private readonly ChunkedMessageAssembler _chunkAssembler;
+    private readonly MessageCrypto? _messageCrypto;
+    private readonly ICryptoKeyReader? _cryptoKeyReader;
+    private readonly ConsumerCryptoFailureAction _cryptoFailureAction;
     private readonly List<MessageIdData> _chunkAcks;
     private readonly List<MessageIdData> _chunkTrack;
     private uint _sendWhenZero;
@@ -59,7 +63,10 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
         ConsumerEpoch? consumerEpoch,
         UnAckedMessageTracker? unAckedMessageTracker,
         DeadLetterHandler<TMessage>? deadLetterHandler,
-        ChunkedMessageAssembler chunkAssembler)
+        ChunkedMessageAssembler chunkAssembler,
+        MessageCrypto? messageCrypto,
+        ICryptoKeyReader? cryptoKeyReader,
+        ConsumerCryptoFailureAction cryptoFailureAction)
     {
         _id = id;
         _queue = queue;
@@ -73,6 +80,9 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
         _unAckedMessageTracker = unAckedMessageTracker;
         _deadLetterHandler = deadLetterHandler;
         _chunkAssembler = chunkAssembler;
+        _messageCrypto = messageCrypto;
+        _cryptoKeyReader = cryptoKeyReader;
+        _cryptoFailureAction = cryptoFailureAction;
         _chunkAcks = [];
         _chunkTrack = [];
 
@@ -134,9 +144,38 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
                     var data = messagePackage.ExtractData(metadataSize);
                     var messageId = messagePackage.MessageId;
                     MessageIdData[]? chunkMessageIds = null;
+                    var isUndecryptable = false;
 
-                    // TODO(WP9): decrypt the payload here, for every entry and before the chunk check, because every chunk is encrypted on its own.
-                    // The assembler needs the decrypted chunk, since total_chunk_msg_size is the size of the payload before it was encrypted.
+                    // Upstream: ConsumerImpl#decryptPayloadIfNeeded, ConsumerImpl#handleCryptoFailure
+                    // Every entry is decrypted before anything else is done with it, because every chunk is encrypted on its own, and the assembler needs the decrypted chunk,
+                    // since total_chunk_msg_size is the size of the payload before it was encrypted.
+                    if (metadata.EncryptionKeys.Count > 0)
+                    {
+                        if (_messageCrypto is not null && _messageCrypto.TryDecrypt(metadata, data, _cryptoKeyReader!, out var decrypted))
+                            data = decrypted;
+                        else
+                        {
+                            CountBatchAsReceived(metadata);
+
+                            switch (_cryptoFailureAction)
+                            {
+                                // Upstream: ConsumerImpl#messageReceived (isMessageUndecryptable)
+                                // The payload is delivered as it is, so it is neither decompressed nor unpacked if it is a batch. A chunk is not delivered, because the chunks of a
+                                // message can not be assembled as long as they are encrypted. Each has its own IV, and its size is 16 bytes more than the size that total_chunk_msg_size
+                                // has for it. Upstream fails to assemble them (the buffer of the message overflows), so a chunk is handled as if the action was 'Fail'.
+                                case ConsumerCryptoFailureAction.Consume when !metadata.IsChunkedMessage():
+                                    isUndecryptable = true;
+                                    break;
+                                case ConsumerCryptoFailureAction.Discard:
+                                    await RejectPackage(messagePackage, CommandAck.Types.ValidationError.DecryptionError, cancellationToken).ConfigureAwait(false);
+                                    continue;
+                                default:
+                                    // Neither acknowledged nor delivered. The ack timeout redelivers it, or the broker does when the consumer reconnects.
+                                    _unAckedMessageTracker?.Add(messageId.ToMessageId(_topic));
+                                    continue;
+                            }
+                        }
+                    }
 
                     // Upstream: ConsumerImpl#messageReceived (chunk branch)
                     // The chunks are assembled before the message is decompressed. The metadata of the last chunk is the metadata of the message.
@@ -151,7 +190,7 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
                         chunkMessageIds = assembled.Value.ChunkMessageIds;
                     }
 
-                    if (metadata.Compression != CompressionType.None)
+                    if (!isUndecryptable && metadata.Compression != CompressionType.None)
                     {
                         var decompressor = _decompressors[(int) metadata.Compression];
                         if (decompressor is null)
@@ -175,14 +214,18 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
 
                     var redeliveryCount = messagePackage.RedeliveryCount;
 
-                    if (metadata.HasNumMessagesInBatch)
+                    // Upstream: ConsumerImpl#createEncryptionContext
+                    // The context is only created for the message that is delivered. For a chunked message, it is the context of the last chunk.
+                    var encryptionContext = metadata.EncryptionKeys.Count > 0 ? EncryptionContextFactory.Create(metadata, isUndecryptable) : null;
+
+                    if (!isUndecryptable && metadata.HasNumMessagesInBatch)
                     {
                         IMessage<TMessage>? batchMessage;
                         int chargedButSkipped;
 
                         try
                         {
-                            batchMessage = _batchHandler.Add(messageId, messagePackage.AckSet, redeliveryCount, metadata, data, out chargedButSkipped);
+                            batchMessage = _batchHandler.Add(messageId, messagePackage.AckSet, redeliveryCount, metadata, data, out chargedButSkipped, encryptionContext);
                         }
                         catch
                         {
@@ -205,7 +248,7 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
                         return batchMessage;
                     }
 
-                    var receivedMessage = _messageFactory.Create(chunkMessageIds is null ? messageId.ToMessageId(_topic) : CreateChunkedMessageId(chunkMessageIds), redeliveryCount, data, metadata);
+                    var receivedMessage = _messageFactory.Create(chunkMessageIds is null ? messageId.ToMessageId(_topic) : CreateChunkedMessageId(chunkMessageIds), redeliveryCount, data, metadata, null, encryptionContext);
 
                     // Upstream: ConsumerImpl#messageReceived (possibleSendToDeadLetterTopicMessages)
                     // A message that was delivered more often than allowed is not delivered. The redelivery sends it to the dead letter topic.
@@ -515,6 +558,18 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
         }
 
         await _lock.DisposeAsync().ConfigureAwait(false);
+    }
+
+    // Upstream: ConsumerImpl#messageReceived (increaseAvailablePermits)
+    // The broker has deducted a permit for every message of a batch, so a batch that is not unpacked counts as received once for every message in it.
+    // One of them was counted when the entry was dequeued.
+    private void CountBatchAsReceived(MessageMetadata metadata)
+    {
+        if (!metadata.HasNumMessagesInBatch)
+            return;
+
+        var skipped = (uint) Math.Max(metadata.NumMessagesInBatch - 1, 0);
+        _sendWhenZero = skipped >= _sendWhenZero ? 0 : _sendWhenZero - skipped;
     }
 
     // Upstream: ConsumerBase#isValidConsumerEpoch

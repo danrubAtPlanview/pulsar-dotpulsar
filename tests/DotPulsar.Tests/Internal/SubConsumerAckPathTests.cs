@@ -140,7 +140,8 @@ public sealed class SubConsumerAckPathTests
             null,
             new NegativeAcknowledgeTracker(TimeSpan.FromMinutes(1), (_, _) => default),
             null,
-            ChunkTestData.CreateAssembler());
+            ChunkTestData.CreateAssembler(),
+            null);
     }
 
     // A channel that does not allocate, so that the allocations of the sub-consumer can be measured. A mocked channel records its calls, which allocates.

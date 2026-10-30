@@ -18,6 +18,7 @@ using DotPulsar.Abstractions;
 using DotPulsar.Exceptions;
 using DotPulsar.Internal.Abstractions;
 using DotPulsar.Internal.Chunking;
+using DotPulsar.Internal.Crypto;
 using DotPulsar.Internal.Events;
 using DotPulsar.Internal.Extensions;
 using DotPulsar.Internal.PulsarApi;
@@ -44,6 +45,7 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
     private readonly NegativeAcknowledgeTracker _negativeAcknowledgeTracker;
     private readonly DeadLetterHandler<TMessage>? _deadLetterHandler;
     private readonly ChunkedMessageAssembler _chunkAssembler;
+    private readonly MessageCrypto? _messageCrypto;
     private int _isDisposed;
     private Exception? _faultException;
 
@@ -73,7 +75,8 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
         UnAckedMessageTracker? unAckedMessageTracker,
         NegativeAcknowledgeTracker negativeAcknowledgeTracker,
         DeadLetterHandler<TMessage>? deadLetterHandler,
-        ChunkedMessageAssembler chunkAssembler)
+        ChunkedMessageAssembler chunkAssembler,
+        MessageCrypto? messageCrypto)
     {
         _correlationId = correlationId;
         ServiceUrl = serviceUrl;
@@ -92,6 +95,7 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
         _negativeAcknowledgeTracker = negativeAcknowledgeTracker;
         _deadLetterHandler = deadLetterHandler;
         _chunkAssembler = chunkAssembler;
+        _messageCrypto = messageCrypto;
         _commandAckPool = new DefaultObjectPool<CommandAck>(new DefaultPooledObjectPolicy<CommandAck>());
         _isDisposed = 0;
 
@@ -107,6 +111,7 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
         _unAckedMessageTracker?.Dispose();
         _negativeAcknowledgeTracker.Dispose();
         _chunkAssembler.Dispose();
+        _messageCrypto?.Dispose();
 
         if (_deadLetterHandler is not null)
             await _deadLetterHandler.DisposeAsync().ConfigureAwait(false);
@@ -320,6 +325,7 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
         _faultException = exception;
         _unAckedMessageTracker?.Dispose();
         _chunkAssembler.Dispose();
+        _messageCrypto?.Dispose();
         await DisposeChannel().ConfigureAwait(false);
     }
 
