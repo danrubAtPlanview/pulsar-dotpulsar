@@ -252,4 +252,34 @@ public class StateManagerTests
         //Assert
         exception.ShouldBeOfType<TaskCanceledException>();
     }
+
+    [Fact]
+    public void SetState_GivenStateChanges_ShouldNotAllocate()
+    {
+        //Arrange
+        var uut = new StateManager<ProducerState>(ProducerState.Connected, ProducerState.Closed);
+        for (var i = 0; i < 100; ++i)
+        {
+            uut.SetState(ProducerState.Disconnected);
+            uut.SetState(ProducerState.Connected);
+        }
+
+        //Act
+        var allocated = long.MaxValue;
+        for (var attempt = 0; attempt < 5 && allocated != 0; ++attempt)
+        {
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            for (var i = 0; i < 100; ++i)
+            {
+                uut.SetState(ProducerState.Disconnected);
+                uut.SetState(ProducerState.Connected);
+                _ = uut.IsFinalState();
+            }
+
+            allocated = Math.Min(allocated, GC.GetAllocatedBytesForCurrentThread() - before);
+        }
+
+        //Assert
+        allocated.ShouldBe(0);
+    }
 }

@@ -36,7 +36,7 @@ public sealed class StateManager<TState> : IStateManager<TState> where TState : 
     {
         lock (_lock)
         {
-            if (IsFinalState(CurrentState) || CurrentState.Equals(state))
+            if (IsFinalState(CurrentState) || EqualityComparer<TState>.Default.Equals(CurrentState, state))
                 return CurrentState;
 
             var formerState = CurrentState;
@@ -55,7 +55,7 @@ public sealed class StateManager<TState> : IStateManager<TState> where TState : 
     {
         lock (_lock)
         {
-            if (IsFinalState(CurrentState) || CurrentState.Equals(state))
+            if (IsFinalState(CurrentState) || EqualityComparer<TState>.Default.Equals(CurrentState, state))
                 return new ValueTask<TState>(CurrentState);
             return new ValueTask<TState>(_stateTasks.CreateTaskFor(state, StateChanged.To, cancellationToken));
         }
@@ -65,7 +65,7 @@ public sealed class StateManager<TState> : IStateManager<TState> where TState : 
     {
         lock (_lock)
         {
-            if (IsFinalState(CurrentState) || !CurrentState.Equals(state))
+            if (IsFinalState(CurrentState) || !EqualityComparer<TState>.Default.Equals(CurrentState, state))
                 return new ValueTask<TState>(CurrentState);
             return new ValueTask<TState>(_stateTasks.CreateTaskFor(state, StateChanged.From, cancellationToken));
         }
@@ -75,7 +75,7 @@ public sealed class StateManager<TState> : IStateManager<TState> where TState : 
     {
         for (var i = 0; i < _finalStates.Length; ++i)
         {
-            if (_finalStates[i].Equals(state))
+            if (EqualityComparer<TState>.Default.Equals(_finalStates[i], state))
                 return true;
         }
 

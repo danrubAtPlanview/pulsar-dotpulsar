@@ -41,8 +41,8 @@ public sealed class Transaction : ITransaction
     public Transaction(ITransactionCoordinatorClient tcClient, TransactionId id, TimeSpan timeout)
     {
         _tcClient = tcClient;
-        _registeredPartitions = new ConcurrentDictionary<string, Task>(StringComparer.Ordinal);
-        _registeredSubscriptions = new ConcurrentDictionary<(string Topic, string Subscription), Task>();
+        _registeredPartitions = new ConcurrentDictionary<string, Task>(1, 4, StringComparer.Ordinal);
+        _registeredSubscriptions = new ConcurrentDictionary<(string Topic, string Subscription), Task>(1, 4);
         _registrationLock = new object();
         _stateLock = new object();
         _stateManager = new StateManager<TransactionState>(TransactionState.Open, TransactionState.Committed, TransactionState.Aborted, TransactionState.Error, TransactionState.TimedOut);

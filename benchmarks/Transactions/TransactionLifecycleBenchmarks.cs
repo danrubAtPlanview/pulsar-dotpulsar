@@ -33,16 +33,17 @@ using DotPulsar.Internal;
 /// Measured (Medium job, in-process, Release, .NET 10, Intel Core Ultra 9 185H), per transaction, direct completion / thread-pool completion. The operation of CreateCommit_100Sends and of
 /// Plain_100Sends is a series of 100 messages. The allocated bytes of the empty transaction do not change from run to run. The other ones change by about 100 B on the thread pool.
 /// <code>
-/// CreateCommit_Empty           0.7-0.8 us /   4200 B       0.8-0.9 us /   4200 B
-/// CreateCommit_100Sends      352-354 us   / 296712 B     371-426 us   / 302219 B
-/// Plain_100Sends             334-341 us   / 292517 B     422-430 us   / 298114 B
+/// CreateCommit_Empty              0.5 us /   1.09 KB          0.4 us /   1.09 KB
+/// CreateCommit_100Sends          465 us   / 286.61 KB         432 us   / 292.25 KB
+/// Plain_100Sends                 368 us   / 285.50 KB         428 us   / 290.79 KB
 /// </code>
-/// The threshold is met. CreateCommit_100Sends minus CreateCommit_Empty minus Plain_100Sends is -5 B (-95 B on the thread pool, which is noise): a transaction costs the same
-/// 4200 B whether it has 0 or 100 messages, and the 100 messages cost what they cost without a transaction (2925 B each). The registration of the partition is not measurable.
-/// The 4200 B of an empty transaction are more than the "about 10 allocations" of the spec. They are made of 2464 B for the two ConcurrentDictionary instances (1232 B each: their default
-/// concurrency level is the number of processors, 22 here, so each has 22 lock objects), about 1.1 KB of boxed TransactionState values (StateManager.IsFinalState calls the non-generic
-/// Equals of an unconstrained generic type, which boxes both values: 48 B for every final state it compares, and the state changes of a transaction call it about 23 times)
-/// and about 0.6 KB for the transaction, its timer, its state manager and the task that commit waits on. This does not depend on the number of messages.
+/// The threshold is met. A transaction costs the same 1.09 KB whether it has 0 or 100 messages, and the 100 messages cost what they cost without a transaction (2925 B each).
+/// The registration of the partition is not measurable.
+/// The first run of this benchmark measured 4200 B for an empty transaction, more than the "about 10 allocations" of the spec. 2464 B of them were the two ConcurrentDictionary
+/// instances (their default concurrency level is the number of processors, so each had 22 lock objects: they are now created with a concurrency level of 1, because the writes
+/// are serialized by a lock anyway) and about 1.1 KB were boxed TransactionState values (StateManager compared states with the non-generic Equals of an unconstrained generic type,
+/// which boxes both values: it now uses EqualityComparer{TState}.Default). The remaining 1.09 KB are the transaction, its timer, its state manager and the task that commit waits on.
+/// This does not depend on the number of messages.
 /// </para>
 /// </summary>
 [MemoryDiagnoser]
