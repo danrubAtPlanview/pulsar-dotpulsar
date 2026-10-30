@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 - Support for acknowledgment receipts using ConsumerOptions.AckReceiptEnabled and IConsumerBuilder.AckReceiptEnabled
 - Support for transactions using IPulsarClient.CreateTransaction and IPulsarClient.NewTransaction()
+- Support for sending messages in a transaction using IMessageBuilder.Transaction and MessageMetadata.Transaction
 - Support for acknowledging messages in a transaction using the IConsumer.Acknowledge and IConsumer.AcknowledgeCumulative overloads that take an ITransaction
 - Support for batch index acknowledgment using ConsumerOptions.BatchIndexAckEnabled and IConsumerBuilder.BatchIndexAckEnabled
 - EnableTransaction and OperationTimeout on IPulsarClientBuilder
@@ -18,8 +19,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 ### Changed
 
 - Updated the protocol version from 14 to 19
-- IPulsarClient, IPulsarClientBuilder, IConsumer and IConsumerBuilder have new members. This is a breaking change for custom implementations of these interfaces
+- IPulsarClient, IPulsarClientBuilder, IConsumer, IConsumerBuilder and IMessageBuilder have new members. This is a breaking change for custom implementations of these interfaces
 - PulsarClientClosedException has a new constructor that takes a message
+- A send that the broker rejects with NotAllowedError now fails only that message with NotAllowedException instead of faulting the producer
 
 ### Fixed
 
@@ -30,6 +32,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 - Messages in a batch had a MessageId without the topic
 - The ordering key of a message in a batch was taken from the batch instead of from the message
 - The pooled acknowledgment command kept the MessageIdData instance of the broker
+- A full send queue did not accept new messages after the producer removed messages from it
 
 ## [5.3.4] - 2026-10-09
 
