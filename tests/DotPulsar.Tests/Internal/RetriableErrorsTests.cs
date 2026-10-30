@@ -31,6 +31,7 @@ public sealed class RetriableErrorsTests
     [InlineData(typeof(UnsupportedVersionException))]
     [InlineData(typeof(NotAllowedException))]
     [InlineData(typeof(ChecksumException))]
+    [InlineData(typeof(CryptoException))]
     [InlineData(typeof(ConsumerAssignException))]
     [InlineData(typeof(TransactionConflictException))]
     [InlineData(typeof(ProducerBusyException))]

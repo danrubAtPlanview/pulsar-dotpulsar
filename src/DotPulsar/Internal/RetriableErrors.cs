@@ -21,7 +21,6 @@ public static class RetriableErrors
     // Upstream: PulsarClientException#isRetriableError
     // Java lists the non-retriable types, so everything else is retriable, including authentication errors.
     // Java types without a DotPulsar equivalent: UnsupportedAuthenticationException, InvalidMessageException and MessageAcknowledgeException.
-    // TODO: add CryptoException when it is introduced by the end-to-end encryption work package.
     public static bool IsRetriable(Exception exception)
         => exception is not (
             AuthorizationException or
@@ -34,6 +33,7 @@ public static class RetriableErrors
             UnsupportedVersionException or
             NotAllowedException or
             ChecksumException or
+            CryptoException or
             ConsumerAssignException or
             TransactionConflictException or
             ProducerBusyException or
