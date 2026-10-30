@@ -45,6 +45,47 @@ await foreach (var message in consumer.Messages())
 
 For a more in-depth tour of the API, please visit the [Wiki](https://github.com/apache/pulsar-dotpulsar/wiki).
 
+## Transactions
+
+A transaction makes a group of sends and acknowledgments atomic: either all of them take effect or none of them do. Transactions must be enabled on the client (the connection to the transaction coordinator is created when the first transaction is created), and the broker must have `transactionCoordinatorEnabled=true`.
+
+```csharp
+await using var client = PulsarClient.Builder().EnableTransaction(true).Build();
+
+await using var consumer = client.NewConsumer(Schema.String)
+    .SubscriptionName("MySubscription")
+    .Topic("persistent://public/default/input")
+    .Create();
+
+await using var producer = client.NewProducer(Schema.String)
+    .Topic("persistent://public/default/output")
+    .Create();
+
+await foreach (var message in consumer.Messages())
+{
+    var transaction = await client.NewTransaction().Timeout(TimeSpan.FromMinutes(1)).Create();
+
+    try
+    {
+        // Nothing is visible to other consumers, and the consumed message stays unacknowledged, until the transaction is committed
+        var send = producer.NewMessage().Transaction(transaction).Send(message.Value() + "-processed");
+        var acknowledge = consumer.Acknowledge(message.MessageId, transaction);
+
+        // Waits for the send and the acknowledgment, then commits. If either failed, the transaction is aborted and an exception is thrown.
+        await transaction.Commit();
+
+        await send;
+        await acknowledge;
+    }
+    catch (Exception)
+    {
+        await transaction.Abort();
+    }
+}
+```
+
+See the [Transactions sample](https://github.com/apache/pulsar-dotpulsar/tree/master/samples/Transactions) for a complete program.
+
 ## Supported features
 
 - Service discovery
@@ -58,11 +99,15 @@ For a more in-depth tour of the API, please visit the [Wiki](https://github.com/
 - Consumer - subscription with initial position and priority level
 - Consumer - subscription types exclusive, shared, failover, and key shared
 - Consumer - receive and single + cumulative acknowledge
+- Consumer - acknowledgment receipts and batch index acknowledgment
+- Consumer - ack timeout and negative acknowledgment
+- Consumer - dead letter topic
 - Consumer/Reader - seek on message-id and publish time
 - Consumer - unsubscribe
 - Consumer - compacted topics
 - Reader API
 - Read/Consume/Acknowledge batched messages
+- Transactions - produce and acknowledge (single and cumulative) in a transaction
 - Telemetry
     - [Tracing](https://github.com/apache/pulsar-dotpulsar/wiki/Tracing)
     - [Metrics](https://github.com/apache/pulsar-dotpulsar/wiki/Metrics)

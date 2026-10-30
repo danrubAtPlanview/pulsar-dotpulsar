@@ -61,12 +61,16 @@ For a more in-depth tour of the API, please visit the [Wiki](https://github.com/
 - [X] Consumer - subscription types exclusive, shared, failover, and key shared
 - [X] Consumer - multi-topic subscriptions
 - [X] Consumer - receive and single + cumulative acknowledge
+- [X] Consumer - acknowledgment receipts and batch index acknowledgment
+- [X] Consumer - ack timeout and negative acknowledgment
+- [X] Consumer - dead letter topic
 - [X] Consumer/Reader - seek on message-id and publish time
 - [X] Consumer - unsubscribe
 - [X] Consumer - compacted topics
 - [X] Consumer - partitioned topics
 - [X] Reader API
 - [X] Read/Consume/Acknowledge batched messages
+- [X] Transactions - produce and acknowledge (single and cumulative) in a transaction
 - [X] Telemetry
     - [Tracing](https://github.com/apache/pulsar-dotpulsar/wiki/Tracing)
     - [Metrics](https://github.com/apache/pulsar-dotpulsar/wiki/Metrics)
