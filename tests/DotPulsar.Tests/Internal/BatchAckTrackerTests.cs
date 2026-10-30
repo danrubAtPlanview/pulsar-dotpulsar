@@ -277,30 +277,38 @@ public sealed class BatchAckTrackerTests
     {
         //Arrange
         const int batchSize = 32;
-
-        for (var iteration = 0; iteration < 100; ++iteration)
+        const int iterations = 100;
+        var batchHandlers = Enumerable.Range(0, iterations).Select(iteration =>
         {
             var batchHandler = new BatchHandler<byte[]>(true, new MessageFactory<byte[]>(DotPulsar.Schema.ByteArray), BatchTestData.Topic, null);
             _ = BatchTestData.AddBatch(batchHandler, 1, 0, batchSize);
-            var completed = 0;
-            using var barrier = new Barrier(batchSize);
+            return batchHandler;
+        }).ToArray();
+        var completed = new int[iterations];
+        using var barrier = new Barrier(batchSize);
 
-            var tasks = Enumerable.Range(0, batchSize).Select(batchIndex => Task.Factory.StartNew(() =>
+        // The threads are started once and meet at the barrier for every iteration, because starting 32 threads for each iteration is slow when the machine is busy
+        var tasks = Enumerable.Range(0, batchSize).Select(batchIndex => Task.Factory.StartNew(() =>
+        {
+            var messageId = BatchTestData.CreateBatchedId(1, 0, batchIndex);
+
+            for (var iteration = 0; iteration < iterations; ++iteration)
             {
-                var messageId = BatchTestData.CreateBatchedId(1, 0, batchIndex);
                 barrier.SignalAndWait();
-                batchHandler.AcknowledgeIndividual(messageId, out var isComplete);
+                batchHandlers[iteration].AcknowledgeIndividual(messageId, out var isComplete);
 
                 if (isComplete)
-                    Interlocked.Increment(ref completed);
-            }, TaskCreationOptions.LongRunning)).ToArray();
+                    _ = Interlocked.Increment(ref completed[iteration]);
+            }
+        }, TaskCreationOptions.LongRunning)).ToArray();
 
-            //Act
-            await Task.WhenAll(tasks);
+        //Act
+        await Task.WhenAll(tasks);
 
-            //Assert
-            completed.ShouldBe(1);
+        //Assert
+        completed.ShouldAllBe(count => count == 1);
+
+        foreach (var batchHandler in batchHandlers)
             batchHandler.TryGetBatchSize(BatchTestData.CreateBatchedId(1, 0, 0), out _).ShouldBeFalse();
-        }
     }
 }
