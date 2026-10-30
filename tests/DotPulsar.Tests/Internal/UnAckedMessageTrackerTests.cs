@@ -15,6 +15,7 @@
 namespace DotPulsar.Tests.Internal;
 
 using DotPulsar.Internal;
+using DotPulsar.Internal.PulsarApi;
 using System.Collections.Concurrent;
 
 [Trait("Category", "Unit")]
@@ -58,7 +59,37 @@ public sealed class UnAckedMessageTrackerTests
         uut.Count.ShouldBe(0);
     }
 
-    // Upstream: UnAckedMessageTrackerTest#testTrackChunkedMessageId (adapted: the chunk ids are not part of the message id yet, so only the tracked id of the last chunk is verified)
+    // Upstream: UnAckedMessageTrackerTest#testTrackChunkedMessageId (adapted: the Java test fills the consumer's unAckedChunkedMessageIdSequenceMap with the chunk ids, and asserts
+    // that the map is empty after the redelivery. A DotPulsar message id carries its chunk ids, so the expired id must still carry all 5 for the redelivery to expand them.)
+    // The expansion of the chunk ids is verified in SubConsumerChunkingTests.
+    [Fact]
+    public void Tick_GivenChunkedMessageIdExpired_ShouldRedeliverAllChunks()
+    {
+        //Arrange
+        using var uut = CreateTracker(TimeSpan.FromMilliseconds(1000), TimeSpan.FromMilliseconds(1000));
+        uut.IsEmpty.ShouldBeTrue();
+        uut.Count.ShouldBe(0);
+        var chunkIds = Enumerable.Range(0, 5).Select(i => new MessageIdData { LedgerId = 1, EntryId = (ulong) i, Partition = -1, BatchIndex = -1 }).ToArray();
+        var chunkedMessageId = MessageIdInternals.CreateChunked("persistent://public/default/test", chunkIds);
+        _ = uut.Add(chunkedMessageId);
+        var countAfterAdd = uut.Count;
+
+        //Act
+        var first = uut.Tick();
+        var second = uut.Tick();
+
+        //Assert
+        countAfterAdd.ShouldBe(1);
+        first.ShouldBeNull();
+        second.ShouldNotBeNull();
+        second.Length.ShouldBe(1);
+        second[0].ShouldBeSameAs(chunkedMessageId);
+        second[0].GetChunkMessageIds()!.Select(id => (id.LedgerId, id.EntryId)).ShouldBeSequence((1UL, 0UL), (1UL, 1UL), (1UL, 2UL), (1UL, 3UL), (1UL, 4UL));
+        uut.Count.ShouldBe(0);
+        uut.IsEmpty.ShouldBeTrue();
+    }
+
+    // Additional coverage
     [Fact]
     public void Tick_GivenTrackedMessageIdExpired_ShouldReturnTheTrackedInstanceAndUntrackIt()
     {

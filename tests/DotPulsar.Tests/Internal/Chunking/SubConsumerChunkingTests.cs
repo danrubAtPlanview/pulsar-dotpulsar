@@ -335,6 +335,35 @@ public sealed class SubConsumerChunkingTests
         sent.Single().MessageIds.Select(id => id.EntryId).ShouldBeSequence(10UL, 11UL, 12UL);
     }
 
+    // Upstream: UnAckedMessageTrackerTest#testTrackChunkedMessageId
+    // The Java test tracks a chunked message id of 5 chunks (1, i, -1) with an ack timeout and tick of 1000 ms, and expects that the tracker is empty and that the chunk ids are removed from
+    // the consumer's unAckedChunkedMessageIdSequenceMap. The chunk ids are part of the DotPulsar message id, so the assertion is that the 5 chunks are redelivered and nothing is left tracked.
+    [Fact]
+    public async Task Track_GivenChunkedMessageWithFiveChunksAndAckTimeoutOfOneTick_ShouldRedeliverAllFiveChunksAndUntrackThem()
+    {
+        //Arrange
+        var sent = CaptureRedeliverCommands();
+        var timers = new FakeOneShotTimerFactory();
+        SubConsumer<byte[]>? subConsumer = null;
+        using var tracker = new UnAckedMessageTracker(TimeSpan.FromMilliseconds(1000), TimeSpan.FromMilliseconds(1000), (ids, ct) => subConsumer!.RedeliverUnacknowledgedMessages(ids, ct), timers.Create);
+        await using var uut = CreateUut(SubscriptionType.Shared, tracker: tracker);
+        subConsumer = uut;
+        tracker.Start();
+        uut.Track(CreateMessage(CreateChunkedMessageId(0, 1, 2, 3, 4)));
+        var countAfterTrack = tracker.Count;
+
+        //Act
+        timers.Timer.Fire();
+        timers.Timer.Fire();
+        await WaitUntil(() => sent.Count == 1);
+
+        //Assert
+        countAfterTrack.ShouldBe(1);
+        tracker.Count.ShouldBe(0);
+        sent.Count.ShouldBe(1);
+        sent[0].MessageIds.Select(id => (id.LedgerId, id.EntryId)).ShouldBeSequence((1UL, 0UL), (1UL, 1UL), (1UL, 2UL), (1UL, 3UL), (1UL, 4UL));
+    }
+
     // Upstream: ConsumerImpl#seekAsync(MessageId)
     [Fact]
     public async Task Seek_GivenChunkedMessageId_ShouldSeekToTheFirstChunk()
