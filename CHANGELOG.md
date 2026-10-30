@@ -61,6 +61,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 - The pooled acknowledgment command kept the MessageIdData instance of the broker
 - A full send queue did not accept new messages after the producer removed messages from it
 - Messages that the consumer had already received from the broker were received twice after IConsumer.RedeliverUnacknowledgedMessages
+- A message that a consumer of a partitioned topic or of several topics had already received from one of the topics, but not yet delivered to the application, was delivered besides the redelivered message after IConsumer.RedeliverUnacknowledgedMessages
 - The number of messages of the pooled send command was never reset
 
 ## [5.3.4] - 2026-10-09

@@ -398,12 +398,31 @@ public sealed class Consumer<TMessage> : IConsumer<TMessage>
             return;
         }
 
+        DropReceivedMessages();
+
         var redeliverTasks = new List<Task>(_numberOfSubConsumers);
         foreach (var subConsumer in _subConsumers)
         {
             redeliverTasks.Add(subConsumer.Value.RedeliverUnacknowledgedMessages(cancellationToken).AsTask());
         }
         await Task.WhenAll(redeliverTasks).ConfigureAwait(false);
+    }
+
+    // Upstream: MultiTopicsConsumerImpl#redeliverUnacknowledgedMessages (clearIncomingMessages)
+    // A message that a sub consumer has already returned to this consumer, but that Receive has not returned to the application yet, is redelivered by the broker, so it is dropped here
+    // like the messages in the queues of the sub consumers are. Receive starts a new receive of the sub consumer when it needs one. A message that a sub consumer returns later is a message of the redelivery.
+    private void DropReceivedMessages()
+    {
+        var receiveTasks = _receiveTasks;
+        var neverEndingTask = _neverEndingTask.Task;
+
+        for (var i = 0; i < _numberOfSubConsumers && i < receiveTasks.Length; ++i)
+        {
+            var receiveTask = receiveTasks[i];
+
+            if (receiveTask.Status == TaskStatus.RanToCompletion)
+                _ = Interlocked.CompareExchange(ref receiveTasks[i], neverEndingTask, receiveTask);
+        }
     }
 
     public async ValueTask Unsubscribe(CancellationToken cancellationToken)
