@@ -776,6 +776,32 @@ public sealed class TransactionMetaStoreHandlerTests
         uut.AvailableRequestPermits.ShouldBe(MaxPendingOperations);
     }
 
+    // The permit that the disposal releases when it fails the pending requests can reach a caller that is waiting for a permit before the caller has noticed that the handler is disposed. How often depends on the machine, so the disposal is repeated.
+    [Fact]
+    public async Task DisposeAsync_GivenCallerWaitingForPermitRepeatedly_ShouldAlwaysFailItWithPulsarClientClosedExceptionAndGiveAllPermitsBack()
+    {
+        for (var iteration = 0; iteration < 100; ++iteration)
+        {
+            //Arrange
+            var coordinator = new FakeCoordinator { Respond = (_, _) => null };
+            var uut = CreateHandler(FakeCoordinator.CreatePool(1, coordinator));
+            uut.Start();
+            await uut.Connected.WaitAsync(_timeout, Current.CancellationToken);
+            var pending = Enumerable.Range(0, MaxPendingOperations).Select(i => uut.EndTxn(new TransactionId(0, (ulong) i), TxnAction.Commit, Current.CancellationToken).AsTask()).ToArray();
+            await WaitFor.Until(() => uut.AvailableRequestPermits == 0, "all the permits are taken");
+            var waiting = uut.EndTxn(new TransactionId(0, MaxPendingOperations), TxnAction.Commit, Current.CancellationToken).AsTask();
+
+            //Act
+            await uut.DisposeAsync();
+
+            //Assert
+            await Should.ThrowAsync<PulsarClientClosedException>(waiting.WaitAsync(_timeout, Current.CancellationToken));
+            await Task.WhenAll(pending.Select(task => Record.ExceptionAsync(() => task).AsTask()));
+            uut.PendingRequestsCount.ShouldBe(0);
+            uut.AvailableRequestPermits.ShouldBe(MaxPendingOperations);
+        }
+    }
+
     // Upstream: TransactionMetaStoreHandlerTest#testCloseFailsAndReleasesPendingRequests
     [Fact]
     public async Task DisposeAsync_GivenPendingEndTxnRequest_ShouldFailItWithPulsarClientClosedExceptionAndReleaseIt()

@@ -190,7 +190,6 @@ public sealed class TransactionMetaStoreHandler : ITransactionMetaStoreHandler
         var exception = new PulsarClientClosedException(ClosedMessage);
         FailAllPending(exception);
         _ = TryFaultConnected(exception);
-        _permits.Dispose();
     }
 
     // Upstream: TransactionMetaStoreHandler#getExceptionByServerError
@@ -226,18 +225,21 @@ public sealed class TransactionMetaStoreHandler : ITransactionMetaStoreHandler
 
         try
         {
-            if (_permits.Wait(0))
-                return;
-
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _cancellationTokenSource.Token);
-            await _permits.WaitAsync(cts.Token).ConfigureAwait(false);
-        }
-        catch (ObjectDisposedException)
-        {
-            throw new PulsarClientClosedException(RejectedMessage);
+            if (!_permits.Wait(0))
+            {
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _cancellationTokenSource.Token);
+                await _permits.WaitAsync(cts.Token).ConfigureAwait(false);
+            }
         }
         catch (OperationCanceledException) when (_cancellationTokenSource.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
+            throw new PulsarClientClosedException(RejectedMessage);
+        }
+
+        // The wait can end with a permit that the disposal released when it failed the pending requests, before the wait has noticed that it is cancelled. The permit is given back, because it is not used.
+        if (_isDisposed != 0)
+        {
+            _ = _permits.Release();
             throw new PulsarClientClosedException(RejectedMessage);
         }
     }
@@ -381,15 +383,7 @@ public sealed class TransactionMetaStoreHandler : ITransactionMetaStoreHandler
     private void Release(TransactionMetaStoreOp op)
     {
         _ = _pendingOps.TryRemove(op.Id, out _);
-
-        try
-        {
-            _ = _permits.Release();
-        }
-        catch (ObjectDisposedException)
-        {
-            // The handler has been disposed
-        }
+        _ = _permits.Release();
     }
 
     // Upstream: TransactionMetaStoreHandler#failPendingRequest
