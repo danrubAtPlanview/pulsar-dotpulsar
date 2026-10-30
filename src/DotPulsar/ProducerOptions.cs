@@ -62,6 +62,11 @@ public sealed class ProducerOptions<TMessage>
     public static readonly bool DefaultEnableBatching = false;
 
     /// <summary>
+    /// The default send timeout.
+    /// </summary>
+    public static readonly TimeSpan DefaultSendTimeout = TimeSpan.Zero;
+
+    /// <summary>
     /// Initializes a new instance using the specified topic.
     /// </summary>
     public ProducerOptions(string topic, ISchema<TMessage> schema)
@@ -79,6 +84,7 @@ public sealed class ProducerOptions<TMessage>
         BatchingMaxMessages = DefaultBatchingMaxMessages;
         BatchingMaxPublishDelay = DefaultBatchingMaxPublishDelay;
         EnableBatching = DefaultEnableBatching;
+        SendTimeout = DefaultSendTimeout;
     }
 
     /// <summary>
@@ -163,4 +169,9 @@ public sealed class ProducerOptions<TMessage>
     /// Whether to batch messages. The default is 'false'.
     /// </summary>
     public bool EnableBatching { get; set; }
+
+    /// <summary>
+    /// Set the send timeout. If the broker has not acknowledged the oldest message that is waiting within this time, every message that is waiting in the producer (of the partition) fails with an OperationTimeoutException. TimeSpan.Zero disables the timeout. The default is 'TimeSpan.Zero'.
+    /// </summary>
+    public TimeSpan SendTimeout { get; set; }
 }

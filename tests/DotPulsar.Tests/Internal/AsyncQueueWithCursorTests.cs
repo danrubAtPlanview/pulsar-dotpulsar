@@ -781,6 +781,107 @@ public class AsyncQueueWithCursorTests
     }
 
     [Fact]
+    public async Task RemoveAll_GivenItems_ShouldReturnThemInOrderAndEmptyTheQueue()
+    {
+        //Arrange
+        var sut = new AsyncQueueWithCursor<QueueItem>(10);
+        await sut.Enqueue(new QueueItem(1), CancellationToken.None);
+        await sut.Enqueue(new QueueItem(2), CancellationToken.None);
+        await sut.Enqueue(new QueueItem(3), CancellationToken.None);
+
+        //Act
+        var removed = sut.RemoveAll();
+
+        //Assert
+        removed.ShouldBe([new QueueItem(1), new QueueItem(2), new QueueItem(3)]);
+        sut.Count.ShouldBe(0);
+        sut.TryPeek(out _).ShouldBeFalse();
+
+        //Annihilate
+        await sut.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task RemoveAll_GivenCursorInTheQueue_ShouldPutCursorBeforeTheFirstNewItem()
+    {
+        //Arrange
+        var sut = new AsyncQueueWithCursor<QueueItem>(10);
+        await sut.Enqueue(new QueueItem(1), CancellationToken.None);
+        await sut.Enqueue(new QueueItem(2), CancellationToken.None);
+        await sut.NextItem(CancellationToken.None);
+        await sut.NextItem(CancellationToken.None);
+        _ = sut.RemoveAll();
+        await sut.Enqueue(new QueueItem(3), CancellationToken.None);
+
+        //Act
+        var next = await sut.NextItem(CancellationToken.None);
+
+        //Assert
+        next.ShouldBe(new QueueItem(3));
+
+        //Annihilate
+        await sut.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task RemoveAll_GivenPendingNextItem_ShouldNotCancelIt()
+    {
+        //Arrange
+        var sut = new AsyncQueueWithCursor<QueueItem>(10);
+        await sut.Enqueue(new QueueItem(1), CancellationToken.None);
+        await sut.NextItem(CancellationToken.None);
+        var pending = sut.NextItem(CancellationToken.None).AsTask();
+
+        //Act
+        _ = sut.RemoveAll();
+        await sut.Enqueue(new QueueItem(2), CancellationToken.None);
+
+        //Assert
+        (await pending.WaitAsync(TimeSpan.FromSeconds(10), Current.CancellationToken)).ShouldBe(new QueueItem(2));
+
+        //Annihilate
+        await sut.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task RemoveAll_GivenWaitForEmptyPending_ShouldCompleteIt()
+    {
+        //Arrange
+        var sut = new AsyncQueueWithCursor<QueueItem>(10);
+        await sut.Enqueue(new QueueItem(1), CancellationToken.None);
+        var waitForEmpty = sut.WaitForEmpty(CancellationToken.None);
+
+        //Act
+        _ = sut.RemoveAll();
+
+        //Assert
+        await waitForEmpty.WaitAsync(TimeSpan.FromSeconds(10), Current.CancellationToken);
+
+        //Annihilate
+        await sut.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task RemoveAll_GivenQueueIsFullAndEnqueuePending_ShouldReleaseTheEnqueue()
+    {
+        //Arrange
+        var sut = new AsyncQueueWithCursor<QueueItem>(1);
+        await sut.Enqueue(new QueueItem(1), CancellationToken.None);
+        var blocked = sut.Enqueue(new QueueItem(2), CancellationToken.None).AsTask();
+        await Task.Delay(TimeSpan.FromMilliseconds(100), Current.CancellationToken);
+
+        //Act
+        _ = sut.RemoveAll();
+
+        //Assert
+        await blocked.WaitAsync(TimeSpan.FromSeconds(10), Current.CancellationToken);
+        sut.Count.ShouldBe(1);
+
+        //Annihilate
+        await sut.DisposeAsync();
+    }
+
+    [Fact]
     public async Task WaitForNextItem_GivenCancellation_ShouldThrowOperationCanceledException()
     {
         //Arrange

@@ -78,6 +78,9 @@ public sealed class PulsarClient : IPulsarClient
         if (options.BatchingMaxPublishDelay < TimeSpan.FromMilliseconds(1))
             throw new ConfigurationException("ProducerOptions.BatchingMaxPublishDelay must be at least 1 millisecond");
 
+        if (options.SendTimeout < TimeSpan.Zero)
+            throw new ConfigurationException("ProducerOptions.SendTimeout may not be negative");
+
         ICompressorFactory? compressorFactory = null;
         if (options.CompressionType != CompressionType.None)
         {

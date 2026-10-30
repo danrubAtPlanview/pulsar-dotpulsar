@@ -144,16 +144,14 @@ public class SubProducerTests
         var channel = new FakeChannel();
         await using var sut = CreateSubProducer(CreateFactory(channel));
         await sut.EstablishNewChannel(Current.CancellationToken);
-        using var cts = new CancellationTokenSource();
-        var cancelledOp = CreateCancellableSendOp(1, gate.Task, cts.Token);
+        var cancelledOp = CreateSendOp(1, gate.Task);
         var plainOp = CreateSendOp(2);
         await sut.Send(cancelledOp, Current.CancellationToken);
         await sut.Send(plainOp, Current.CancellationToken);
         await Task.Delay(TimeSpan.FromMilliseconds(250), Current.CancellationToken);
 
         //Act
-        await cts.CancelAsync();
-        _ = cancelledOp.ReceiptTcs.TrySetCanceled(cts.Token); // This is what Producer.Send does when the caller cancels
+        _ = cancelledOp.ReceiptTcs.TrySetCanceled(); // This is what Producer.Send does when the caller cancels
 
         //Assert
         await plainOp.ReceiptTcs.Task.WaitAsync(_timeout, Current.CancellationToken);
@@ -276,10 +274,7 @@ public class SubProducerTests
     }
 
     private static SendOp CreateSendOp(ulong sequenceId, Task? registrationGate = null)
-        => CreateCancellableSendOp(sequenceId, registrationGate, CancellationToken.None);
-
-    private static SendOp CreateCancellableSendOp(ulong sequenceId, Task? registrationGate, CancellationToken cancellationToken)
-        => new(new MessageMetadata { SequenceId = sequenceId }, ReadOnlySequence<byte>.Empty, new TaskCompletionSource<MessageId>(TaskCreationOptions.RunContinuationsAsynchronously), cancellationToken, registrationGate: registrationGate);
+        => new(new MessageMetadata { SequenceId = sequenceId }, ReadOnlySequence<byte>.Empty, new TaskCompletionSource<MessageId>(TaskCreationOptions.RunContinuationsAsynchronously), registrationGate: registrationGate);
 
     private static BaseCommand CreateReceipt(ulong sequenceId)
         => new()
@@ -322,7 +317,8 @@ public class SubProducerTests
             batchingMaxMessages: ProducerOptions<string>.DefaultBatchingMaxMessages,
             batchingMaxBytes: ProducerOptions<string>.DefaultBatchingMaxBytes,
             batchingMaxPublishDelay: ProducerOptions<string>.DefaultBatchingMaxPublishDelay,
-            initialSequenceId: 1);
+            initialSequenceId: 1,
+            sendTimeout: TimeSpan.Zero);
     }
 
     // A channel that writes nothing, but records the sequence ids of the messages it was asked to write and answers them

@@ -115,6 +115,45 @@ public sealed class AsyncQueueWithCursor<T> : IAsyncDisposable where T : IDispos
     }
 
     /// <summary>
+    /// The number of items in the queue
+    /// </summary>
+    public int Count
+    {
+        get
+        {
+            lock (_queue)
+            {
+                return _queue.Count;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Remove every item from the queue and return them, in the order they had. The cursor is put before the first item, but a waiting NextItem is not cancelled,
+    /// so it returns the next item that is enqueued. Anyone that waits for the queue to be empty, or for room in the queue, is released.
+    /// </summary>
+    public List<T> RemoveAll()
+    {
+        lock (_queue)
+        {
+            ThrowIfDisposed();
+
+            var items = new List<T>(_queue.Count);
+            foreach (var item in _queue)
+            {
+                items.Add(item);
+            }
+
+            _queue.Clear();
+            _currentNode = null;
+            NotifyQueueEmptyAwaiters();
+            ReleasePendingLockGrant();
+
+            return items;
+        }
+    }
+
+    /// <summary>
     /// Remove the last item from the queue
     /// </summary>
     public void Dequeue()

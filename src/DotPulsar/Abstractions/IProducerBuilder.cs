@@ -96,6 +96,11 @@ public interface IProducerBuilder<TMessage>
     IProducerBuilder<TMessage> BatcherType(BatcherType batcherType);
 
     /// <summary>
+    /// Set the send timeout. If the broker has not acknowledged the oldest message that is waiting within this time, every message that is waiting in the producer (of the partition) fails with an OperationTimeoutException. TimeSpan.Zero disables the timeout. The default is 'TimeSpan.Zero'.
+    /// </summary>
+    IProducerBuilder<TMessage> SendTimeout(TimeSpan sendTimeout);
+
+    /// <summary>
     /// Create the producer.
     /// </summary>
     IProducer<TMessage> Create();

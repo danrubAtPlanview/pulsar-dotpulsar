@@ -32,6 +32,9 @@ public sealed class FakeProducerChannel : IProducerChannel
     // Decides if writing an entry fails
     public Func<SentEntry, Exception?>? Fail { get; set; }
 
+    // The write of an entry is not completed before this task is. Null means that it is completed at once.
+    public Task? WriteGate { get; set; }
+
     public int MaxMessageSize { get; set; } = 5 * 1024 * 1024;
 
     public IReadOnlyList<SentEntry> Entries => _entries.ToArray();
@@ -50,11 +53,22 @@ public sealed class FakeProducerChannel : IProducerChannel
 
         _entries.Enqueue(entry);
 
+        return WriteGate is null ? Answer(entry, responseTcs) : AnswerAfterWrite(entry, responseTcs, WriteGate);
+    }
+
+    private Task Answer(SentEntry entry, TaskCompletionSource<BaseCommand> responseTcs)
+    {
         var response = Respond is null ? CreateReceipt(entry) : Respond(entry);
         if (response is not null)
             _ = responseTcs.TrySetResult(response);
 
         return Task.CompletedTask;
+    }
+
+    private async Task AnswerAfterWrite(SentEntry entry, TaskCompletionSource<BaseCommand> responseTcs, Task writeGate)
+    {
+        await writeGate.ConfigureAwait(false);
+        await Answer(entry, responseTcs).ConfigureAwait(false);
     }
 
     public ValueTask ClosedByClient(CancellationToken cancellationToken)

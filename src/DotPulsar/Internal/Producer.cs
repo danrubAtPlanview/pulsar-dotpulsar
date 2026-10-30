@@ -183,7 +183,8 @@ public sealed class Producer<TMessage> : IProducer<TMessage>, IRegisterEvent
             _options.BatchingMaxMessages,
             _options.BatchingMaxBytes,
             _options.BatchingMaxPublishDelay,
-            _options.InitialSequenceId);
+            _options.InitialSequenceId,
+            _options.SendTimeout);
         var process = new ProducerProcess(correlationId, stateManager, producer);
         _processManager.Add(process);
         process.Start();
@@ -238,7 +239,7 @@ public sealed class Producer<TMessage> : IProducer<TMessage>, IRegisterEvent
 #endif
         }
 
-        await InternalSend(metadata, message, true, tcs, OnMessageSent, x => tcs.TrySetException(x), cancellationToken).ConfigureAwait(false);
+        await InternalSend(metadata, message, tcs, OnMessageSent, x => tcs.TrySetException(x), cancellationToken).ConfigureAwait(false);
         return await tcs.Task.ConfigureAwait(false);
     }
 
@@ -247,12 +248,11 @@ public sealed class Producer<TMessage> : IProducer<TMessage>, IRegisterEvent
         TMessage message,
         Func<MessageId, ValueTask>? onMessageSent = default,
         CancellationToken cancellationToken = default)
-        => await InternalSend(metadata, message, false, null, onMessageSent, cancellationToken: cancellationToken).ConfigureAwait(false);
+        => await InternalSend(metadata, message, null, onMessageSent, cancellationToken: cancellationToken).ConfigureAwait(false);
 
     private async ValueTask InternalSend(
         MessageMetadata metadata,
         TMessage message,
-        bool sendOpCancelable,
         TaskCompletionSource<MessageId>? tcs = default,
         Func<MessageId, ValueTask>? onMessageSent = default,
         Action<Exception>? onFailed = default,
@@ -305,7 +305,7 @@ public sealed class Producer<TMessage> : IProducer<TMessage>, IRegisterEvent
                 registrationGate = registration.IsCompletedSuccessfully ? null : registration.AsTask();
             }
 
-            var sendOp = new SendOp(metadata.Metadata, data, tcs, sendOpCancelable ? cancellationToken : CancellationToken.None, transaction, registrationGate);
+            var sendOp = new SendOp(metadata.Metadata, data, tcs, transaction, registrationGate);
             await subProducer.Send(sendOp, cancellationToken).ConfigureAwait(false);
 
             _ = tcs.Task.ContinueWith(async task =>

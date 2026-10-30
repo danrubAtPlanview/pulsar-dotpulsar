@@ -21,6 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 - EnableTransaction and OperationTimeout on IPulsarClientBuilder
 - Support for batching messages using ProducerOptions.EnableBatching, BatchingMaxMessages, BatchingMaxBytes, BatchingMaxPublishDelay and BatcherType, and the corresponding methods of IProducerBuilder
 - IProducer.Flush, which sends the batched messages at once and waits for the acknowledgment of the last message
+- Support for a send timeout using ProducerOptions.SendTimeout and IProducerBuilder.SendTimeout. The messages that the broker has not acknowledged in time fail with an OperationTimeoutException
 - New exceptions: TransactionNotFoundException, TransactionHasOperationFailedException, TransactionCoordinatorClientException, TransactionCoordinatorClientStateException, MetaStoreHandlerNotExistsException, MetaStoreHandlerNotReadyException and OperationTimeoutException
 
 ### Changed

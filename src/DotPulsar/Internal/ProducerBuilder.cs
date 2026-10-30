@@ -36,6 +36,7 @@ public sealed class ProducerBuilder<TMessage> : IProducerBuilder<TMessage>
     private uint _batchingMaxBytes;
     private TimeSpan _batchingMaxPublishDelay;
     private BatcherType _batcherType;
+    private TimeSpan _sendTimeout;
 
     public ProducerBuilder(IPulsarClient pulsarClient, ISchema<TMessage> schema)
     {
@@ -52,6 +53,7 @@ public sealed class ProducerBuilder<TMessage> : IProducerBuilder<TMessage>
         _batchingMaxBytes = ProducerOptions<TMessage>.DefaultBatchingMaxBytes;
         _batchingMaxPublishDelay = ProducerOptions<TMessage>.DefaultBatchingMaxPublishDelay;
         _batcherType = ProducerOptions<TMessage>.DefaultBatcherType;
+        _sendTimeout = ProducerOptions<TMessage>.DefaultSendTimeout;
     }
 
     public IProducerBuilder<TMessage> AttachTraceInfoToMessages(bool attachTraceInfoToMessages)
@@ -144,6 +146,12 @@ public sealed class ProducerBuilder<TMessage> : IProducerBuilder<TMessage>
         return this;
     }
 
+    public IProducerBuilder<TMessage> SendTimeout(TimeSpan sendTimeout)
+    {
+        _sendTimeout = sendTimeout;
+        return this;
+    }
+
     public IProducer<TMessage> Create()
     {
         if (string.IsNullOrEmpty(_topic))
@@ -151,6 +159,9 @@ public sealed class ProducerBuilder<TMessage> : IProducerBuilder<TMessage>
 
         if (_batchingMaxPublishDelay < TimeSpan.FromMilliseconds(1))
             throw new ConfigurationException("ProducerOptions.BatchingMaxPublishDelay must be at least 1 millisecond");
+
+        if (_sendTimeout < TimeSpan.Zero)
+            throw new ConfigurationException("ProducerOptions.SendTimeout may not be negative");
 
         var options = new ProducerOptions<TMessage>(_topic!, _schema)
         {
@@ -166,7 +177,8 @@ public sealed class ProducerBuilder<TMessage> : IProducerBuilder<TMessage>
             BatchingMaxMessages = _batchingMaxMessages,
             BatchingMaxBytes = _batchingMaxBytes,
             BatchingMaxPublishDelay = _batchingMaxPublishDelay,
-            BatcherType = _batcherType
+            BatcherType = _batcherType,
+            SendTimeout = _sendTimeout
         };
 
         if (_messageRouter is not null)

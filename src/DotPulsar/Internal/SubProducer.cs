@@ -22,6 +22,7 @@ using DotPulsar.Internal.Events;
 using DotPulsar.Internal.Exceptions;
 using DotPulsar.Internal.Extensions;
 using DotPulsar.Internal.PulsarApi;
+using System.Diagnostics;
 
 public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
 {
@@ -38,6 +39,16 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
     private readonly BatcherType _batcherType;
     private readonly IBatchMessageContainer<SendOp>? _container;
     private readonly List<PreparedBatchGroup> _groups;
+    private static readonly TimeSpan _maxDelay = TimeSpan.FromMilliseconds(int.MaxValue);
+
+    private readonly TimeSpan _sendTimeout;
+    private readonly bool _sendTimeoutEnabled;
+    private readonly long _batchingDelayTicks;
+    private readonly object _queueSync;
+    private readonly List<SendOp> _dequeued;
+    private readonly CancellationTokenSource? _sendTimeoutCts;
+    private readonly Task? _sendTimeoutTask;
+    private SendOp? _sendingHead;
     private long _lastSequenceIdPushed;
     private int _flushRequests;
     private int _flushesHandled;
@@ -62,7 +73,8 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
         uint batchingMaxMessages,
         uint batchingMaxBytes,
         TimeSpan batchingMaxPublishDelay,
-        ulong initialSequenceId)
+        ulong initialSequenceId,
+        TimeSpan sendTimeout)
     {
         _sendQueue = new AsyncQueueWithCursor<SendOp>(maxPendingMessages);
         _correlationId = correlationId;
@@ -78,10 +90,22 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
         _lastSequenceIdPushed = unchecked((long) initialSequenceId - 1);
         _flushRequests = 0;
         _flushesHandled = 0;
+        _sendTimeout = sendTimeout;
+        _sendTimeoutEnabled = sendTimeout > TimeSpan.Zero;
+        _batchingDelayTicks = enableBatching ? (long) (batchingMaxPublishDelay.TotalSeconds * Stopwatch.Frequency) : 0;
+        _queueSync = new object();
+        _dequeued = [];
         Topic = topic;
         _isDisposed = 0;
 
         _eventRegister.Register(new ProducerCreated(_correlationId));
+
+        if (!_sendTimeoutEnabled)
+            return;
+
+        _sendTimeoutCts = new CancellationTokenSource();
+        var sendTimeoutToken = _sendTimeoutCts.Token;
+        _sendTimeoutTask = Task.Run(() => SendTimeoutLoop(sendTimeoutToken), CancellationToken.None);
     }
 
     public async ValueTask DisposeAsync()
@@ -95,6 +119,17 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
 
     private async ValueTask InternalDispose()
     {
+        try
+        {
+            _sendTimeoutCts?.Cancel();
+            await (_sendTimeoutTask ?? Task.CompletedTask).ConfigureAwait(false);
+            _sendTimeoutCts?.Dispose();
+        }
+        catch
+        {
+            // Ignored
+        }
+
         try
         {
             _dispatcherCts?.Cancel();
@@ -115,6 +150,15 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
     {
         Guard();
         await _sendQueue.Enqueue(sendOp, cancellationToken).ConfigureAwait(false);
+
+        // The time that the message waited to be put in the queue does not count, because a message that waits for room in the queue is not waiting to be sent
+        if (!_sendTimeoutEnabled)
+            return;
+
+        using (EnterQueueSync())
+        {
+            sendOp.CreatedTimestamp = Stopwatch.GetTimestamp();
+        }
     }
 
     public async ValueTask WaitForSendQueueEmpty(CancellationToken cancellationToken)
@@ -151,24 +195,34 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
         using var responseQueue = new AsyncQueue<Task<BaseCommand>>();
         var responseProcessorTask = Task.Run(async () => await ResponseProcessor(responseQueue, cancellationToken), CancellationToken.None);
 
-        _sendQueue.ResetCursor();
+        using (EnterQueueSync())
+        {
+            _sendQueue.ResetCursor();
 
-        // The messages of a batch that was not finished by the previous dispatcher are still in the queue, and they are put in batches again
-        _container?.Clear();
+            // The messages of a batch that was not finished by the previous dispatcher are still in the queue, and they are put in batches again
+            _container?.Clear();
+        }
 
         while (!cancellationToken.IsCancellationRequested)
         {
             var sendOp = await _sendQueue.NextItem(cancellationToken).ConfigureAwait(false);
 
-            // A message that is part of a group is sent, even if the caller has cancelled it since
-            if (sendOp.BatchCount == 0)
+            using (EnterQueueSync())
             {
-                if (sendOp.CancellationToken.IsCancellationRequested)
+                // The send timeout has removed it, and has reset the cursor, so the next item is the first one in the queue
+                if (sendOp.IsRemoved)
+                    continue;
+
+                // A message that is part of a group is sent, even if the caller has ended it since
+                if (sendOp.BatchCount == 0 && sendOp.ReceiptTcs.Task.IsCompleted)
                 {
                     _sendQueue.RemoveCurrentItem();
                     continue;
                 }
+            }
 
+            if (sendOp.BatchCount == 0)
+            {
                 // The message is not written before its topic is registered with its transaction. The message is the next one to be written, so the messages behind it wait too, and the order is kept.
                 if (sendOp.RegistrationGate is not null && !await TryAwaitRegistrationGate(sendOp, cancellationToken).ConfigureAwait(false))
                     continue;
@@ -181,9 +235,20 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
                 }
             }
 
-            for (var i = 1; i < sendOp.BatchCount; ++i)
+            PreparedBatch? batch;
+
+            using (EnterQueueSync())
             {
-                _ = _sendQueue.MoveNext();
+                if (sendOp.IsRemoved)
+                    continue;
+
+                for (var i = 1; i < sendOp.BatchCount; ++i)
+                {
+                    _ = _sendQueue.MoveNext();
+                }
+
+                batch = sendOp.Batch;
+                _sendingHead = sendOp;
             }
 
             var tcs = new TaskCompletionSource<BaseCommand>();
@@ -199,8 +264,24 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
                 }
             }, TaskContinuationOptions.NotOnCanceled | TaskContinuationOptions.ExecuteSynchronously);
 
-            // Use CancellationToken.None here because otherwise it will throw exceptions on all fault actions even retry.
-            var success = await _executor.TryExecuteOnce(() => SendGroup(channel, sendOp, tcs, cancellationToken), CancellationToken.None).ConfigureAwait(false);
+            bool success;
+
+            try
+            {
+                // Use CancellationToken.None here because otherwise it will throw exceptions on all fault actions even retry.
+                success = await _executor.TryExecuteOnce(() => SendGroup(channel, sendOp, tcs, cancellationToken), CancellationToken.None).ConfigureAwait(false);
+            }
+            finally
+            {
+                using (EnterQueueSync())
+                {
+                    _sendingHead = null;
+
+                    // The send timeout has removed the messages while the batch was written, and it has left the batch to this method
+                    if (batch is not null && sendOp.IsRemoved)
+                        batch.Return();
+                }
+            }
 
             if (!success)
             {
@@ -235,17 +316,31 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
     // The cursor is at the last message of the group
     private void FailGroupAtCursor(SendOp head, Exception exception)
     {
-        var batch = head.Batch;
-        var count = head.BatchCount;
+        var failed = new List<SendOp>();
 
-        for (var i = 0; i < count; ++i)
+        using (EnterQueueSync())
         {
-            var sendOp = _sendQueue.RemoveCurrentItem();
-            sendOp.LeaveGroup();
-            _ = sendOp.ReceiptTcs.TrySetException(exception);
+            // The send timeout has failed them
+            if (head.IsRemoved)
+                return;
+
+            var batch = head.Batch;
+            var count = head.BatchCount;
+
+            for (var i = 0; i < count; ++i)
+            {
+                var sendOp = _sendQueue.RemoveCurrentItem();
+                sendOp.LeaveGroup();
+                failed.Add(sendOp);
+            }
+
+            batch?.Return();
         }
 
-        batch?.Return();
+        foreach (var sendOp in failed)
+        {
+            _ = sendOp.ReceiptTcs.TrySetException(exception);
+        }
     }
 
     // Upstream: ProducerImpl#serializeAndSendMessage, #canAddToBatch, #doBatchSendAndAdd, #triggerSendIfFullOrScheduleFlush, #batchMessageAndSend
@@ -254,109 +349,174 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
     private async ValueTask CreateGroups(SendOp first, int maxMessageSize, CancellationToken cancellationToken)
     {
         var container = _container!;
+        bool isFull;
 
-        if (!CanAddToBatch(first))
+        using (EnterQueueSync())
         {
-            first.MakeGroupOfOne();
-            _lastSequenceIdPushed = Math.Max(_lastSequenceIdPushed, unchecked((long) first.Metadata.SequenceId));
-            _sendQueue.MoveCursorBack(1);
-            return;
-        }
+            if (first.IsRemoved)
+                return;
 
-        // A message with a sequence id that is not higher than the one that was sent last might be a duplicate. It is not batched with other messages, so it is not sent together with a message that is not a duplicate.
-        var isPotentialDuplicate = unchecked((long) first.Metadata.SequenceId) <= _lastSequenceIdPushed;
-        var isFull = container.Add(first, maxMessageSize) || isPotentialDuplicate;
+            if (!CanAddToBatch(first))
+            {
+                first.MakeGroupOfOne();
+                _lastSequenceIdPushed = Math.Max(_lastSequenceIdPushed, unchecked((long) first.Metadata.SequenceId));
+                _sendQueue.MoveCursorBack(1);
+                return;
+            }
+
+            // A message with a sequence id that is not higher than the one that was sent last might be a duplicate. It is not batched with other messages, so it is not sent together with a message that is not a duplicate.
+            var isPotentialDuplicate = unchecked((long) first.Metadata.SequenceId) <= _lastSequenceIdPushed;
+            isFull = container.Add(first, maxMessageSize) || isPotentialDuplicate;
+        }
 
         while (!isFull)
         {
-            // The requests are read before the queue is, so a request that is read is for messages that are in the queue when it is empty. A request that is made later is not handled by this batch.
-            var flushRequests = Volatile.Read(ref _flushRequests);
+            SendOp? next;
+            TimeSpan remaining;
+            BatchStep step;
 
-            if (!_sendQueue.TryPeekNextItem(out var next) || next is null)
+            using (EnterQueueSync())
             {
-                if (flushRequests != _flushesHandled)
+                // The send timeout has removed the messages of the batch, so they are not sent
+                if (first.IsRemoved)
                 {
-                    _flushesHandled = flushRequests;
-                    break;
+                    container.Clear();
+                    return;
                 }
 
-                var remaining = container.GetRemainingPublishDelay();
-
-                if (remaining == TimeSpan.Zero)
-                    break;
-
-                _ = await _sendQueue.WaitForNextItem(remaining, cancellationToken).ConfigureAwait(false);
-                continue;
+                step = TakeNext(container, maxMessageSize, out next, out remaining);
             }
 
-            if (next.CancellationToken.IsCancellationRequested)
+            if (step == BatchStep.Close)
+                break;
+
+            if (step == BatchStep.WaitForNextItem)
+                _ = await _sendQueue.WaitForNextItem(remaining, cancellationToken).ConfigureAwait(false);
+
+            if (step == BatchStep.WaitForRegistration && !await WaitForRegistrationGate(next!, remaining, cancellationToken).ConfigureAwait(false))
+                break;
+
+            if (step == BatchStep.AwaitRegistration)
+                _ = await TryAwaitRegistrationGate(next!, cancellationToken).ConfigureAwait(false);
+        }
+
+        using (EnterQueueSync())
+        {
+            if (first.IsRemoved)
+            {
+                container.Clear();
+                return;
+            }
+
+            _groups.Clear();
+            container.CreateBatches(_groups, maxMessageSize);
+
+            var items = container.Items;
+
+            if (_batcherType == BatcherType.KeyBased)
+                _sendQueue.RewriteItemsUpToCursor(items);
+
+            for (var i = 0; i < _groups.Count; ++i)
+            {
+                var group = _groups[i];
+
+                if (group.Batch is null)
+                    items[group.Start].MakeGroupOfOne();
+                else
+                    items[group.Start].MakeFirstOfGroup(group.Batch);
+
+                // A group waits for the broker from when it is made, like the batch operation of the Java client, and not from when its first message was created
+                if (_sendTimeoutEnabled)
+                    items[group.Start].CreatedTimestamp = Stopwatch.GetTimestamp();
+
+                for (var j = 1; j < group.Count; ++j)
+                {
+                    items[group.Start + j].MakeMemberOfGroup();
+                }
+
+                _lastSequenceIdPushed = Math.Max(_lastSequenceIdPushed, unchecked((long) group.HighestSequenceId));
+            }
+
+            // The requests to flush are handled if there is nothing left to flush, so they do not flush the messages that are sent later
+            var handledRequests = Volatile.Read(ref _flushRequests);
+            if (!_sendQueue.TryPeekNextItem(out _))
+                _flushesHandled = handledRequests;
+
+            var numberOfMessages = items.Count;
+            container.Clear();
+            _sendQueue.MoveCursorBack(numberOfMessages);
+        }
+    }
+
+    private enum BatchStep
+    {
+        Continue,
+        Close,
+        WaitForNextItem,
+        WaitForRegistration,
+        AwaitRegistration
+    }
+
+    // Looks at the message after the cursor. The queue is synchronized when this is called.
+    private BatchStep TakeNext(IBatchMessageContainer<SendOp> container, int maxMessageSize, out SendOp? next, out TimeSpan remaining)
+    {
+        remaining = TimeSpan.Zero;
+
+        // The requests are read before the queue is, so a request that is read is for messages that are in the queue when it is empty. A request that is made later is not handled by this batch.
+        var flushRequests = Volatile.Read(ref _flushRequests);
+
+        if (!_sendQueue.TryPeekNextItem(out next) || next is null)
+        {
+            if (flushRequests != _flushesHandled)
+            {
+                _flushesHandled = flushRequests;
+                return BatchStep.Close;
+            }
+
+            remaining = container.GetRemainingPublishDelay();
+            return remaining == TimeSpan.Zero ? BatchStep.Close : BatchStep.WaitForNextItem;
+        }
+
+        // The message has been ended by the caller or by the send timeout
+        if (next.ReceiptTcs.Task.IsCompleted)
+        {
+            _ = _sendQueue.MoveNext();
+            _sendQueue.RemoveCurrentItem();
+            return BatchStep.Continue;
+        }
+
+        var registrationGate = next.RegistrationGate;
+
+        if (registrationGate is not null)
+        {
+            // Only a message that is registered is added to the batch, but the batch does not wait longer than it may wait for more messages
+            if (!registrationGate.IsCompleted)
+            {
+                remaining = container.GetRemainingPublishDelay();
+                return BatchStep.WaitForRegistration;
+            }
+
+            if (registrationGate.Status != TaskStatus.RanToCompletion)
             {
                 _ = _sendQueue.MoveNext();
-                _sendQueue.RemoveCurrentItem();
-                continue;
+                return BatchStep.AwaitRegistration;
             }
-
-            if (next.RegistrationGate is not null)
-            {
-                // Only a message that is registered is added to the batch, but the batch does not wait longer than it may wait for more messages
-                if (!next.RegistrationGate.IsCompleted && !await WaitForRegistrationGate(next, container.GetRemainingPublishDelay(), cancellationToken).ConfigureAwait(false))
-                    break;
-
-                if (next.RegistrationGate.Status != TaskStatus.RanToCompletion)
-                {
-                    _ = _sendQueue.MoveNext();
-                    _ = await TryAwaitRegistrationGate(next, cancellationToken).ConfigureAwait(false);
-                    continue;
-                }
-            }
-
-            if (!CanAddToBatch(next))
-                break;
-
-            var sequenceId = next.Metadata.SequenceId;
-
-            if (unchecked((long) sequenceId) <= _lastSequenceIdPushed || sequenceId <= container.HighestSequenceId)
-                break;
-
-            if (!container.CanAddToCurrentBatch(next, maxMessageSize))
-                break;
-
-            _ = _sendQueue.MoveNext();
-            isFull = container.Add(next, maxMessageSize);
         }
 
-        _groups.Clear();
-        container.CreateBatches(_groups, maxMessageSize);
+        if (!CanAddToBatch(next))
+            return BatchStep.Close;
 
-        var items = container.Items;
+        var sequenceId = next.Metadata.SequenceId;
 
-        if (_batcherType == BatcherType.KeyBased)
-            _sendQueue.RewriteItemsUpToCursor(items);
+        if (unchecked((long) sequenceId) <= _lastSequenceIdPushed || sequenceId <= container.HighestSequenceId)
+            return BatchStep.Close;
 
-        for (var i = 0; i < _groups.Count; ++i)
-        {
-            var group = _groups[i];
-            if (group.Batch is null)
-                items[group.Start].MakeGroupOfOne();
-            else
-                items[group.Start].MakeFirstOfGroup(group.Batch);
+        if (!container.CanAddToCurrentBatch(next, maxMessageSize))
+            return BatchStep.Close;
 
-            for (var j = 1; j < group.Count; ++j)
-            {
-                items[group.Start + j].MakeMemberOfGroup();
-            }
+        _ = _sendQueue.MoveNext();
 
-            _lastSequenceIdPushed = Math.Max(_lastSequenceIdPushed, unchecked((long) group.HighestSequenceId));
-        }
-
-        // The requests to flush are handled if there is nothing left to flush, so they do not flush the messages that are sent later
-        var handledRequests = Volatile.Read(ref _flushRequests);
-        if (!_sendQueue.TryPeekNextItem(out _))
-            _flushesHandled = handledRequests;
-
-        var numberOfMessages = items.Count;
-        container.Clear();
-        _sendQueue.MoveCursorBack(numberOfMessages);
+        return container.Add(next, maxMessageSize) ? BatchStep.Close : BatchStep.Continue;
     }
 
     // Upstream: ProducerImpl#canAddToBatch
@@ -389,13 +549,13 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
 
                 if (completed != registrationGate)
                 {
-                    _sendQueue.RemoveCurrentItem();
+                    RemoveCurrentItemUnlessRemoved(sendOp);
                     return false;
                 }
             }
 
             await registrationGate.ConfigureAwait(false); // Throws the exception of a failed registration
-            return true;
+            return !sendOp.IsRemoved;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -405,9 +565,19 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
         catch (Exception exception)
         {
             // The message was never written, so no receipt will come. Only this message fails, and the messages behind it are written.
-            _sendQueue.RemoveCurrentItem();
+            RemoveCurrentItemUnlessRemoved(sendOp);
             _ = sendOp.ReceiptTcs.TrySetException(exception);
             return false;
+        }
+    }
+
+    // The cursor is at the message, unless the send timeout has removed it
+    private void RemoveCurrentItemUnlessRemoved(SendOp sendOp)
+    {
+        using (EnterQueueSync())
+        {
+            if (!sendOp.IsRemoved)
+                _ = _sendQueue.RemoveCurrentItem();
         }
     }
 
@@ -447,28 +617,44 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
     private void ProcessReceipt(CommandSendReceipt sendReceipt)
     {
         var receiptSequenceId = sendReceipt.SequenceId;
+        SendOp? single = null;
+        PreparedBatch? batch;
+        int count;
 
-        if (!_sendQueue.TryPeek(out var sendOp) || sendOp is null)
-            throw new ProducerSendReceiptOrderingException($"Received sequenceId {receiptSequenceId} but send queue is empty");
-
-        var expectedSequenceId = GetSequenceId(sendOp);
-
-        if (receiptSequenceId != expectedSequenceId)
-            throw new ProducerSendReceiptOrderingException($"Received sequenceId {receiptSequenceId}. Expected {expectedSequenceId}");
-
-        // Upstream: ProducerImpl#ackReceived
-        if (sendOp.BatchCount > 1 && sendReceipt.HasHighestSequenceId && sendReceipt.HighestSequenceId != sendOp.Batch!.HighestSequenceId)
-            throw new ProducerSendReceiptOrderingException($"Received highestSequenceId {sendReceipt.HighestSequenceId} for sequenceId {receiptSequenceId}. Expected {sendOp.Batch.HighestSequenceId}");
-
-        var batch = sendOp.Batch;
-        var count = Math.Max(sendOp.BatchCount, 1);
-
-        for (var i = 0; i < count; ++i)
+        using (EnterQueueSync())
         {
-            _ = _sendQueue.TryPeek(out var member);
-            _sendQueue.Dequeue();
-            member!.LeaveGroup();
-            _ = member.ReceiptTcs.TrySetResult(BatchMessageIds.Create(sendReceipt.MessageId, _partition, Topic, count, i));
+            // Upstream: ProducerImpl#ackReceived
+            // The messages have been removed by the send timeout (or never were there) if the queue is empty or if the receipt is for an earlier message than the first one of the queue
+            if (!_sendQueue.TryPeek(out var sendOp) || sendOp is null)
+                return;
+
+            var expectedSequenceId = GetSequenceId(sendOp);
+
+            if (receiptSequenceId < expectedSequenceId)
+                return;
+
+            if (receiptSequenceId > expectedSequenceId)
+                throw new ProducerSendReceiptOrderingException($"Received sequenceId {receiptSequenceId}. Expected {expectedSequenceId}");
+
+            if (sendOp.BatchCount > 1 && sendReceipt.HasHighestSequenceId && sendReceipt.HighestSequenceId != sendOp.Batch!.HighestSequenceId)
+                throw new ProducerSendReceiptOrderingException($"Received highestSequenceId {sendReceipt.HighestSequenceId} for sequenceId {receiptSequenceId}. Expected {sendOp.Batch.HighestSequenceId}");
+
+            batch = sendOp.Batch;
+            count = Math.Max(sendOp.BatchCount, 1);
+            Dequeue(sendOp, count, out single);
+        }
+
+        // The messages are completed when the queue is not synchronized, because the continuations of them might run here
+        if (single is not null)
+            _ = single.ReceiptTcs.TrySetResult(BatchMessageIds.Create(sendReceipt.MessageId, _partition, Topic, 1, 0));
+        else
+        {
+            for (var i = 0; i < count; ++i)
+            {
+                _ = _dequeued[i].ReceiptTcs.TrySetResult(BatchMessageIds.Create(sendReceipt.MessageId, _partition, Topic, count, i));
+            }
+
+            _dequeued.Clear();
         }
 
         batch?.Return();
@@ -478,35 +664,184 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
     private void ProcessNotAllowedSendError(CommandSendError sendError)
     {
         var sequenceId = sendError.SequenceId;
+        SendOp? single = null;
+        PreparedBatch? batch;
+        int count;
 
-        if (!_sendQueue.TryPeek(out var sendOp) || sendOp is null)
-            throw new ProducerSendReceiptOrderingException($"Received send error for sequenceId {sequenceId} but send queue is empty");
+        using (EnterQueueSync())
+        {
+            if (!_sendQueue.TryPeek(out var sendOp) || sendOp is null)
+                return;
 
-        // The broker answers with the highest sequence id of a batch
-        var expectedSequenceId = GetSequenceId(sendOp);
-        var expectedHighestSequenceId = sendOp.BatchCount > 1 ? sendOp.Batch!.HighestSequenceId : expectedSequenceId;
+            // The broker answers with the highest sequence id of a batch
+            var expectedSequenceId = GetSequenceId(sendOp);
+            var expectedHighestSequenceId = sendOp.BatchCount > 1 ? sendOp.Batch!.HighestSequenceId : expectedSequenceId;
 
-        if (sequenceId != expectedSequenceId && sequenceId != expectedHighestSequenceId)
-            throw new ProducerSendReceiptOrderingException($"Received send error for sequenceId {sequenceId}. Expected {expectedSequenceId}");
+            if (sequenceId != expectedSequenceId && sequenceId != expectedHighestSequenceId)
+            {
+                // The messages have been removed by the send timeout if the error is for an earlier message than the first one of the queue
+                if (sequenceId < expectedSequenceId)
+                    return;
+
+                throw new ProducerSendReceiptOrderingException($"Received send error for sequenceId {sequenceId}. Expected {expectedSequenceId}");
+            }
+
+            batch = sendOp.Batch;
+            count = Math.Max(sendOp.BatchCount, 1);
+            Dequeue(sendOp, count, out single);
+        }
 
         var exception = new NotAllowedException(sendError.Message);
-        var batch = sendOp.Batch;
-        var count = Math.Max(sendOp.BatchCount, 1);
 
-        for (var i = 0; i < count; ++i)
+        if (single is not null)
+            _ = single.ReceiptTcs.TrySetException(exception);
+        else
         {
-            _ = _sendQueue.TryPeek(out var member);
-            _sendQueue.Dequeue();
-            member!.LeaveGroup();
-            _ = member.ReceiptTcs.TrySetException(exception);
+            for (var i = 0; i < count; ++i)
+            {
+                _ = _dequeued[i].ReceiptTcs.TrySetException(exception);
+            }
+
+            _dequeued.Clear();
         }
 
         batch?.Return();
     }
 
+    // Removes the messages of the group that starts with the first message of the queue. One message is returned as 'single' and several are put in '_dequeued', so that nothing is allocated for them.
+    private void Dequeue(SendOp first, int count, out SendOp? single)
+    {
+        single = null;
+
+        if (count == 1)
+        {
+            _sendQueue.Dequeue();
+            first.LeaveGroup();
+            single = first;
+            return;
+        }
+
+        _dequeued.Clear();
+
+        for (var i = 0; i < count; ++i)
+        {
+            _ = _sendQueue.TryPeek(out var sendOp);
+            _sendQueue.Dequeue();
+            sendOp!.LeaveGroup();
+            _dequeued.Add(sendOp);
+        }
+    }
+
     // The sequence id of the entry that the op is the first of, which is the sequence id that the broker answers with in a receipt
     private static ulong GetSequenceId(SendOp sendOp)
         => sendOp.BatchCount > 1 ? sendOp.Batch!.SequenceId : sendOp.Metadata.SequenceId;
+
+    private async Task SendTimeoutLoop(CancellationToken cancellationToken)
+    {
+        var next = _sendTimeout;
+
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(next > _maxDelay ? _maxDelay : next, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+
+            List<SendOp>? failed;
+
+            try
+            {
+                failed = RemoveTimedOut(ref next);
+            }
+            catch (AsyncQueueWithCursorDisposedException)
+            {
+                return;
+            }
+
+            if (failed is not null)
+                FailTimedOut(failed);
+        }
+    }
+
+    // Removes every message from the queue if the oldest message has waited for the send timeout. 'next' is set to the time until the next check.
+    private List<SendOp>? RemoveTimedOut(ref TimeSpan next)
+    {
+        using (EnterQueueSync())
+        {
+            // Upstream: ProducerImpl#run(Timeout)
+            // The oldest message decides, because the messages that were sent after it have not been waiting for longer. A message that is not stamped yet was put in the queue just now.
+            if (!_sendQueue.TryPeek(out var oldest) || oldest is null || oldest.CreatedTimestamp == 0)
+            {
+                next = _sendTimeout;
+                return null;
+            }
+
+            // A message that is not in a group waits in a batch, so it is counted from when the batch would have been sent, like the Java client does
+            var created = oldest.BatchCount == 0 ? oldest.CreatedTimestamp + _batchingDelayTicks : oldest.CreatedTimestamp;
+            var remaining = _sendTimeout - GetElapsed(created);
+
+            if (remaining > TimeSpan.Zero)
+            {
+                next = remaining;
+                return null;
+            }
+
+            next = _sendTimeout;
+            var failed = _sendQueue.RemoveAll();
+
+            foreach (var sendOp in failed)
+            {
+                var batch = sendOp.Batch;
+                sendOp.MakeRemoved();
+
+                // A batch that is being written is returned by the dispatcher when it is done with it
+                if (batch is not null && !ReferenceEquals(sendOp, _sendingHead))
+                    batch.Return();
+            }
+
+            return failed;
+        }
+    }
+
+    // The messages are failed when the queue is not synchronized, because the continuations of them might run here
+    private void FailTimedOut(List<SendOp> failed)
+    {
+        foreach (var sendOp in failed)
+        {
+            var exception = new OperationTimeoutException($"The producer can not send the message with the sequence id {sendOp.Metadata.SequenceId} to the topic '{Topic}' within the send timeout of {_sendTimeout}");
+            _ = sendOp.ReceiptTcs.TrySetException(exception);
+        }
+    }
+
+    private static TimeSpan GetElapsed(long timestamp)
+        => TimeSpan.FromTicks((long) ((Stopwatch.GetTimestamp() - timestamp) * (TimeSpan.TicksPerSecond / (double) Stopwatch.Frequency)));
+
+    // The queue is only synchronized when there is a send timeout, because that is what removes messages from it besides the dispatcher and the receipts
+    private QueueSyncScope EnterQueueSync()
+        => new(_sendTimeoutEnabled ? _queueSync : null);
+
+    private readonly struct QueueSyncScope : IDisposable
+    {
+        private readonly object? _sync;
+
+        public QueueSyncScope(object? sync)
+        {
+            _sync = sync;
+
+            if (sync is not null)
+                Monitor.Enter(sync);
+        }
+
+        public void Dispose()
+        {
+            if (_sync is not null)
+                Monitor.Exit(_sync);
+        }
+    }
 
     public async Task EstablishNewChannel(CancellationToken cancellationToken)
     {

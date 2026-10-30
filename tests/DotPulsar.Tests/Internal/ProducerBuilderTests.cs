@@ -45,14 +45,13 @@ public sealed class ProducerBuilderTests
     [Theory]
     [InlineData(-1)]
     [InlineData(0)]
-    public async Task Create_GivenBatchingMaxPublishDelayBelowOneMillisecond_ShouldThrowConfigurationException(int milliseconds)
+    public void Create_GivenBatchingMaxPublishDelayBelowOneMillisecond_ShouldThrowConfigurationException(int milliseconds)
     {
         // Arrange
-        await using var client = CreateClient();
+        var uut = new ProducerBuilder<string>(Substitute.For<IPulsarClient>(), Schema.String);
 
         // Act
-        var act = () => client
-            .NewProducer(Schema.String)
+        var act = () => uut
             .Topic("persistent://public/default/my-topic")
             .BatchingMaxPublishDelay(TimeSpan.FromMilliseconds(milliseconds))
             .Create();
@@ -126,6 +125,61 @@ public sealed class ProducerBuilderTests
         actual.BatchingMaxBytes.ShouldBe(128u * 1024u);
         actual.BatchingMaxPublishDelay.ShouldBe(TimeSpan.FromMilliseconds(1));
         actual.BatcherType.ShouldBe(BatcherType.Default);
+    }
+
+    // Upstream: ProducerBuilderImplTest#testProducerBuilderImplWhenSendTimeoutIsNegative, #testProducerBuilderImplWhenSendTimeoutPropertyIsNegative
+    // Java throws when the timeout is set, and DotPulsar when the producer is created.
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(-1000)]
+    public void Create_GivenNegativeSendTimeout_ShouldThrowConfigurationException(int milliseconds)
+    {
+        // Arrange
+        var uut = new ProducerBuilder<string>(Substitute.For<IPulsarClient>(), Schema.String);
+
+        // Act
+        var act = () => uut
+            .Topic("persistent://public/default/my-topic")
+            .SendTimeout(TimeSpan.FromMilliseconds(milliseconds))
+            .Create();
+
+        // Assert
+        var exception = act.ShouldThrow<ConfigurationException>();
+        exception.Message.ShouldBe("ProducerOptions.SendTimeout may not be negative");
+    }
+
+    [Fact]
+    public void Create_GivenSendTimeout_ShouldCopyItToProducerOptions()
+    {
+        // Arrange
+        var pulsarClient = Substitute.For<IPulsarClient>();
+        ProducerOptions<string>? actual = null;
+        pulsarClient.CreateProducer(Arg.Do<ProducerOptions<string>>(options => actual = options)).Returns(Substitute.For<IProducer<string>>());
+        var uut = new ProducerBuilder<string>(pulsarClient, Schema.String);
+
+        // Act
+        _ = uut.Topic("persistent://public/default/my-topic").SendTimeout(TimeSpan.FromSeconds(30)).Create();
+
+        // Assert
+        actual.ShouldNotBeNull();
+        actual.SendTimeout.ShouldBe(TimeSpan.FromSeconds(30));
+    }
+
+    [Fact]
+    public void Create_GivenDefaultOptions_ShouldHaveZeroSendTimeout()
+    {
+        // Arrange
+        var pulsarClient = Substitute.For<IPulsarClient>();
+        ProducerOptions<string>? actual = null;
+        pulsarClient.CreateProducer(Arg.Do<ProducerOptions<string>>(options => actual = options)).Returns(Substitute.For<IProducer<string>>());
+        var uut = new ProducerBuilder<string>(pulsarClient, Schema.String);
+
+        // Act
+        _ = uut.Topic("persistent://public/default/my-topic").Create();
+
+        // Assert
+        actual.ShouldNotBeNull();
+        actual.SendTimeout.ShouldBe(TimeSpan.Zero);
     }
 
     private static IPulsarClient CreateClient()

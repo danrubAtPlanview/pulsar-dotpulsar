@@ -240,9 +240,8 @@ public sealed class SubProducerBatchingTests
         //Arrange
         var channel = new FakeProducerChannel();
         await using var sut = await CreateSubProducer(channel);
-        using var cts = new CancellationTokenSource();
-        await cts.CancelAsync();
-        var cancelledOp = CreateSendOp(2, cancellationToken: cts.Token);
+        var cancelledOp = CreateSendOp(2);
+        _ = cancelledOp.ReceiptTcs.TrySetCanceled();
         var sendOps = new[] { CreateSendOp(1), cancelledOp, CreateSendOp(3) };
 
         //Act
@@ -252,7 +251,7 @@ public sealed class SubProducerBatchingTests
         //Assert
         await WhenCompleted([sendOps[0], sendOps[2]]);
         channel.Entries.ShouldHaveSingleItem().MessageSequenceIds.ShouldBe([1UL, 3UL]);
-        cancelledOp.ReceiptTcs.Task.IsCompleted.ShouldBeFalse();
+        cancelledOp.ReceiptTcs.Task.IsCanceled.ShouldBeTrue();
     }
 
     [Fact]
@@ -261,9 +260,9 @@ public sealed class SubProducerBatchingTests
         //Arrange
         var channel = new FakeProducerChannel();
         await using var sut = await CreateSubProducer(channel);
-        using var cts = new CancellationTokenSource();
-        await cts.CancelAsync();
-        var sendOps = new[] { CreateSendOp(1, cancellationToken: cts.Token), CreateSendOp(2), CreateSendOp(3) };
+        var cancelledOp = CreateSendOp(1);
+        _ = cancelledOp.ReceiptTcs.TrySetCanceled();
+        var sendOps = new[] { cancelledOp, CreateSendOp(2), CreateSendOp(3) };
 
         //Act
         await Send(sut, sendOps);
@@ -280,13 +279,12 @@ public sealed class SubProducerBatchingTests
         //Arrange
         var channel = new FakeProducerChannel { Respond = _ => null };
         await using var sut = await CreateSubProducer(channel, batchingMaxMessages: 3);
-        using var cts = new CancellationTokenSource();
-        var sendOps = new[] { CreateSendOp(1), CreateSendOp(2, cancellationToken: cts.Token), CreateSendOp(3) };
+        var sendOps = new[] { CreateSendOp(1), CreateSendOp(2), CreateSendOp(3) };
         await Send(sut, sendOps);
         await WaitFor.Until(() => channel.Entries.Count == 1, "the batch is sent");
 
         //Act
-        await cts.CancelAsync();
+        _ = sendOps[1].ReceiptTcs.TrySetCanceled();
         await sut.EstablishNewChannel(Current.CancellationToken);
         await WaitFor.Until(() => channel.Entries.Count == 2, "the batch is sent again");
 
@@ -747,8 +745,7 @@ public sealed class SubProducerBatchingTests
         string? key = null,
         (ulong Most, ulong Least)? transaction = null,
         long? deliverAt = null,
-        Task? registrationGate = null,
-        CancellationToken cancellationToken = default)
+        Task? registrationGate = null)
     {
         var metadata = new MessageMetadata { SequenceId = sequenceId };
 
@@ -767,7 +764,7 @@ public sealed class SubProducerBatchingTests
         var payload = new ReadOnlySequence<byte>(Encoding.UTF8.GetBytes($"payload-{sequenceId}"));
         var receiptTcs = new TaskCompletionSource<MessageId>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        return new SendOp(metadata, payload, receiptTcs, cancellationToken, registrationGate: registrationGate);
+        return new SendOp(metadata, payload, receiptTcs, registrationGate: registrationGate);
     }
 
     private static async Task<SubProducer> CreateSubProducer(
@@ -778,7 +775,8 @@ public sealed class SubProducerBatchingTests
         uint batchingMaxMessages = 1000,
         uint batchingMaxBytes = 128 * 1024,
         TimeSpan? batchingMaxPublishDelay = null,
-        int partition = 0)
+        int partition = 0,
+        TimeSpan? sendTimeout = null)
     {
         registerEvent ??= Substitute.For<IRegisterEvent>();
         var correlationId = Guid.NewGuid();
@@ -800,7 +798,8 @@ public sealed class SubProducerBatchingTests
             batchingMaxMessages,
             batchingMaxBytes,
             batchingMaxPublishDelay ?? _longDelay,
-            1);
+            1,
+            sendTimeout ?? TimeSpan.Zero);
 
         await sut.EstablishNewChannel(Current.CancellationToken);
 
