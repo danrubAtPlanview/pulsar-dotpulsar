@@ -86,6 +86,33 @@ await foreach (var message in consumer.Messages())
 
 See the [Transactions sample](https://github.com/apache/pulsar-dotpulsar/tree/master/samples/Transactions) for a complete program.
 
+## Batching and large messages
+
+A producer can send several messages to the broker as one batch, which is faster and uses less memory for small messages. Batching is off by default. A batch is sent when it has `BatchingMaxMessages` messages, `BatchingMaxBytes` bytes, or when `BatchingMaxPublishDelay` has passed. `Flush` sends the batch at once.
+
+```csharp
+await using var producer = client.NewProducer(Schema.String)
+    .Topic("persistent://public/default/mytopic")
+    .EnableBatching(true)
+    .BatchingMaxMessages(1000)
+    .BatchingMaxPublishDelay(TimeSpan.FromMilliseconds(10))
+    .SendTimeout(TimeSpan.FromSeconds(30)) // fail the sends that the broker has not acknowledged in time (default: no timeout)
+    .Create();
+
+var sends = Enumerable.Range(0, 100).Select(i => producer.Send($"message {i}").AsTask()).ToArray();
+await producer.Flush();
+await Task.WhenAll(sends);
+```
+
+A message that is larger than the maximum message size of the broker is rejected with a `TooLargeMessageException`, unless chunking is enabled. A producer that has chunking enabled splits such a message in chunks, and a consumer or a reader puts the chunks together and delivers one message. Chunking can not be combined with batching.
+
+```csharp
+await using var producer = client.NewProducer(Schema.ByteArray)
+    .Topic("persistent://public/default/mytopic")
+    .EnableChunking(true)
+    .Create();
+```
+
 ## Supported features
 
 - Service discovery
@@ -107,6 +134,9 @@ See the [Transactions sample](https://github.com/apache/pulsar-dotpulsar/tree/ma
 - Consumer - compacted topics
 - Reader API
 - Read/Consume/Acknowledge batched messages
+- Producer - batching of messages and flush
+- Producer - send timeout
+- Producer/Consumer/Reader - chunking of messages that are larger than the maximum message size of the broker
 - Transactions - produce and acknowledge (single and cumulative) in a transaction
 - Telemetry
     - [Tracing](https://github.com/apache/pulsar-dotpulsar/wiki/Tracing)
