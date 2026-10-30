@@ -225,8 +225,8 @@ public abstract class TransactionEndToEndTestsBase<TFixture> : IDisposable where
     }
 
     // Upstream: TransactionEndToEndTest#testSendTxnMessageTimeout
-    // Java replaces the connection of the producer with a mock that swallows the send command. Here the producer connects through a relay that swallows what the producer sends after it is connected,
-    // and the transaction is created by another client that connects to the broker directly, so the requests of the transaction are answered.
+    // Java replaces the connection of the producer with a mock that answers every request but never acknowledges a message. Here the producer connects through a relay that swallows the send commands
+    // of the producer after it is connected, and the transaction is created by another client that connects to the broker directly, so the requests of the transaction are answered.
     [Fact]
     public async Task Send_GivenTransactionalMessageWithoutReceipt_ShouldThrowOperationTimeoutException()
     {
@@ -238,7 +238,7 @@ public abstract class TransactionEndToEndTestsBase<TFixture> : IDisposable where
         await using var producer = producerClient.NewProducer(Schema.ByteArray).Topic(topic).EnableBatching(true).SendTimeout(TimeSpan.FromSeconds(1)).StateChangedHandler(_testOutputHelper.Log).Create();
         await producer.StateChangedTo(ProducerState.Connected, _cts.Token);
         var transaction = await transactionClient.NewTransaction().Timeout(TimeSpan.FromSeconds(5)).Create(_cts.Token);
-        relay.SwallowClientToBroker();
+        relay.SwallowSendCommands();
 
         //Act
         var act = async () => await producer.NewMessage().Transaction(transaction).Send(Encoding.UTF8.GetBytes("Hello Pulsar!"), _cts.Token);

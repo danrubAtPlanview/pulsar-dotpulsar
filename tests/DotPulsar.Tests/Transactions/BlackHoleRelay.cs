@@ -14,11 +14,14 @@
 
 namespace DotPulsar.Tests.Transactions;
 
+using DotPulsar.Internal.PulsarApi;
+using System.Buffers.Binary;
 using System.Net;
 using System.Net.Sockets;
 
-// A TCP relay between a client and a broker. After SwallowClientToBroker, the relay reads what the client sends and throws it away, but it keeps both sockets open.
-// The client then believes that it is connected, and the broker never answers. That is what a mocked connection of a producer does in the Java tests.
+// A TCP relay between a client and a broker. After SwallowSendCommands, the relay reads the frames that the client sends and throws away the ones that send a message, but it keeps both sockets open.
+// The client then believes that it is connected, and the broker never answers a send. That is what a mocked connection of a producer does in the Java tests: the mock answers every request, so a producer
+// can be closed, but a message that is sent is never acknowledged. Everything else that the client sends reaches the broker, so a producer that is closed does not wait for a broker that does not answer.
 public sealed class BlackHoleRelay : IAsyncDisposable
 {
     private readonly TcpListener _listener;
@@ -27,7 +30,7 @@ public sealed class BlackHoleRelay : IAsyncDisposable
     private readonly List<TcpClient> _sockets;
     private readonly List<Task> _tasks;
     private Task? _acceptTask;
-    private volatile bool _swallow;
+    private volatile bool _swallowSends;
 
     private BlackHoleRelay(Uri brokerServiceUrl)
     {
@@ -36,7 +39,7 @@ public sealed class BlackHoleRelay : IAsyncDisposable
         _cts = new CancellationTokenSource();
         _sockets = [];
         _tasks = [];
-        _swallow = false;
+        _swallowSends = false;
     }
 
     public Uri ServiceUrl => new($"pulsar://127.0.0.1:{((IPEndPoint) _listener.LocalEndpoint).Port}");
@@ -51,9 +54,9 @@ public sealed class BlackHoleRelay : IAsyncDisposable
         return Task.FromResult(relay);
     }
 
-    // From now on the client is read, but what it sends does not reach the broker. The broker can still send to the client.
-    public void SwallowClientToBroker()
-        => _swallow = true;
+    // From now on the commands of the client that send a message do not reach the broker. The broker can still send to the client.
+    public void SwallowSendCommands()
+        => _swallowSends = true;
 
     public async ValueTask DisposeAsync()
     {
@@ -111,6 +114,7 @@ public sealed class BlackHoleRelay : IAsyncDisposable
     private async Task Pump(TcpClient from, TcpClient to, bool isClientToBroker, CancellationToken cancellationToken)
     {
         var buffer = new byte[16 * 1024];
+        var frames = new List<byte>();
 
         try
         {
@@ -124,15 +128,45 @@ public sealed class BlackHoleRelay : IAsyncDisposable
                 if (read == 0)
                     return;
 
-                if (isClientToBroker && _swallow)
+                if (!isClientToBroker)
+                {
+                    await destination.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
                     continue;
+                }
 
-                await destination.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+                frames.AddRange(new ArraySegment<byte>(buffer, 0, read));
+                await ForwardCompleteFrames(frames, destination, cancellationToken);
             }
         }
         catch
         {
             // The sockets are closed when the relay is disposed
         }
+    }
+
+    // A frame is the size of the rest of the frame (4 bytes), the size of the command (4 bytes), the command, and the metadata and the payload of a message
+    private async Task ForwardCompleteFrames(List<byte> frames, NetworkStream destination, CancellationToken cancellationToken)
+    {
+        var offset = 0;
+
+        while (frames.Count - offset >= 8)
+        {
+            var frameSize = 4 + (int) BinaryPrimitives.ReadUInt32BigEndian(frames.GetRange(offset, 4).ToArray());
+
+            if (frames.Count - offset < frameSize)
+                break;
+
+            var frame = frames.GetRange(offset, frameSize).ToArray();
+            var commandSize = (int) BinaryPrimitives.ReadUInt32BigEndian(frame.AsSpan(4, 4));
+            var command = BaseCommand.Parser.ParseFrom(frame, 8, commandSize);
+            offset += frameSize;
+
+            if (_swallowSends && command.Type == BaseCommand.Types.Type.Send)
+                continue;
+
+            await destination.WriteAsync(frame, cancellationToken);
+        }
+
+        frames.RemoveRange(0, offset);
     }
 }
