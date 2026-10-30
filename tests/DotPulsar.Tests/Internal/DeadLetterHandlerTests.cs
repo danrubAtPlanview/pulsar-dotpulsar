@@ -454,6 +454,31 @@ public sealed class DeadLetterHandlerTests
         initialSubscriptionName.ShouldBe("dlq-subscription");
     }
 
+    // Upstream: ConsumerImpl#initDeadLetterProducerIfNeeded
+    [Fact]
+    public async Task TryDeadLetter_GivenFirstUse_ShouldCreateProducerThatChunksAndDoesNotBatch()
+    {
+        //Arrange
+        var uut = CreateHandler();
+        uut.Register(1, 2, [CreateMessage(0, "payload-0")]);
+        ProducerOptions<ReadOnlySequence<byte>>? options = null;
+        _producerFactory(Arg.Any<ProducerOptions<ReadOnlySequence<byte>>>(), Arg.Any<string?>())
+            .Returns(call =>
+            {
+                options = call.Arg<ProducerOptions<ReadOnlySequence<byte>>>();
+                return _producer;
+            });
+
+        //Act
+        _ = await uut.TryDeadLetter(new MessageId(1, 2, 0, -1, Topic), _acknowledge, Current.CancellationToken);
+
+        //Assert
+        options.ShouldNotBeNull();
+        options.EnableChunking.ShouldBeTrue();
+        options.EnableBatching.ShouldBeFalse("chunking and batching can not be combined");
+        options.ChunkMaxMessageSize.ShouldBe(0);
+    }
+
     [Fact]
     public async Task TryDeadLetter_GivenNoInitialSubscriptionName_ShouldCreateProducerWithoutIt()
     {
