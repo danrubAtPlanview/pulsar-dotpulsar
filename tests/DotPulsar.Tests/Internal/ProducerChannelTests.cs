@@ -125,7 +125,7 @@ public sealed class ProducerChannelTests
         //Arrange
         var connection = Substitute.For<IConnection>();
         connection.MaxMessageSize.Returns(1234);
-        var uut = new ProducerChannel(1, "producer", connection, null, null);
+        var uut = new ProducerChannel(1, "producer", connection, null, null, null, ProducerCryptoFailureAction.Fail);
 
         //Act
         var actual = uut.MaxMessageSize;
@@ -144,7 +144,7 @@ public sealed class ProducerChannelTests
             return Task.CompletedTask;
         });
 
-        return new ProducerChannel(1, "producer", connection, null, null);
+        return new ProducerChannel(1, "producer", connection, null, null, null, ProducerCryptoFailureAction.Fail);
     }
 
     private static ProducerChannel CreateChannel(List<SentMessage> written)
@@ -171,6 +171,6 @@ public sealed class ProducerChannelTests
             return Task.CompletedTask;
         });
 
-        return new ProducerChannel(1, "producer", connection, null, null);
+        return new ProducerChannel(1, "producer", connection, null, null, null, ProducerCryptoFailureAction.Fail);
     }
 }

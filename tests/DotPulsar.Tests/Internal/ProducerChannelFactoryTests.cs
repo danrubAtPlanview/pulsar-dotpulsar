@@ -64,7 +64,9 @@ public sealed class ProducerChannelFactoryTests
             null,
             null,
             transactionsEnabled,
-            null);
+            null,
+            null,
+            ProducerCryptoFailureAction.Fail);
 
     // Upstream: ProducerBuilderImpl#initialSubscriptionName
     [Fact]
@@ -116,6 +118,8 @@ public sealed class ProducerChannelFactoryTests
             null,
             null,
             false,
-            initialSubscriptionName);
+            initialSubscriptionName,
+            null,
+            ProducerCryptoFailureAction.Fail);
     }
 }

@@ -429,7 +429,7 @@ public sealed class ProducerChannelChunkingTests
             return Task.CompletedTask;
         });
 
-        return new ProducerChannel(1, _producerName, connection, compressorFactory, null);
+        return new ProducerChannel(1, _producerName, connection, compressorFactory, null, null, ProducerCryptoFailureAction.Fail);
     }
 
     private sealed record Written(CommandSend Command, MessageMetadata Metadata, byte[] Payload, bool SkipSizeCheck);

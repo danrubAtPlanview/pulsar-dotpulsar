@@ -15,6 +15,7 @@
 namespace DotPulsar.Internal;
 
 using DotPulsar.Internal.Abstractions;
+using DotPulsar.Internal.Crypto;
 using DotPulsar.Internal.Extensions;
 using DotPulsar.Internal.PulsarApi;
 
@@ -26,6 +27,8 @@ public sealed class ProducerChannelFactory : IProducerChannelFactory
     private readonly CommandProducer _commandProducer;
     private readonly ICompressorFactory? _compressorFactory;
     private readonly Schema? _schema;
+    private readonly MessageCrypto? _messageCrypto;
+    private readonly ProducerCryptoFailureAction _cryptoFailureAction;
     private ulong? _topicEpoch;
 
     public ProducerChannelFactory(
@@ -39,7 +42,9 @@ public sealed class ProducerChannelFactory : IProducerChannelFactory
         ICompressorFactory? compressorFactory,
         Dictionary<string, string>? properties,
         bool transactionsEnabled,
-        string? initialSubscriptionName)
+        string? initialSubscriptionName,
+        MessageCrypto? messageCrypto,
+        ProducerCryptoFailureAction cryptoFailureAction)
     {
         _correlationId = correlationId;
         _eventRegister = eventRegister;
@@ -68,7 +73,14 @@ public sealed class ProducerChannelFactory : IProducerChannelFactory
         if (!string.IsNullOrEmpty(initialSubscriptionName))
             _commandProducer.InitialSubscriptionName = initialSubscriptionName;
 
+        // Upstream: ProducerImpl#connectionOpened (CommandProducer encrypted). The broker of a namespace that requires encryption rejects a producer that does not set it, and it rejects the messages that are not encrypted.
+        // It is only set when the messages are encrypted, so that the bytes sent by clients without encryption do not change.
+        if (messageCrypto is not null)
+            _commandProducer.Encrypted = true;
+
         _compressorFactory = compressorFactory;
+        _messageCrypto = messageCrypto;
+        _cryptoFailureAction = cryptoFailureAction;
     }
 
     public async Task<IProducerChannel> Create(CancellationToken cancellationToken)
@@ -87,7 +99,7 @@ public sealed class ProducerChannelFactory : IProducerChannelFactory
         var response = await connection.Send(_commandProducer, channel, cancellationToken).ConfigureAwait(false);
         _topicEpoch = response.TopicEpoch;
         var schemaVersion = await GetSchemaVersion(connection, cancellationToken).ConfigureAwait(false);
-        return new ProducerChannel(response.ProducerId, response.ProducerName, connection, _compressorFactory, schemaVersion);
+        return new ProducerChannel(response.ProducerId, response.ProducerName, connection, _compressorFactory, schemaVersion, _messageCrypto, _cryptoFailureAction);
     }
 
     private async ValueTask<byte[]?> GetSchemaVersion(IConnection connection, CancellationToken cancellationToken)

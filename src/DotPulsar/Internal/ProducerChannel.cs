@@ -14,8 +14,10 @@
 
 namespace DotPulsar.Internal;
 
+using DotPulsar.Exceptions;
 using DotPulsar.Internal.Abstractions;
 using DotPulsar.Internal.Chunking;
+using DotPulsar.Internal.Crypto;
 using DotPulsar.Internal.PulsarApi;
 using Google.Protobuf;
 using Microsoft.Extensions.ObjectPool;
@@ -29,13 +31,18 @@ public sealed class ProducerChannel : IProducerChannel
     private readonly IConnection _connection;
     private readonly ICompressorFactory? _compressorFactory;
     private readonly byte[]? _schemaVersion;
+    private readonly MessageCrypto? _messageCrypto;
+    private readonly ProducerCryptoFailureAction _cryptoFailureAction;
 
+    // The message crypto is owned by the sub producer, because it is used by every channel that the sub producer has, so the channel does not dispose it
     public ProducerChannel(
         ulong id,
         string name,
         IConnection connection,
         ICompressorFactory? compressorFactory,
-        byte[]? schemaVersion)
+        byte[]? schemaVersion,
+        MessageCrypto? messageCrypto,
+        ProducerCryptoFailureAction cryptoFailureAction)
     {
         var sendPackagePolicy = new DefaultPooledObjectPolicy<SendPackage>();
         _sendPackagePool = new DefaultObjectPool<SendPackage>(sendPackagePolicy);
@@ -44,6 +51,8 @@ public sealed class ProducerChannel : IProducerChannel
         _connection = connection;
         _compressorFactory = compressorFactory;
         _schemaVersion = schemaVersion;
+        _messageCrypto = messageCrypto;
+        _cryptoFailureAction = cryptoFailureAction;
     }
 
     public int MaxMessageSize
@@ -69,6 +78,7 @@ public sealed class ProducerChannel : IProducerChannel
         var sendPackage = _sendPackagePool.Get();
         var resetSchema = false;
         var resetCompression = false;
+        var resetEncryption = false;
 
         try
         {
@@ -95,7 +105,10 @@ public sealed class ProducerChannel : IProducerChannel
                 resetCompression = true;
             }
 
-            // TODO(WP9-producer): Encrypt sendPackage.Payload here, after it has been compressed. A message that is split in chunks is encrypted in SendChunk, one chunk at a time.
+            // Upstream: ProducerImpl#serializeAndSendMessage, BatchMessageContainerImpl#buildAndEncryptBatchPayload
+            // The payload is encrypted after it has been compressed. A batch is encrypted as a whole, so it has one IV. A message that is split in chunks is encrypted in SendChunk, one chunk at a time.
+            if (_messageCrypto is not null)
+                resetEncryption = Encrypt(sendPackage, metadata);
 
             await _connection.Send(sendPackage, responseTcs, cancellationToken).ConfigureAwait(false);
         }
@@ -109,6 +122,9 @@ public sealed class ProducerChannel : IProducerChannel
                 metadata.Compression = CompressionType.None;
                 metadata.UncompressedSize = 0;
             }
+
+            if (resetEncryption)
+                ResetEncryption(metadata);
 
             _sendPackagePool.Return(sendPackage);
         }
@@ -137,8 +153,10 @@ public sealed class ProducerChannel : IProducerChannel
             payload = compressor.Compress(payload);
         }
 
-        // TODO(WP9-producer): The bytes that encryption adds to every chunk must be subtracted from the size of the chunks here, by passing them as the last argument
-        return ChunkedSendState.Plan(plannedMetadata, payload, MaxMessageSize, chunkMaxMessageSize, 0);
+        // Upstream: ProducerImpl#sendAsync
+        // Every chunk is encrypted, and that adds the tag and the encryption fields of the metadata to it, so the size of the chunks is reduced by that. Java does not do this, and relies on the padding of the broker.
+        var encryptionOverhead = _messageCrypto?.GetMetadataOverhead() ?? 0;
+        return ChunkedSendState.Plan(plannedMetadata, payload, MaxMessageSize, chunkMaxMessageSize, encryptionOverhead);
     }
 
     // Upstream: ProducerImpl#serializeAndSendMessage
@@ -146,25 +164,53 @@ public sealed class ProducerChannel : IProducerChannel
     public async Task SendChunk(ChunkedSendState state, int chunkId, TaskCompletionSource<BaseCommand> responseTcs, CancellationToken cancellationToken)
     {
         var sendPackage = _sendPackagePool.Get();
+        var metadata = state.Metadata;
+        var resetEncryption = false;
 
         try
         {
-            var metadata = state.Metadata;
-
             if (state.IsChunked)
                 metadata.ChunkId = chunkId;
 
             PrepareCommand(sendPackage, metadata, true);
             sendPackage.Payload = state.GetChunk(chunkId);
 
-            // TODO(WP9-producer): Encrypt sendPackage.Payload here, which is the chunk. Every chunk is encrypted on its own, with its own encryption parameters in the metadata, and the metadata is serialized before the chunk is sent.
+            // Upstream: ProducerImpl#serializeAndSendMessage
+            // Every chunk is encrypted on its own, with its own IV, and the metadata of the message is shared by the chunks. The metadata is serialized when the chunk is written, so the encryption fields of the chunk are removed after that.
+            if (_messageCrypto is not null)
+                resetEncryption = Encrypt(sendPackage, metadata);
 
             await _connection.Send(sendPackage, responseTcs, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
+            if (resetEncryption)
+                ResetEncryption(metadata);
+
             _sendPackagePool.Return(sendPackage);
         }
+    }
+
+    // Upstream: ProducerImpl#encryptMessage
+    // Returns true if the payload is encrypted, which sets the encryption fields of the metadata. If it can not be, then the exception is thrown, unless the action is to send the message unencrypted, which returns false.
+    private bool Encrypt(SendPackage sendPackage, MessageMetadata metadata)
+    {
+        try
+        {
+            sendPackage.Payload = _messageCrypto!.Encrypt(metadata, sendPackage.Payload);
+            return true;
+        }
+        catch (CryptoException) when (_cryptoFailureAction == ProducerCryptoFailureAction.Send)
+        {
+            return false;
+        }
+    }
+
+    // The metadata is pooled, or shared by the chunks and by the sends of a message that is sent again, so the fields that encryption has set can not be left on it
+    private static void ResetEncryption(MessageMetadata metadata)
+    {
+        metadata.EncryptionKeys.Clear();
+        metadata.ClearEncryptionParam();
     }
 
     private void PrepareCommand(SendPackage sendPackage, MessageMetadata metadata, bool skipSizeCheck)

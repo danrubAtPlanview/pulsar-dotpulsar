@@ -17,6 +17,7 @@ namespace DotPulsar.Internal;
 using DotPulsar.Abstractions;
 using DotPulsar.Exceptions;
 using DotPulsar.Internal.Abstractions;
+using DotPulsar.Internal.Crypto;
 using DotPulsar.Internal.Extensions;
 using DotPulsar.Internal.Transactions;
 using System.Collections.Concurrent;
@@ -40,6 +41,7 @@ public sealed class Producer<TMessage> : IProducer<TMessage>, IRegisterEvent
     private readonly IMessageRouter _messageRouter;
     private readonly CancellationTokenSource _cts;
     private readonly Executor _executor;
+    private MessageCrypto? _initialMessageCrypto;
     private int _isDisposed;
     private int _producerCount;
     private Exception? _faultException;
@@ -57,6 +59,11 @@ public sealed class Producer<TMessage> : IProducer<TMessage>, IRegisterEvent
         ICompressorFactory? compressorFactory,
         bool transactionsEnabled)
     {
+        // Upstream: ProducerImpl#ProducerImpl, #addPublicKeyCipher
+        // The public keys are read and the data key is wrapped now, so that a key that can not be used makes the creation of the producer fail, before anything is started.
+        // The first sub producer takes this message crypto, and the sub producers of the other partitions of the topic create their own, so each of them rotates its data key on its own.
+        _initialMessageCrypto = CreateMessageCrypto(options);
+
         _operationName = $"{options.Topic} send";
         _activityTags =
         [
@@ -87,6 +94,30 @@ public sealed class Producer<TMessage> : IProducer<TMessage>, IRegisterEvent
         _producers = new ConcurrentDictionary<int, SubProducer>();
         SendChannel = new SendChannel<TMessage>(this);
         _ = Setup();
+    }
+
+    // Upstream: ProducerConfigurationData#isEncryptionEnabled
+    // Messages are encrypted if there is at least one encryption key and a crypto key reader. The data key is created, and wrapped for every key, before the message crypto is returned.
+    private static MessageCrypto? CreateMessageCrypto(ProducerOptions<TMessage> options)
+    {
+        var cryptoKeyReader = options.CryptoKeyReader;
+
+        if (cryptoKeyReader is null || !options.EncryptionKeys.Any())
+            return null;
+
+        var messageCrypto = new MessageCrypto(true);
+
+        try
+        {
+            messageCrypto.AddPublicKeyCipher(options.EncryptionKeys, cryptoKeyReader);
+        }
+        catch
+        {
+            messageCrypto.Dispose();
+            throw;
+        }
+
+        return messageCrypto;
     }
 
     private async Task Setup()
@@ -164,7 +195,8 @@ public sealed class Producer<TMessage> : IProducer<TMessage>, IRegisterEvent
         var schema = _options.Schema;
         var producerAccessMode = (PulsarApi.ProducerAccessMode) _options.ProducerAccessMode;
         var producerProperties = _options.ProducerProperties;
-        var factory = new ProducerChannelFactory(correlationId, _processManager, _connectionPool, topic, producerName, producerAccessMode, schema.SchemaInfo, _compressorFactory, producerProperties, _transactionsEnabled, _options.InitialSubscriptionName);
+        var messageCrypto = Interlocked.Exchange(ref _initialMessageCrypto, null) ?? CreateMessageCrypto(_options);
+        var factory = new ProducerChannelFactory(correlationId, _processManager, _connectionPool, topic, producerName, producerAccessMode, schema.SchemaInfo, _compressorFactory, producerProperties, _transactionsEnabled, _options.InitialSubscriptionName, messageCrypto, _options.CryptoFailureAction);
         var stateManager = CreateStateManager();
         var initialChannel = new NotReadyChannel<TMessage>();
         var executor = new Executor(correlationId, _processManager, _exceptionHandler);
@@ -186,7 +218,8 @@ public sealed class Producer<TMessage> : IProducer<TMessage>, IRegisterEvent
             _options.InitialSequenceId,
             _options.SendTimeout,
             IsChunkingEnabled(topic),
-            _options.ChunkMaxMessageSize);
+            _options.ChunkMaxMessageSize,
+            messageCrypto);
         var process = new ProducerProcess(correlationId, stateManager, producer);
         _processManager.Add(process);
         process.Start();
@@ -210,6 +243,9 @@ public sealed class Producer<TMessage> : IProducer<TMessage>, IRegisterEvent
 
         foreach (var subProducer in _producers.Values)
             await subProducer.DisposeAsync().ConfigureAwait(false);
+
+        // The message crypto that no sub producer has taken, which is the case if the producer is disposed before its sub producers are created
+        Interlocked.Exchange(ref _initialMessageCrypto, null)?.Dispose();
 
         _state.SetState(ProducerState.Closed);
     }

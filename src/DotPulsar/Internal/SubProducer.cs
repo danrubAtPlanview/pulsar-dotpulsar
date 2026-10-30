@@ -19,6 +19,7 @@ using DotPulsar.Exceptions;
 using DotPulsar.Internal.Abstractions;
 using DotPulsar.Internal.Batching;
 using DotPulsar.Internal.Chunking;
+using DotPulsar.Internal.Crypto;
 using DotPulsar.Internal.Events;
 using DotPulsar.Internal.Exceptions;
 using DotPulsar.Internal.Extensions;
@@ -51,6 +52,7 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
     private readonly List<SendOp> _dequeued;
     private readonly CancellationTokenSource? _sendTimeoutCts;
     private readonly Task? _sendTimeoutTask;
+    private readonly MessageCrypto? _messageCrypto;
     private SendOp? _sendingHead;
     private long _lastSequenceIdPushed;
     private int _flushRequests;
@@ -79,7 +81,8 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
         ulong initialSequenceId,
         TimeSpan sendTimeout,
         bool enableChunking = false,
-        int chunkMaxMessageSize = 0)
+        int chunkMaxMessageSize = 0,
+        MessageCrypto? messageCrypto = null)
     {
         _sendQueue = new AsyncQueueWithCursor<SendOp>(maxPendingMessages);
         _correlationId = correlationId;
@@ -102,6 +105,7 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
         _batchingDelayTicks = enableBatching ? (long) (batchingMaxPublishDelay.TotalSeconds * Stopwatch.Frequency) : 0;
         _queueSync = new object();
         _dequeued = [];
+        _messageCrypto = messageCrypto;
         Topic = topic;
         _isDisposed = 0;
 
@@ -147,6 +151,9 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
         {
             // Ignored
         }
+
+        // The dispatcher is done, so nothing encrypts a message anymore
+        _messageCrypto?.Dispose();
 
         await _sendQueue.DisposeAsync().ConfigureAwait(false);
         await _channel.ClosedByClient(CancellationToken.None).ConfigureAwait(false);
@@ -335,6 +342,12 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
             // The message or the batch is not written, so no receipt will come. The messages of the group fail, and the producer is not faulted.
             FailGroupAtCursor(head, exception);
         }
+        catch (CryptoException exception)
+        {
+            // Upstream: ProducerImpl#sendAsync (PulsarClientException), BatchMessageContainerImpl#createOpSendMsg
+            // The message or the batch could not be encrypted, so it is not written and no receipt will come. The messages of the group fail, and the producer is not faulted.
+            FailGroupAtCursor(head, exception);
+        }
     }
 
     // Upstream: ProducerImpl#sendAsync
@@ -379,7 +392,18 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
             if (head.IsRemoved)
                 return;
 
-            await channel.SendChunk(state, chunkId, CreateResponse(responseQueue), cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await channel.SendChunk(state, chunkId, CreateResponse(responseQueue), cancellationToken).ConfigureAwait(false);
+            }
+            catch (CryptoException exception)
+            {
+                // Upstream: ProducerImpl#sendAsync (PulsarClientException)
+                // The chunk could not be encrypted, so the message fails and the chunks that are left are not written. The chunks that were written stay with the broker, and the answers to them are ignored,
+                // because the message is not in the queue anymore. A consumer drops the chunks that it received when the message expires.
+                FailGroupAtCursor(head, exception);
+                return;
+            }
         }
     }
 

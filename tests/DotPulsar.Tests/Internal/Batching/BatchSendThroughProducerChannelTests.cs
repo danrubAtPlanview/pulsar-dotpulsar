@@ -35,7 +35,7 @@ public sealed class BatchSendThroughProducerChannelTests
         var decompressorFactory = CompressionFactories.DecompressorFactories().Single(factory => factory.CompressionType == CompressionType.Zlib);
         var sent = new List<(MessageMetadata Metadata, byte[] Payload, ulong CommandSequenceId)>();
         var connection = CreateConnection(sent);
-        var uut = new ProducerChannel(5, "producer", connection, compressorFactory, null);
+        var uut = new ProducerChannel(5, "producer", connection, compressorFactory, null, null, ProducerCryptoFailureAction.Fail);
         var batch = CreateBatch(20, (7, 13));
         var uncompressed = batch.Payload.ToArray();
 
@@ -70,7 +70,7 @@ public sealed class BatchSendThroughProducerChannelTests
         //Arrange
         var compressorFactory = CompressionFactories.CompressorFactories().Single(factory => factory.CompressionType == CompressionType.Zlib);
         var sent = new List<(MessageMetadata Metadata, byte[] Payload, ulong CommandSequenceId)>();
-        var uut = new ProducerChannel(5, "producer", CreateConnection(sent), compressorFactory, null);
+        var uut = new ProducerChannel(5, "producer", CreateConnection(sent), compressorFactory, null, null, ProducerCryptoFailureAction.Fail);
         var batch = CreateBatch(5, null);
 
         //Act
@@ -95,7 +95,7 @@ public sealed class BatchSendThroughProducerChannelTests
     {
         //Arrange
         var sent = new List<(MessageMetadata Metadata, byte[] Payload, ulong CommandSequenceId)>();
-        var uut = new ProducerChannel(5, "producer", CreateConnection(sent), null, null);
+        var uut = new ProducerChannel(5, "producer", CreateConnection(sent), null, null, null, ProducerCryptoFailureAction.Fail);
         var batch = CreateBatch(3, null);
         var expected = batch.Payload.ToArray();
 
