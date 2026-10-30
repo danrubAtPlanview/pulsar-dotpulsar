@@ -298,6 +298,8 @@ public sealed class DeadLetterHandler<TMessage> : IAsyncDisposable
     }
 
     // Upstream: ConsumerImpl#initDeadLetterProducerIfNeeded (C# deviation: no 'enableChunking(true)' until chunking is supported, and no 'blockIfQueueFull(false)')
+    // TODO(WP8-producer): Enable chunking (and disable batching) here. A chunked message that the consumer has assembled is larger than the maximum message size of the
+    // broker, so until then the dead letter producer can not send it, and the message is redelivered instead.
     private ProducerOptions<ReadOnlySequence<byte>> CreateProducerOptions()
         => new(DeadLetterTopic, new DeadLetterSchema(_schemaInfo))
         {
