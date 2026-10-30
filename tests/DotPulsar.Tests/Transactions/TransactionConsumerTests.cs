@@ -53,6 +53,7 @@ public sealed class TransactionConsumerTests : IDisposable
         await using var producer = client.NewProducer(Schema.ByteArray)
             .Topic(topicName)
             .SendTimeout(TimeSpan.FromSeconds(5))
+            .EnableBatching(true) // Upstream relies on the default of the Java client, which is batching
             .StateChangedHandler(_testOutputHelper.Log)
             .Create();
         var consumer = await CreateConsumer(client, topicName, subName, cts.Token);
@@ -117,6 +118,7 @@ public sealed class TransactionConsumerTests : IDisposable
         await using var producer = client.NewProducer(Schema.ByteArray)
             .Topic(topicName)
             .SendTimeout(TimeSpan.FromSeconds(5))
+            .EnableBatching(true) // Upstream relies on the default of the Java client, which is batching
             .StateChangedHandler(_testOutputHelper.Log)
             .Create();
         var consumer = await CreateConsumer(client, topicName, subName, cts.Token);
@@ -316,10 +318,10 @@ public sealed class TransactionConsumerTests : IDisposable
     }
 
     // Upstream: TransactionProduceTest#ackCommitTest
-    // The producer of the upstream test has BatchingMaxMessages of 1, so every message is a batch of one. DotPulsar does not batch yet, and
-    // its round robin router already changes the partition for every message. The pending acks are read from the admin API of the broker.
-    // The transaction of the upstream test has a timeout of 5 seconds, which the test only meets because the broker is read in memory there.
-    // Every pending ack is a request to the admin API here, so the transaction has the timeout of ackAbortTest, which is 30 seconds.
+    // The producer of the upstream test has a BatchingMaxMessages of 1, so every message is a batch of one. The round robin router of DotPulsar already
+    // changes the partition for every message. The pending acks are read from the admin API of the broker, where upstream reads them from the memory of the broker.
+    // Upstream creates the transaction before the producer and the consumer. The timeout of 5 seconds is the same here, but the transaction is created when the messages have been received:
+    // a consumer reports that it is active just before its channel can be used, and a receive in between waits for 3 seconds before it tries again, which a running transaction does not survive.
     [Fact]
     public async Task Commit_GivenTransactionalAcks_ShouldClearPendingAcksAndNotRedeliver()
     {
@@ -329,9 +331,10 @@ public sealed class TransactionConsumerTests : IDisposable
         var topicName = TransactionFixture.CreateTopicName("ack-commit");
         await _fixture.CreatePartitionedTopic(topicName, 3, _cts.Token);
         await using var client = CreateClient();
-        var txn = await client.NewTransaction().Timeout(TimeSpan.FromSeconds(30)).Create(_cts.Token);
         await using var incomingProducer = client.NewProducer(Schema.ByteArray)
             .Topic(topicName)
+            .EnableBatching(true)
+            .BatchingMaxMessages(1)
             .StateChangedHandler(_testOutputHelper.Log)
             .Create();
         var receipts = new List<Task<MessageId>>();
@@ -343,13 +346,13 @@ public sealed class TransactionConsumerTests : IDisposable
         await using var consumer = await CreateConsumer(client, topicName, subscriptionName, _cts.Token, SubscriptionType.Shared, SubscriptionInitialPosition.Earliest);
 
         var messageIds = new List<MessageId>();
-        var acks = new List<Task>();
         for (var i = 0; i < incomingMessageCnt; i++)
         {
-            var message = await consumer.Receive(_cts.Token);
-            messageIds.Add(message.MessageId);
-            acks.Add(consumer.Acknowledge(message.MessageId, txn, _cts.Token).AsTask());
+            messageIds.Add((await consumer.Receive(_cts.Token)).MessageId);
         }
+
+        var txn = await client.NewTransaction().Timeout(TimeSpan.FromSeconds(5)).Create(_cts.Token);
+        var acks = messageIds.Select(messageId => consumer.Acknowledge(messageId, txn, _cts.Token).AsTask()).ToList();
 
         // The pending messages count should be the incomingMessageCnt
         await Eventually(async () => (await GetPendingAckCount(subscriptionName, messageIds)).ShouldBe(incomingMessageCnt), TimeSpan.FromSeconds(10));
@@ -394,6 +397,8 @@ public sealed class TransactionConsumerTests : IDisposable
         var txn = await client.NewTransaction().Timeout(TimeSpan.FromSeconds(30)).Create(_cts.Token);
         await using var incomingProducer = client.NewProducer(Schema.ByteArray)
             .Topic(topicName)
+            .EnableBatching(true)
+            .BatchingMaxMessages(1)
             .StateChangedHandler(_testOutputHelper.Log)
             .Create();
         for (var i = 0; i < incomingMessageCnt; i++)
@@ -895,17 +900,13 @@ public sealed class TransactionConsumerTests : IDisposable
     // Java reads the individual ack positions of the pending ack handle of the broker. The admin API tells the state of every position.
     private async Task<int> GetPendingAckCount(string subscription, IEnumerable<MessageId> messageIds)
     {
-        var count = 0;
-
-        foreach (var messageId in messageIds)
+        var states = await Task.WhenAll(messageIds.Select(async messageId =>
         {
             var stats = await _fixture.GetPositionStatsInPendingAck(messageId.Topic, subscription, messageId.LedgerId, messageId.EntryId, null, _cts.Token);
+            return stats.GetProperty("state").GetString();
+        }));
 
-            if (stats.GetProperty("state").GetString() == "PendingAck")
-                count++;
-        }
-
-        return count;
+        return states.Count(state => state == "PendingAck");
     }
 
     private async Task<long> GetBacklog(string topicName, string subscription)
