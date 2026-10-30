@@ -54,7 +54,7 @@ public abstract class TransactionFixtureBase : IAsyncLifetime
         _pulsarCluster = null!; // This will be set in `InitializeAsync`
     }
 
-    public Uri ServiceUrl { get; private set; } = null!; // This will be set in `InitializeAsync`
+    public Uri ServiceUrl { get; protected set; } = null!; // This will be set in `InitializeAsync`
 
     public Uri AdminUrl { get; private set; } = null!; // This will be set in `InitializeAsync`
 
@@ -84,6 +84,18 @@ public abstract class TransactionFixtureBase : IAsyncLifetime
     public IPulsarClient CreateClient(Action<ExceptionContext> exceptionHandler, bool enableTransaction = true)
         => CreateClientBuilder(enableTransaction).ExceptionHandler(exceptionHandler).Build();
 
+    // For the tests that need client settings, for example the operation timeout. The transactions are enabled.
+    public IPulsarClient CreateConfiguredClient(Action<IPulsarClientBuilder> configure, Action<ExceptionContext>? exceptionHandler = null)
+    {
+        var builder = CreateClientBuilder(true);
+        configure(builder);
+
+        if (exceptionHandler is not null)
+            builder.ExceptionHandler(exceptionHandler);
+
+        return builder.Build();
+    }
+
     private IPulsarClientBuilder CreateClientBuilder(bool enableTransaction)
         => PulsarClient
         .Builder()
@@ -97,7 +109,7 @@ public abstract class TransactionFixtureBase : IAsyncLifetime
     // Prepare the broker after the transaction coordinator is ready and the tenant and namespaces exist, for example with roles and permissions
     protected virtual Task OnClusterStarted(CancellationToken cancellationToken) => Task.CompletedTask;
 
-    public async ValueTask DisposeAsync()
+    public virtual async ValueTask DisposeAsync()
     {
         if (_pulsarCluster is not null)
             await _pulsarCluster.DisposeAsync();
@@ -108,7 +120,7 @@ public abstract class TransactionFixtureBase : IAsyncLifetime
 
     // Under memory pressure the container sometimes fails to start ("Failed to create token") or hangs. A bounded attempt that is
     // repeated with a new container fails in minutes with a clear message instead of after the 10 minutes of the fixture.
-    public async ValueTask InitializeAsync()
+    public virtual async ValueTask InitializeAsync()
     {
         for (var attempt = 1; ; ++attempt)
         {
@@ -304,11 +316,24 @@ public abstract class TransactionFixtureBase : IAsyncLifetime
     public async Task CreateSubscription(string topic, string subscription, bool earliest, CancellationToken cancellationToken)
         => await RunAdminCommand($"topics create-subscription {topic} -s {subscription} -m {(earliest ? "earliest" : "latest")}", "Could not create the subscription", cancellationToken);
 
+    public async Task DeleteSubscription(string topic, string subscription, CancellationToken cancellationToken)
+        => await RunAdminCommand($"topics unsubscribe {topic} --subscription {subscription}", "Could not delete the subscription", cancellationToken);
+
     public async Task UnloadTopic(string topic, CancellationToken cancellationToken)
         => await RunAdminCommand($"topics unload {topic}", "Could not unload the topic", cancellationToken);
 
     public async Task UnloadNamespace(string @namespace, CancellationToken cancellationToken)
         => await RunAdminCommand($"namespaces unload {@namespace}", "Could not unload the namespace", cancellationToken);
+
+    // Unloads the topic and returns when the consumer is connected to it again (Java: admin.topics().unload(topic) followed by Awaitility.await().until(consumer::isConnected)).
+    // The consumer is observed from before the unload, because it has usually reconnected before the unload command returns, and the state it left would be missed.
+    public async Task UnloadTopic(string topic, IConsumer consumer, CancellationToken cancellationToken)
+    {
+        var hasLeftActive = consumer.StateChangedFrom(ConsumerState.Active, cancellationToken).AsTask();
+        await UnloadTopic(topic, cancellationToken);
+        await hasLeftActive;
+        await consumer.StateChangedTo(ConsumerState.Active, cancellationToken);
+    }
 
     public async Task CreateTenant(string tenant, CancellationToken cancellationToken)
         => await RunAdminCommand($"tenants create {tenant} --allowed-clusters {ClusterName} --admin-roles {SuperUser}", "Could not create the tenant", cancellationToken);
@@ -378,6 +403,14 @@ public abstract class TransactionFixtureBase : IAsyncLifetime
 
     public Task<JsonElement> GetPartitionedTopicMetadata(string topic, CancellationToken cancellationToken)
         => GetJson($"/admin/v2/{ToRestPath(topic)}/partitions", cancellationToken);
+
+    // The topics of the namespace as the admin API lists them (Java: admin.namespaces().getTopics(namespace)). The listing leaves out the system topics, and
+    // the transaction pending ack and buffer topics are system topics, unless includeSystemTopics is set.
+    public async Task<IReadOnlyList<string>> GetNamespaceTopics(string ns, bool includeSystemTopics, CancellationToken cancellationToken)
+    {
+        var topics = await GetJson($"/admin/v2/namespaces/{ns}/topics?includeSystemTopic={(includeSystemTopics ? "true" : "false")}", cancellationToken);
+        return topics.EnumerateArray().Select(topic => topic.GetString()!).ToList();
+    }
 
     // ---- Topic stats (admin v2) ----
 
@@ -509,6 +542,25 @@ public abstract class TransactionFixtureBase : IAsyncLifetime
     public Task<JsonElement> GetPendingAckInternalStats(string topic, string subscription, bool metadata, CancellationToken cancellationToken)
         => GetJson($"/admin/v3/transactions/pendingAckInternalStats/{ToRestPath(topic, false)}/{Uri.EscapeDataString(subscription)}?metadata={(metadata ? "true" : "false")}", cancellationToken);
 
+    // The mark delete position of the cursor of the pending ack log of the subscription and the last confirmed entry of the log, as (ledger id, entry id).
+    // Java reads them from the cursor with reflection, or from the same admin stats (TransactionTest#testPendingAckMarkDeletePosition).
+    public async Task<((long LedgerId, long EntryId) MarkDeletePosition, (long LedgerId, long EntryId) LastConfirmedEntry)> GetPendingAckLogPositions(string topic, string subscription, CancellationToken cancellationToken)
+    {
+        var stats = await GetPendingAckInternalStats(topic, subscription, false, cancellationToken);
+        var log = stats.GetProperty("pendingAckLogStats").GetProperty("managedLedgerInternalStats");
+        var markDeletePosition = log.GetProperty("cursors").GetProperty("__pending_ack_state").GetProperty("markDeletePosition").GetString()!;
+        var lastConfirmedEntry = log.GetProperty("lastConfirmedEntry").GetString()!;
+
+        return (ParsePosition(markDeletePosition), ParsePosition(lastConfirmedEntry));
+    }
+
+    // "ledgerId:entryId"
+    private static (long LedgerId, long EntryId) ParsePosition(string position)
+    {
+        var parts = position.Split(':');
+        return (long.Parse(parts[0], CultureInfo.InvariantCulture), long.Parse(parts[1], CultureInfo.InvariantCulture));
+    }
+
     public Task<JsonElement> GetPositionStatsInPendingAck(string topic, string subscription, ulong ledgerId, ulong entryId, int? batchIndex, CancellationToken cancellationToken)
         => GetJson($"/admin/v3/transactions/positionStatsInPendingAck/{ToRestPath(topic, false)}/{Uri.EscapeDataString(subscription)}/{ledgerId}/{entryId}{(batchIndex is null ? string.Empty : $"?batchIndex={batchIndex}")}", cancellationToken);
 
@@ -577,6 +629,88 @@ public abstract class TransactionFixtureBase : IAsyncLifetime
     private static string ToPath(long mostSigBits, long leastSigBits) => $"{mostSigBits}/{leastSigBits}";
 
     private static long ToSigned(ulong bits) => unchecked((long) bits);
+
+    // ---- Prometheus metrics ----
+
+    // The metrics of the broker. The samples are parsed like the Java tests parse them (PrometheusMetricsTest.parseMetrics): the samples without labels are left out.
+    public async Task<IReadOnlyList<PrometheusSample>> GetPrometheusMetrics(CancellationToken cancellationToken)
+    {
+        using var httpClient = CreateAdminClient();
+        using var response = await httpClient.GetAsync("/metrics/", cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+            throw new Exception($"GET /metrics/ failed: {response.StatusCode} {await response.Content.ReadAsStringAsync(cancellationToken)}");
+
+        return ParsePrometheusMetrics(await response.Content.ReadAsStringAsync(cancellationToken));
+    }
+
+    public sealed record PrometheusSample(string Name, IReadOnlyDictionary<string, string> Labels, double Value);
+
+    private static List<PrometheusSample> ParsePrometheusMetrics(string text)
+    {
+        var samples = new List<PrometheusSample>();
+
+        foreach (var line in text.Split('\n'))
+        {
+            var open = line.IndexOf('{');
+            var close = line.LastIndexOf('}');
+
+            if (line.StartsWith('#') || open < 0 || close < open)
+                continue;
+
+            var fields = line.Substring(close + 1).Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var value = fields[0] switch
+            {
+                "+Inf" => double.PositiveInfinity,
+                "-Inf" => double.NegativeInfinity,
+                "NaN" => double.NaN,
+                _ => double.Parse(fields[0], CultureInfo.InvariantCulture)
+            };
+
+            samples.Add(new PrometheusSample(line.Substring(0, open), ParsePrometheusLabels(line.Substring(open + 1, close - open - 1)), value));
+        }
+
+        return samples;
+    }
+
+    // name="value",name="value" where a value can contain commas and the escaped characters \\ \" and \n
+    private static Dictionary<string, string> ParsePrometheusLabels(string text)
+    {
+        var labels = new Dictionary<string, string>();
+        var position = 0;
+
+        while (position < text.Length)
+        {
+            var equals = text.IndexOf('=', position);
+
+            if (equals < 0)
+                break;
+
+            var name = text.Substring(position, equals - position).Trim(',', ' ');
+            var value = new StringBuilder();
+            position = equals + 2; // Skips the opening quote
+
+            while (position < text.Length && text[position] != '"')
+            {
+                if (text[position] == '\\' && position + 1 < text.Length)
+                {
+                    ++position;
+                    value.Append(text[position] == 'n' ? '\n' : text[position]);
+                }
+                else
+                {
+                    value.Append(text[position]);
+                }
+
+                ++position;
+            }
+
+            labels[name] = value.ToString();
+            ++position; // Skips the closing quote
+        }
+
+        return labels;
+    }
 
     // ---- Receive helper (Java consumer.receive(timeout) returning null) ----
 
