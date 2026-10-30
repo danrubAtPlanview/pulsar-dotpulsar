@@ -102,15 +102,13 @@ public sealed class SubProducerSendTimeoutTests
         await WaitFor.Until(() => channel.Entries.Count == 2, "the next message is written");
 
         //Act
-        lateEntry.Response.SetResult(channel.CreateReceipt(lateEntry));
-        await Task.Delay(TimeSpan.FromMilliseconds(100), Current.CancellationToken);
-        var completedByTheLateReceipt = nextOp.ReceiptTcs.Task.IsCompleted;
         var nextEntry = channel.Entries[1];
+        lateEntry.Response.SetResult(channel.CreateReceipt(lateEntry));
         nextEntry.Response.SetResult(channel.CreateReceipt(nextEntry));
-        await nextOp.ReceiptTcs.Task.WaitAsync(_timeout, Current.CancellationToken);
+        var messageId = await nextOp.ReceiptTcs.Task.WaitAsync(_timeout, Current.CancellationToken);
 
         //Assert
-        completedByTheLateReceipt.ShouldBeFalse("the receipt of the message that timed out is not the receipt of the next message");
+        messageId.EntryId.ShouldBe(2UL, "the receipt of the message that timed out is not the receipt of the next message");
         registerEvent.ReceivedCalls().Select(call => call.GetArguments()[0]).ShouldNotContain(argument => argument is ExecutorFaulted || argument is SendReceiptWrongOrdering || argument is ChannelDisconnected);
     }
 
@@ -124,14 +122,14 @@ public sealed class SubProducerSendTimeoutTests
         await sut.Send(firstOp, Current.CancellationToken);
         await Should.ThrowAsync<OperationTimeoutException>(firstOp.ReceiptTcs.Task.WaitAsync(_timeout, Current.CancellationToken));
         var secondOp = CreateSendOp(2);
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
         //Act
         await sut.Send(secondOp, Current.CancellationToken);
-        await Task.Delay(TimeSpan.FromMilliseconds(200), Current.CancellationToken);
+        await Should.ThrowAsync<OperationTimeoutException>(secondOp.ReceiptTcs.Task.WaitAsync(_timeout, Current.CancellationToken));
 
         //Assert
-        secondOp.ReceiptTcs.Task.IsCompleted.ShouldBeFalse("the second message has not waited for the timeout yet");
-        await Should.ThrowAsync<OperationTimeoutException>(secondOp.ReceiptTcs.Task.WaitAsync(_timeout, Current.CancellationToken));
+        stopwatch.Elapsed.ShouldBeGreaterThan(TimeSpan.FromMilliseconds(500), "the second message has to wait for the timeout itself, and is not failed by the timeout of the first message");
     }
 
     [Fact]
@@ -145,13 +143,10 @@ public sealed class SubProducerSendTimeoutTests
 
         //Act
         await sut.Send(sendOp, Current.CancellationToken);
-        await Task.Delay(TimeSpan.FromMilliseconds(600), Current.CancellationToken);
-        var failedBeforeTheBatchWasDue = sendOp.ReceiptTcs.Task.IsCompleted;
         await Should.ThrowAsync<OperationTimeoutException>(sendOp.ReceiptTcs.Task.WaitAsync(_timeout, Current.CancellationToken));
 
         //Assert
-        failedBeforeTheBatchWasDue.ShouldBeFalse("the message is waiting in a batch, and the batch is not due yet");
-        stopwatch.Elapsed.ShouldBeGreaterThan(TimeSpan.FromMilliseconds(950));
+        stopwatch.Elapsed.ShouldBeGreaterThan(TimeSpan.FromMilliseconds(950), "the message is waiting in a batch, and the batch is not due for 800 milliseconds");
     }
 
     [Fact]
@@ -161,15 +156,14 @@ public sealed class SubProducerSendTimeoutTests
         var channel = new FakeProducerChannel { Respond = _ => null };
         await using var sut = await CreateSubProducer(channel, enableBatching: true, batchingMaxPublishDelay: TimeSpan.FromMilliseconds(200), sendTimeout: TimeSpan.FromMilliseconds(300));
         var sendOp = CreateSendOp(1);
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
         //Act
         await sut.Send(sendOp, Current.CancellationToken);
-        await Task.Delay(TimeSpan.FromMilliseconds(400), Current.CancellationToken);
-        var failedTooEarly = sendOp.ReceiptTcs.Task.IsCompleted;
+        await Should.ThrowAsync<OperationTimeoutException>(sendOp.ReceiptTcs.Task.WaitAsync(_timeout, Current.CancellationToken));
 
         //Assert
-        failedTooEarly.ShouldBeFalse("the message was sent when the batch was due, which is after 200 milliseconds, and not when it was created");
-        await Should.ThrowAsync<OperationTimeoutException>(sendOp.ReceiptTcs.Task.WaitAsync(_timeout, Current.CancellationToken));
+        stopwatch.Elapsed.ShouldBeGreaterThan(TimeSpan.FromMilliseconds(400), "the message was sent when the batch was due, which is after 200 milliseconds, and not when it was created");
     }
 
     [Fact]
@@ -222,15 +216,14 @@ public sealed class SubProducerSendTimeoutTests
         var firstOp = CreateSendOp(1);
         await sut.Send(firstOp, Current.CancellationToken);
         var secondOp = CreateSendOp(2);
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
         //Act
         var blockedSend = sut.Send(secondOp, Current.CancellationToken).AsTask();
-        await Task.Delay(TimeSpan.FromMilliseconds(100), Current.CancellationToken);
-        var isBlocked = !blockedSend.IsCompleted;
         await blockedSend.WaitAsync(_timeout, Current.CancellationToken);
 
         //Assert
-        isBlocked.ShouldBeTrue();
+        stopwatch.Elapsed.ShouldBeGreaterThan(TimeSpan.FromMilliseconds(100), "the queue is full until the timeout removes the first message");
         await Should.ThrowAsync<OperationTimeoutException>(firstOp.ReceiptTcs.Task);
         await WaitFor.Until(() => channel.Entries.Count == 2, "the message that was blocked is written");
     }
