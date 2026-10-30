@@ -17,7 +17,7 @@ namespace DotPulsar.Tests.Prerequisites;
 using DotPulsar.Abstractions;
 using DotPulsar.Extensions;
 
-// The broker has acknowledgmentAtBatchIndexLevelEnabled=true. The batches are produced by TransactionFixtureBase.ProduceBatchedMessages.
+// The broker has acknowledgmentAtBatchIndexLevelEnabled=true. The batches are produced by TransactionFixtureBase.ProduceBatchedMessages, and by a producer that batches in the test of the shared subscription.
 [Collection("Transaction"), Trait("Category", "Integration")]
 public sealed class BatchMessageIndexAckTests : IDisposable
 {
@@ -32,16 +32,105 @@ public sealed class BatchMessageIndexAckTests : IDisposable
         _testOutputHelper = outputHelper;
     }
 
-    // TODO(WP7): Remove the skip. The test needs negative acknowledgment (negativeAcknowledge with a redelivery delay of 2 seconds),
-    // and then redeliverUnacknowledgedMessages. The expected mark delete position is the position of the first batch.
     // Upstream: BatchMessageIndexAckTest#testBatchMessageIndexAckForSharedSubscription
-    [Theory(Skip = "Requires negative acknowledgment (WP7)")]
+    // The upstream test receives a message in the else branch of the loop that it discards, before it receives the message that it negatively acknowledges (negativeAcknowledge(consumer.receive())).
+    // The port does the same, so that the numbers of messages that are received and acknowledged are the numbers of the upstream test. The messages that were discarded stay unacknowledged, and are
+    // redelivered by the negative acknowledgments of the messages of the batch.
+    [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public Task Acknowledge_GivenBatchIndexAckEnabledAndSharedSubscription_ShouldRedeliverOnlyNegativelyAcknowledgedMessages(bool ackReceiptEnabled)
+    public async Task Acknowledge_GivenBatchIndexAckEnabledAndSharedSubscription_ShouldRedeliverOnlyNegativelyAcknowledgedMessages(bool ackReceiptEnabled)
     {
-        _ = ackReceiptEnabled;
-        return Task.CompletedTask;
+        //Arrange
+        const int numberOfMessages = 100;
+        const string subscriptionName = "sub";
+        var topicName = TransactionFixture.CreateTopicName("batch-index-ack-shared");
+        await _fixture.CreateTopic(topicName, _cts.Token);
+        await using var client = _fixture.CreateClient(_testOutputHelper.Log);
+        await using var consumer = client.NewConsumer(Schema.Int32)
+            .AckReceiptEnabled(ackReceiptEnabled)
+            .BatchIndexAckEnabled(true) // The default of the Java consumer
+            .InitialPosition(SubscriptionInitialPosition.Earliest)
+            .MessagePrefetchCount(numberOfMessages)
+            .NegativeAcknowledgeRedeliveryDelay(TimeSpan.FromSeconds(2))
+            .StateChangedHandler(_testOutputHelper.Log)
+            .SubscriptionName(subscriptionName)
+            .SubscriptionType(SubscriptionType.Shared)
+            .Topic(topicName)
+            .Create();
+        await using var producer = client.NewProducer(Schema.Int32)
+            .BatchingMaxMessages(numberOfMessages)
+            .BatchingMaxPublishDelay(TimeSpan.FromSeconds(5))
+            .EnableBatching(true)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .Topic(topicName)
+            .Create();
+        await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+        var receipts = new List<Task<MessageId>>();
+        for (var i = 0; i < numberOfMessages; i++)
+        {
+            receipts.Add(await SendAsync(producer, i));
+        }
+
+        await Task.WhenAll(receipts).WaitAsync(TimeSpan.FromSeconds(30), _cts.Token);
+
+        //Act
+        var acked = new List<MessageId>();
+        for (var i = 0; i < numberOfMessages; i++)
+        {
+            var message = await Receive(consumer);
+
+            if (i % 2 == 0)
+            {
+                await consumer.Acknowledge(message, _cts.Token);
+                acked.Add(message.MessageId);
+            }
+            else
+            {
+                await consumer.NegativeAcknowledge(await Receive(consumer), _cts.Token);
+            }
+        }
+
+        var received = new List<MessageId>();
+        for (var i = 0; i < 50; i++)
+        {
+            received.Add((await Receive(consumer)).MessageId);
+        }
+
+        foreach (var messageId in received)
+        {
+            await consumer.Acknowledge(messageId, _cts.Token);
+        }
+
+        await Task.Delay(TimeSpan.FromSeconds(1), _cts.Token);
+        await consumer.RedeliverUnacknowledgedMessages(_cts.Token);
+        var moreMessage = await TransactionFixture.ReceiveOrNull(consumer, TimeSpan.FromSeconds(2), _cts.Token);
+
+        //Assert
+        received.Count.ShouldBe(50);
+        acked.Intersect(received).ShouldBeEmpty();
+        moreMessage.ShouldBeNull();
+
+        // The mark delete position was changed to the position of the batch
+        var stats = await _fixture.GetInternalStats(topicName, _cts.Token);
+        stats.GetProperty("cursors").GetProperty(subscriptionName).GetProperty("markDeletePosition").GetString().ShouldBe($"{received[0].LedgerId}:{received[0].EntryId}");
+
+        receipts.Clear();
+        for (var i = 0; i < 50; i++)
+        {
+            receipts.Add(await SendAsync(producer, i));
+        }
+
+        await producer.Flush(_cts.Token);
+        await Task.WhenAll(receipts).WaitAsync(TimeSpan.FromSeconds(30), _cts.Token);
+
+        for (var i = 0; i < 50; i++)
+        {
+            received.Add((await Receive(consumer)).MessageId);
+        }
+
+        // Ensure that the flow permits work well since the client skipped the acknowledged batch indexes, the broker also needs to handle the available permits
+        received.Count.ShouldBe(100);
     }
 
     // Upstream: BatchMessageIndexAckTest#testBatchMessageIndexAckForExclusiveSubscription
@@ -281,6 +370,27 @@ public sealed class BatchMessageIndexAckTests : IDisposable
     }
 
     private static string CreateSubscriptionName() => $"subscription-{Guid.NewGuid():N}";
+
+    // The Java producer.sendAsync: the message is queued in the order of the calls, and the task completes when the broker has stored the message
+    private async ValueTask<Task<MessageId>> SendAsync<TMessage>(IProducer<TMessage> producer, TMessage value)
+    {
+        var receipt = new TaskCompletionSource<MessageId>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        await producer.SendChannel.Send(new MessageMetadata(), value, messageId =>
+        {
+            _ = receipt.TrySetResult(messageId);
+            return ValueTask.CompletedTask;
+        }, _cts.Token);
+
+        return receipt.Task;
+    }
+
+    private async Task<IMessage<TMessage>> Receive<TMessage>(IConsumer<TMessage> consumer)
+    {
+        var message = await TransactionFixture.ReceiveOrNull(consumer, TimeSpan.FromSeconds(15), _cts.Token);
+        message.ShouldNotBeNull();
+        return message;
+    }
 
     private IConsumer<byte[]> CreateConsumer(IPulsarClient client, string topicName, string subscription, bool ackReceiptEnabled, bool batchIndexAckEnabled)
         => client.NewConsumer(Schema.ByteArray)

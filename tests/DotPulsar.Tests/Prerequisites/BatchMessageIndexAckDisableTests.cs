@@ -18,7 +18,7 @@ using DotPulsar.Abstractions;
 using DotPulsar.Extensions;
 
 // The broker of the IntegrationFixture has acknowledgmentAtBatchIndexLevelEnabled=false (verified by the test below).
-// The batches are produced by IntegrationFixture.ProduceBatchedMessages.
+// The batches are produced by IntegrationFixture.ProduceBatchedMessages, and by a producer that batches in the test of the shared subscription.
 [Collection("Integration"), Trait("Category", "Integration")]
 public sealed class BatchMessageIndexAckDisableTests : IDisposable
 {
@@ -47,15 +47,62 @@ public sealed class BatchMessageIndexAckDisableTests : IDisposable
         json.RootElement.GetProperty("acknowledgmentAtBatchIndexLevelEnabled").GetString().ShouldBe("false");
     }
 
-    // TODO(WP7): Remove the skip. The test needs ackTimeout(1 second), which redelivers the acknowledged half of the batch.
     // Upstream: BatchMessageIndexAckDisableTest#testBatchMessageIndexAckForSharedSubscription
-    [Theory(Skip = "Requires ack timeout (WP7)")]
+    // The consumer acknowledges the first 50 messages of the batch of 100 messages. The broker does not acknowledge at the batch index level, so it still has the whole batch, and the ack timeout of
+    // 1 second makes it redeliver the batch. The consumer receives the other 50 messages that were already sent to it, and then the messages of the redelivered batch.
+    [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public Task Acknowledge_GivenBatchIndexAckDisabledOnBrokerAndSharedSubscription_ShouldReceiveAllMessagesAfterAckTimeout(bool ackReceiptEnabled)
+    public async Task Acknowledge_GivenBatchIndexAckDisabledOnBrokerAndSharedSubscription_ShouldReceiveAllMessagesAfterAckTimeout(bool ackReceiptEnabled)
     {
-        _ = ackReceiptEnabled;
-        return Task.CompletedTask;
+        //Arrange
+        const int numberOfMessages = 100;
+        var topicName = await _fixture.CreateTopic(_cts.Token);
+        await using var client = CreateClient();
+        await using var consumer = client.NewConsumer(Schema.Int32)
+            .AckReceiptEnabled(ackReceiptEnabled)
+            .AckTimeout(TimeSpan.FromSeconds(1))
+            .BatchIndexAckEnabled(true) // The default of the Java consumer
+            .InitialPosition(SubscriptionInitialPosition.Earliest)
+            .MessagePrefetchCount(numberOfMessages)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .SubscriptionName("sub")
+            .SubscriptionType(SubscriptionType.Shared)
+            .Topic(topicName)
+            .Create();
+        await using var producer = client.NewProducer(Schema.Int32)
+            .BatchingMaxMessages(numberOfMessages)
+            .BatchingMaxPublishDelay(TimeSpan.FromSeconds(5))
+            .EnableBatching(true)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .Topic(topicName)
+            .Create();
+        await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+        var receipts = new List<Task<MessageId>>();
+        for (var i = 0; i < numberOfMessages; i++)
+        {
+            receipts.Add(await SendAsync(producer, i));
+        }
+
+        var sentIds = await Task.WhenAll(receipts).WaitAsync(TimeSpan.FromSeconds(30), _cts.Token);
+        sentIds.Select(messageId => (messageId.LedgerId, messageId.EntryId)).Distinct().Count().ShouldBe(1);
+
+        //Act
+        for (var i = 0; i < numberOfMessages; i++)
+        {
+            if (i % 2 == 0)
+                await consumer.Acknowledge(await Receive(consumer), _cts.Token);
+        }
+
+        var received = new List<IMessage<int>>();
+        for (var i = 0; i < numberOfMessages; i++)
+        {
+            received.Add(await Receive(consumer));
+        }
+
+        //Assert
+        received.Count.ShouldBe(numberOfMessages);
+        received.Count(message => message.RedeliveryCount >= 1).ShouldBeGreaterThanOrEqualTo(numberOfMessages / 2);
     }
 
     // Upstream: BatchMessageIndexAckDisableTest#testBatchMessageIndexAckForExclusiveSubscription
@@ -133,6 +180,27 @@ public sealed class BatchMessageIndexAckDisableTests : IDisposable
     }
 
     private static string CreateSubscriptionName() => $"subscription-{Guid.NewGuid():N}";
+
+    // The Java producer.sendAsync: the message is queued in the order of the calls, and the task completes when the broker has stored the message
+    private async ValueTask<Task<MessageId>> SendAsync<TMessage>(IProducer<TMessage> producer, TMessage value)
+    {
+        var receipt = new TaskCompletionSource<MessageId>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        await producer.SendChannel.Send(new MessageMetadata(), value, messageId =>
+        {
+            _ = receipt.TrySetResult(messageId);
+            return ValueTask.CompletedTask;
+        }, _cts.Token);
+
+        return receipt.Task;
+    }
+
+    private async Task<IMessage<TMessage>> Receive<TMessage>(IConsumer<TMessage> consumer)
+    {
+        var message = await TransactionFixture.ReceiveOrNull(consumer, TimeSpan.FromSeconds(15), _cts.Token);
+        message.ShouldNotBeNull();
+        return message;
+    }
 
     private IPulsarClient CreateClient()
         => PulsarClient
