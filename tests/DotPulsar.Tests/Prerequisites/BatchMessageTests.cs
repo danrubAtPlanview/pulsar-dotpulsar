@@ -455,6 +455,37 @@ public sealed class BatchMessageTests : IDisposable
         received.Select(message => message.Value()).Order().ShouldBe(Enumerable.Range(0, numberOfMessages).Select(i => $"msg-{i}").Order());
     }
 
+    // Additional coverage
+    [Fact]
+    public async Task Send_GivenConnectionDownWhileMessagesWait_ShouldBatchAndSendThemAfterReconnect()
+    {
+        //Arrange
+        const int numberOfMessages = 20;
+        var topic = await _fixture.CreateTopic(_cts.Token);
+        await using var client = CreateClient();
+        await using var consumer = await CreateConsumer(client, topic);
+        await using var producer = await CreateProducer(client, topic, builder => builder.BatchingMaxMessages(10).BatchingMaxPublishDelay(TimeSpan.FromSeconds(30)));
+        var receipts = new List<Task<MessageId>>();
+
+        //Act
+        await using (await _fixture.DisableThePulsarConnection())
+        {
+            await producer.StateChangedTo(ProducerState.Disconnected, _cts.Token);
+
+            for (var i = 0; i < numberOfMessages; ++i)
+            {
+                receipts.Add(await SendAsync(producer, $"msg-{i}"));
+            }
+        }
+
+        await producer.StateChangedTo(ProducerState.Connected, _cts.Token);
+        var messageIds = await Task.WhenAll(receipts).WaitAsync(TimeSpan.FromSeconds(60), _cts.Token);
+
+        //Assert
+        messageIds.Select(messageId => messageId.EntryId).Distinct().Count().ShouldBe(2);
+        await AssertReceived(consumer, numberOfMessages);
+    }
+
     public void Dispose()
         => _cts.Dispose();
 

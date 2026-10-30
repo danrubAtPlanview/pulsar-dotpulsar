@@ -234,7 +234,7 @@ public sealed class TransactionTests : IDisposable
         var topic = TransactionFixture.CreateTopicName("NormalPublish");
         await _fixture.CreateTopic(topic, _cts.Token);
         await using var noTransactionClient = _fixture.CreateClient(_testOutputHelper.Log, false);
-        await using var normalProducer = noTransactionClient.NewProducer(Schema.String).ProducerName("testNormalPublish").Topic(topic).Create(); // TODO(WP7): .SendTimeout(TimeSpan.Zero), which is what the producer does without a send timeout
+        await using var normalProducer = noTransactionClient.NewProducer(Schema.String).ProducerName("testNormalPublish").Topic(topic).SendTimeout(TimeSpan.Zero).Create();
         await WaitUntilTransactionBufferState(topic, "NoSnapshot");
 
         //Act
@@ -245,7 +245,7 @@ public sealed class TransactionTests : IDisposable
 
         //Arrange
         await using var client = _fixture.CreateClient(_testOutputHelper.Log);
-        await using var transactionProducer = client.NewProducer(Schema.String).ProducerName("testTransactionPublish").Topic(topic).Create(); // TODO(WP7): .SendTimeout(TimeSpan.Zero), which is what the producer does without a send timeout
+        await using var transactionProducer = client.NewProducer(Schema.String).ProducerName("testTransactionPublish").Topic(topic).SendTimeout(TimeSpan.Zero).Create();
         await WaitUntilTransactionBufferState(topic, "NoSnapshot");
         var transaction = await client.NewTransaction().Timeout(TimeSpan.FromSeconds(5)).Create(_cts.Token);
 
@@ -286,7 +286,7 @@ public sealed class TransactionTests : IDisposable
         await _fixture.CreateTopic(topic, _cts.Token);
         await _fixture.SetTopicDelayedDeliveryPolicy(topic, true, 100, maxDeliveryDelayInMillis, _cts.Token);
         await using var client = _fixture.CreateClient(_testOutputHelper.Log);
-        await using var producer = client.NewProducer(Schema.ByteArray).Topic(topic).Create(); // TODO(WP7): .SendTimeout(TimeSpan.FromSeconds(5)), and TODO(WP9): .EncryptionKey("my-app-key") and .CryptoKeyReader(...), as upstream
+        await using var producer = client.NewProducer(Schema.ByteArray).Topic(topic).SendTimeout(TimeSpan.FromSeconds(5)).Create(); // TODO(WP9): .EncryptionKey("my-app-key") and .CryptoKeyReader(...), as upstream
         var transaction = await client.NewTransaction().Timeout(TimeSpan.FromSeconds(5)).Create(_cts.Token);
         var payload = Encoding.UTF8.GetBytes(Guid.NewGuid().ToString());
 

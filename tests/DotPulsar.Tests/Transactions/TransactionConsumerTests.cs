@@ -39,7 +39,6 @@ public sealed class TransactionConsumerTests : IDisposable
         _testOutputHelper = outputHelper;
     }
 
-    // TODO(WP7): The producer of the upstream test has a send timeout of 5 seconds. DotPulsar has no send timeout yet, and its sends are not limited in time by default.
     // Upstream: TransactionTest#testTransactionAckMessageList
     [Fact]
     public async Task Acknowledge_GivenMessageIdListAndAbortedThenCommittedTransaction_ShouldRedeliverOnlyAfterAbort()
@@ -53,6 +52,7 @@ public sealed class TransactionConsumerTests : IDisposable
         await using var client = CreateClient();
         await using var producer = client.NewProducer(Schema.ByteArray)
             .Topic(topicName)
+            .SendTimeout(TimeSpan.FromSeconds(5))
             .StateChangedHandler(_testOutputHelper.Log)
             .Create();
         var consumer = await CreateConsumer(client, topicName, subName, cts.Token);
@@ -102,7 +102,6 @@ public sealed class TransactionConsumerTests : IDisposable
         noMoreMessage.ShouldBeNull();
     }
 
-    // TODO(WP7): The producer of the upstream test has a send timeout of 5 seconds. DotPulsar has no send timeout yet, and its sends are not limited in time by default.
     // Upstream: TransactionTest#testTransactionAckMessages
     // The Java test sets the messages of a Messages container with reflection. The equivalent is to acknowledge the IMessages.
     [Fact]
@@ -117,6 +116,7 @@ public sealed class TransactionConsumerTests : IDisposable
         await using var client = CreateClient();
         await using var producer = client.NewProducer(Schema.ByteArray)
             .Topic(topicName)
+            .SendTimeout(TimeSpan.FromSeconds(5))
             .StateChangedHandler(_testOutputHelper.Log)
             .Create();
         var consumer = await CreateConsumer(client, topicName, subName, cts.Token);

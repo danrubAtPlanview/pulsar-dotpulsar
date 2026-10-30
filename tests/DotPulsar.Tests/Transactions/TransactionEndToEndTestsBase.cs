@@ -53,7 +53,7 @@ public abstract class TransactionEndToEndTestsBase<TFixture> : IDisposable where
         await using var client = CreateClient();
         await using var consumer = client.NewConsumer(Schema.ByteArray).SubscriptionName("test").Topic(topic).Create();
         await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
-        await using var producer = client.NewProducer(Schema.ByteArray).Topic(topic).EnableBatching(enableBatch).Create(); // TODO(WP7): .SendTimeout(TimeSpan.Zero), which is what the producer does without a send timeout
+        await using var producer = client.NewProducer(Schema.ByteArray).Topic(topic).EnableBatching(enableBatch).SendTimeout(TimeSpan.Zero).Create();
         var txn1 = await GetTxn(client);
         var txn2 = await GetTxn(client);
         var txnMessageCnt = 0;
@@ -98,7 +98,7 @@ public abstract class TransactionEndToEndTestsBase<TFixture> : IDisposable where
         await using var client = CreateClient();
         var txn = await GetTxn(client);
         const string subName = "test";
-        await using var producer = client.NewProducer(Schema.ByteArray).Topic(topic).Create(); // TODO(WP7): .SendTimeout(TimeSpan.Zero), which is what the producer does without a send timeout
+        await using var producer = client.NewProducer(Schema.ByteArray).Topic(topic).SendTimeout(TimeSpan.Zero).Create();
         var messageCnt = 10;
 
         for (var i = 0; i < messageCnt; ++i)
@@ -145,7 +145,7 @@ public abstract class TransactionEndToEndTestsBase<TFixture> : IDisposable where
         _testOutputHelper.Log($"Batching is {(enableBatch ? "enabled" : "disabled")}");
         var topic = TransactionFixture.CreateTopicName("tc-metadata-handler-recover");
         await using var client = CreateClient();
-        await using var producer = client.NewProducer(Schema.ByteArray).Topic(topic).EnableBatching(enableBatch).Create(); // TODO(WP7): .SendTimeout(TimeSpan.Zero), which is what the producer does without a send timeout
+        await using var producer = client.NewProducer(Schema.ByteArray).Topic(topic).EnableBatching(enableBatch).SendTimeout(TimeSpan.Zero).Create();
         var txnCnt = 20;
         var messageCnt = 10;
         var ids = new List<TransactionId>();
@@ -193,7 +193,7 @@ public abstract class TransactionEndToEndTestsBase<TFixture> : IDisposable where
         await using var client = CreateClient();
         await using var consumer = client.NewConsumer(Schema.ByteArray).SubscriptionName("test").Topic(topic).Create();
         await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
-        await using var producer = client.NewProducer(Schema.ByteArray).ProducerName("txn-publish-order").Topic(topic).EnableBatching(enableBatch).Create(); // TODO(WP7): .SendTimeout(TimeSpan.Zero), which is what the producer does without a send timeout
+        await using var producer = client.NewProducer(Schema.ByteArray).ProducerName("txn-publish-order").Topic(topic).EnableBatching(enableBatch).SendTimeout(TimeSpan.Zero).Create();
 
         for (var ti = 0; ti < 10; ++ti)
         {
@@ -215,6 +215,30 @@ public abstract class TransactionEndToEndTestsBase<TFixture> : IDisposable where
         }
     }
 
+    // Upstream: TransactionEndToEndTest#testSendTxnMessageTimeout
+    // Java replaces the connection of the producer with a mock that swallows the send command. Here the producer connects through a relay that swallows what the producer sends after it is connected,
+    // and the transaction is created by another client that connects to the broker directly, so the requests of the transaction are answered.
+    [Fact]
+    public async Task Send_GivenTransactionalMessageWithoutReceipt_ShouldThrowOperationTimeoutException()
+    {
+        //Arrange
+        var topic = TransactionFixture.CreateTopicName("testSendTxnMessageTimeout");
+        await using var relay = await BlackHoleRelay.Start(Fixture.ServiceUrl, _cts.Token);
+        await using var producerClient = PulsarClient.Builder().Authentication(Fixture.Authentication).ServiceUrl(relay.ServiceUrl).ExceptionHandler(_testOutputHelper.Log).Build();
+        await using var transactionClient = CreateClient();
+        await using var producer = producerClient.NewProducer(Schema.ByteArray).Topic(topic).EnableBatching(true).SendTimeout(TimeSpan.FromSeconds(1)).StateChangedHandler(_testOutputHelper.Log).Create();
+        await producer.StateChangedTo(ProducerState.Connected, _cts.Token);
+        var transaction = await transactionClient.NewTransaction().Timeout(TimeSpan.FromSeconds(5)).Create(_cts.Token);
+        relay.SwallowClientToBroker();
+
+        //Act
+        var act = async () => await producer.NewMessage().Transaction(transaction).Send(Encoding.UTF8.GetBytes("Hello Pulsar!"), _cts.Token);
+
+        //Assert
+        await Should.ThrowAsync<OperationTimeoutException>(act);
+        await transaction.Abort(_cts.Token);
+    }
+
     // Upstream: TransactionEndToEndTest#testTxnTimeOutInClient
     [Fact]
     public async Task SendAndAcknowledge_GivenTransactionTimedOutInClient_ShouldThrowInvalidTransactionStatusException()
@@ -222,7 +246,7 @@ public abstract class TransactionEndToEndTestsBase<TFixture> : IDisposable where
         //Arrange
         var topic = TransactionFixture.CreateTopicName("testTxnTimeOutInClient");
         await using var client = CreateClient();
-        await using var producer = client.NewProducer(Schema.String).ProducerName("testTxnTimeOut_producer").Topic(topic).Create(); // TODO(WP7): .SendTimeout(TimeSpan.Zero), which is what the producer does without a send timeout
+        await using var producer = client.NewProducer(Schema.String).ProducerName("testTxnTimeOut_producer").Topic(topic).SendTimeout(TimeSpan.Zero).Create();
         await using var consumer = client.NewConsumer(Schema.String).ConsumerName("testTxnTimeOut_consumer").SubscriptionName("testTxnTimeOut_sub").Topic(topic).Create();
         await consumer.StateChangedTo(ConsumerState.Active, _cts.Token); // The subscription is created when the consumer is created upstream, but here it is done in the background
         var transaction = await client.NewTransaction().Timeout(TimeSpan.FromSeconds(1)).Create(_cts.Token);

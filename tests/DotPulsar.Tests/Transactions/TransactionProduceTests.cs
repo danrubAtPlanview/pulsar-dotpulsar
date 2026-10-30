@@ -85,7 +85,8 @@ public sealed class TransactionProduceTests : IDisposable
             .EnableBatching(true)
             .BatchingMaxMessages(100)
             .BatchingMaxPublishDelay(TimeSpan.FromSeconds(5))
-            .Create(); // TODO(WP7): .SendTimeout(TimeSpan.Zero), which is what the producer does without a send timeout
+            .SendTimeout(TimeSpan.Zero)
+            .Create();
         await producer.StateChangedTo(ProducerState.Connected, _cts.Token);
         using var warmUpCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
         warmUpCts.CancelAfter(TimeSpan.FromSeconds(30));
@@ -121,7 +122,7 @@ public sealed class TransactionProduceTests : IDisposable
         transaction.Id.LeastSigBits.ShouldNotBe(ulong.MaxValue);
         await using var consumer = client.NewConsumer(Schema.ByteArray).SubscriptionName("observer").Topic(topic).InitialPosition(SubscriptionInitialPosition.Earliest).Create();
         await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
-        await using var producer = client.NewProducer(Schema.ByteArray).Topic(topic).Create(); // TODO(WP7): .SendTimeout(TimeSpan.Zero), which is what the producer does without a send timeout
+        await using var producer = client.NewProducer(Schema.ByteArray).Topic(topic).SendTimeout(TimeSpan.Zero).Create();
         await producer.StateChangedTo(ProducerState.Connected, _cts.Token);
         var messageSet = new HashSet<string>(StringComparer.Ordinal);
         var sends = new List<Task<MessageId>>();
