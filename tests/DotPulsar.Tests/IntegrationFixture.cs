@@ -186,6 +186,13 @@ public class IntegrationFixture : IAsyncLifetime
             throw new Exception($"Could not create the partitioned topic: {result.Stderr}");
     }
 
+    // Runs a command in the container of the broker. The container has the command line tools of Pulsar, which are the Java client.
+    public async Task<ExecResult> ExecInPulsar(string bashCommand, CancellationToken cancellationToken)
+        => await _pulsarCluster.ExecAsync(["/bin/bash", "-c", bashCommand], cancellationToken);
+
+    public async Task CopyToPulsar(byte[] content, string path, CancellationToken cancellationToken)
+        => await _pulsarCluster.CopyAsync(content, path, ct: cancellationToken);
+
     // Produces batches of batchSize messages. A batch is closed by the number of messages, and the time window of a batch is so long that it is never closed by it.
     // The payloads are the numbers of the messages, so the tests identify the messages by their batch index.
     public async Task ProduceBatchedMessages(string topic, int numberOfBatches, int batchSize, CancellationToken cancellationToken)
