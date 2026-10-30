@@ -527,6 +527,7 @@ public sealed class SubProducerBatchingTests
         sendOps.Select(sendOp => sendOp.ReceiptTcs.Task.Result.BatchIndex).ShouldBe([0, 1, 2]);
     }
 
+    // Upstream: BatchMessageContainerImplTest#oversizedBatchReleasesThePayloadExactlyOnce, #testOversizedBatchReleasesItsPayloadExactlyOnce (that the batch is returned exactly once is tested in SubProducerBatchOwnershipTests)
     [Fact]
     public async Task Dispatcher_GivenBatchLargerThanMaxMessageSize_ShouldFailAllMessagesWithTooLargeMessageExceptionAndReturnTheBatch()
     {

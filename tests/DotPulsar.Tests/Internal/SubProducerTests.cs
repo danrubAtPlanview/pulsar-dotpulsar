@@ -275,6 +275,8 @@ public class SubProducerTests
     }
 
     // Upstream: BatchMessageTest#testSendOverSizeMessage, ProducerImpl#processOpSendMsg
+    // Upstream: BatchMessageContainerImplTest#oversizedSingleMessageReleasesTheBatchBufferExactlyOnce, #testOversizedSingleMessageBatchReleasesItsPayloadExactlyOnce
+    // A single message is not written to a pooled batch, so this tests the failure of the message, and SubProducerBatchOwnershipTests tests that no batch is rented for it when the producer batches.
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

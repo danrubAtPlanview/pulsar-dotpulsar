@@ -1126,6 +1126,47 @@ public sealed class BatchMessageContainerTests
         uut.HasSameTxn(TestBatchItem.Create(1, transaction: (1, 1))).ShouldBeTrue();
     }
 
+    // Upstream: BatchMessageContainerImplTest#recoveryAfterOom
+    // The Java container allocates its buffer when a message is added, the allocator throws an OutOfMemoryError for the first message, and the next add must work. The DotPulsar container allocates nothing when
+    // a message is added, because the buffer of a batch is rented from the pool when the batch is built. So the first build fails with an OutOfMemoryException (the batch can not be written), the batch must be
+    // returned to the pool, and the next build must work.
+    [Fact]
+    public void CreateBatches_GivenMessageThatFailsWhileTheBatchIsBuilt_ShouldReturnTheBatchAndBuildItAgainAfterwards()
+    {
+        //Arrange
+        var pool = new PreparedBatchPool(4);
+        var rented = pool.Get();
+        rented.Return(); // It is the batch that the container rents
+        var uut = new BatchMessageContainer<FailingBatchItem>(1000, 128 * 1024, TimeSpan.FromMilliseconds(1), pool);
+        var first = FailingBatchItem.Create(1);
+        var second = FailingBatchItem.Create(2);
+        var groups = new List<PreparedBatchGroup>();
+        uut.Add(first, MaxMessageSize);
+        uut.Add(second, MaxMessageSize);
+        second.Fail = true;
+
+        //Act
+        var exception = Record.Exception(() => uut.CreateBatches(groups, MaxMessageSize));
+        var groupsAfterFailure = groups.Count;
+        var returned = rented.IsReturned;
+        second.Fail = false;
+        uut.CreateBatches(groups, MaxMessageSize);
+
+        //Assert
+        exception.ShouldBeOfType<OutOfMemoryException>();
+        groupsAfterFailure.ShouldBe(0);
+        returned.ShouldBeTrue("the batch of the failed build is returned to the pool");
+        groups.Count.ShouldBe(1);
+        groups[0].Batch.ShouldBeSameAs(rented);
+        groups[0].Batch!.IsReturned.ShouldBeFalse();
+        groups[0].Count.ShouldBe(2);
+        BatchPayloadReader.Read(groups[0].Batch!).Select(m => m.Metadata.SequenceId).ShouldBeSequence(1ul, 2ul);
+        uut.NumMessagesInBatch.ShouldBe(2);
+
+        //Annihilate
+        groups[0].Batch!.Return();
+    }
+
     private static BatchMessageContainer<TestBatchItem> CreateContainer(
         uint maxMessages = 1000,
         uint maxBytes = 128 * 1024,

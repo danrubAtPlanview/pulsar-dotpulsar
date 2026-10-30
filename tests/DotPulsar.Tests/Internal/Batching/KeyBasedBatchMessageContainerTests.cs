@@ -631,6 +631,56 @@ public sealed class KeyBasedBatchMessageContainerTests
         uut.Items.Count.ShouldBe(10);
     }
 
+    // Upstream: BatchMessageContainerImplTest#testMultiBatchesPartialBuildFailureReleasesBuiltOps
+    // The Java container builds the commands of the batches, and when the second batch fails, the command of the first one must be released. The two rows (None and Zlib) differ in who owns the payload after the
+    // compression, and the DotPulsar container does not compress, so the rows are one. The batches are the buffers that are rented from the pool: the first is built and the second fails, so both must be
+    // returned, the messages must stay in the container, and the build after that must give two batches.
+    [Fact]
+    public void CreateBatches_GivenSecondBatchThatFailsToBuild_ShouldReturnTheBatchesThatWereBuiltAndKeepAllMessages()
+    {
+        //Arrange
+        var pool = new PreparedBatchPool(8);
+        var firstRented = pool.Get();
+        var secondRented = pool.Get();
+        firstRented.Return();
+        secondRented.Return(); // The container rents these two batches, in this order
+        var uut = new KeyBasedBatchMessageContainer<FailingBatchItem>(1000, 128 * 1024, TimeSpan.FromMilliseconds(1), pool);
+        var items = new[] { FailingBatchItem.Create(0, "a"), FailingBatchItem.Create(1, "a"), FailingBatchItem.Create(2, "b"), FailingBatchItem.Create(3, "b") };
+        var groups = new List<PreparedBatchGroup>();
+
+        foreach (var item in items)
+        {
+            uut.Add(item, MaxMessageSize);
+        }
+
+        items[3].Fail = true; // The batch of the key b fails, and it is built after the batch of the key a
+
+        //Act
+        var exception = Record.Exception(() => uut.CreateBatches(groups, MaxMessageSize));
+        var groupsAfterFailure = groups.Count;
+        var numberOfMessagesAfterFailure = uut.NumMessagesInBatch;
+        var firstReturned = firstRented.IsReturned;
+        var secondReturned = secondRented.IsReturned;
+        items[3].Fail = false;
+        uut.CreateBatches(groups, MaxMessageSize);
+
+        //Assert
+        exception.ShouldBeOfType<OutOfMemoryException>();
+        groupsAfterFailure.ShouldBe(0);
+        numberOfMessagesAfterFailure.ShouldBe(4);
+        firstReturned.ShouldBeTrue("the batch that was built is returned");
+        secondReturned.ShouldBeTrue("the batch that failed is returned");
+        groups.Count.ShouldBe(2);
+        groups.Select(group => group.Batch!).ShouldBe([firstRented, secondRented], true);
+        BatchPayloadReader.Read(groups[0].Batch!).Select(m => m.Metadata.SequenceId).ShouldBeSequence(0ul, 1ul);
+        BatchPayloadReader.Read(groups[1].Batch!).Select(m => m.Metadata.SequenceId).ShouldBeSequence(2ul, 3ul);
+        uut.Items.Count.ShouldBe(4);
+
+        //Annihilate
+        groups[0].Batch!.Return();
+        groups[1].Batch!.Return();
+    }
+
     private static KeyBasedBatchMessageContainer<TestBatchItem> CreateContainer(
         uint maxMessages = 1000,
         uint maxBytes = 128 * 1024,

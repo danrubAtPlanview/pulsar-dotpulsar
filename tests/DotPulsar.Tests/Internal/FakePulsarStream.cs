@@ -28,19 +28,25 @@ public sealed class FakePulsarStream : IPulsarStream
     private readonly System.Threading.Channels.Channel<ReadOnlySequence<byte>> _incoming;
     private readonly Func<BaseCommand, BaseCommand?> _respond;
     private readonly ConcurrentQueue<BaseCommand> _sent;
+    private readonly ConcurrentQueue<byte[]> _sentFrames;
 
     public FakePulsarStream(Func<BaseCommand, BaseCommand?>? respond = null)
     {
         _incoming = System.Threading.Channels.Channel.CreateUnbounded<ReadOnlySequence<byte>>();
         _respond = respond ?? (_ => null);
         _sent = new ConcurrentQueue<BaseCommand>();
+        _sentFrames = new ConcurrentQueue<byte[]>();
     }
 
     public IReadOnlyCollection<BaseCommand> Sent => _sent.ToArray();
 
+    // The bytes of every frame that the client sent, including the size of the frame
+    public IReadOnlyCollection<byte[]> SentFrames => _sentFrames.ToArray();
+
     public Task Send(ReadOnlySequence<byte> sequence)
     {
         var bytes = sequence.ToArray();
+        _sentFrames.Enqueue(bytes);
         var commandSize = (int) System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(4, 4));
         var command = BaseCommand.Parser.ParseFrom(bytes, 8, commandSize);
         _sent.Enqueue(command);
