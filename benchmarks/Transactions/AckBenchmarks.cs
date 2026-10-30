@@ -38,26 +38,40 @@ using System.Reflection;
 /// Measured (Medium job, in-process, Release, .NET 10, Intel Core Ultra 9 185H), nanoseconds and allocated bytes per acknowledgment, direct completion / thread-pool completion.
 /// The allocated bytes do not change from run to run when the completion is direct, and change by about 10 B when it is on the thread pool. The times change by about 10-20%.
 /// <code>
-/// PlainAck              119 ns /  104 B     113 ns /  104 B
-/// PlainAck_Receipt      264 ns /  448 B   2,218 ns / 1560 B
-/// TxnAck_SteadyState    474 ns /  984 B   3,236 ns / 2532 B
-/// TxnAck_BatchIndex     519 ns / 1072 B   2,839 ns / 2625 B
+/// PlainAck              110 ns /  104 B     103 ns /  104 B
+/// PlainAck_Receipt      307 ns /  416 B   1,985 ns / 1563 B
+/// TxnAck_SteadyState    319 ns /  424 B   2,273 ns / 1572 B
+/// TxnAck_BatchIndex     362 ns /  424 B   2,089 ns / 1575 B
 /// </code>
-/// PlainAck was 154 ns / 136 B before followups/0007 was fixed (the three other rows are from that time too). It allocates 104 B again, which is what it allocated on the baseline commit e8f2ba2
-/// (the same benchmark and fake connection without the transaction members: 104 B, 109.6 ns and 109.9 ns in the same session). The allocations of P1 are therefore met. The result of the executor
-/// was a class (32 B), and the plain acknowledgment called the generic overload of Executor.Execute because it returned the (null) receipt. It is a struct now, and an acknowledgment that does
-/// not wait for a receipt calls the overload without a result again, which also drops a layer of async methods (SendAndAwaitReceipt) from that path.
-/// The time of P1 is NOT met strictly. BenchmarkDotNet cannot tell, because its standard deviation on this machine is about 20 ns of 110 ns (the runs above and the baseline run overlap).
-/// Measured with the baseline build and this build in separate load contexts of one process (20,000 acknowledgments per slice, the two alternating, 7,000 to 12,000 slices per run),
-/// the 5th percentile of the slices was 4.5% to 13% above the baseline in six runs (+6% in the middle), the minimum of the slices 1% to 11% above (+8% in the middle) and the median of the slices 6% to 10% above.
+/// Before followups/0007 was fixed, it was 154 ns / 136 B and 182 ns / 136 B for PlainAck, 264 ns / 448 B and 2,218 ns / 1560 B for PlainAck_Receipt, 474 ns / 984 B and 3,236 ns / 2532 B
+/// for TxnAck_SteadyState, and 519 ns / 1072 B and 2,839 ns / 2625 B for TxnAck_BatchIndex.
+/// </para>
+/// <para>
+/// P1 (PlainAck) is met for the allocations and nearly for the time.
+/// PlainAck allocates 104 B again, which is what it allocated on the baseline commit e8f2ba2 (the same benchmark and fake connection without the transaction members: 104 B, 109.6 ns and 109.9 ns
+/// in the same session). The result of the executor was a class (32 B), and the plain acknowledgment called the generic overload of Executor.Execute because it returned the (null) receipt.
+/// The result is a struct now, and an acknowledgment that does not wait for a receipt calls the overload without a result again, which also drops a layer of async methods (SendAndAwaitReceipt) from that path.
+/// BenchmarkDotNet cannot tell the time, because its standard deviation on this machine is about 20 ns of 110 ns (the runs above and the baseline run overlap).
+/// Measured with the baseline build and this build in separate load contexts of one process (20,000 acknowledgments per slice, the two alternating, 5,000 to 12,000 slices per run, nine runs),
+/// the 5th percentile of the slices was 3% below to 13% above the baseline (+6% in the middle), the minimum of the slices 2% below to 11% above (+9% in the middle), and the median of the slices 3% to 10% above.
 /// The cost that is left is the work of the features that were added to the path, which is about 3 ns in ConsumerChannel.Send (the batch handling and the trackers, with a shortcut for the acknowledgment of one
 /// entry that is not a batch) and about 1 ns for the reset of the pooled command. The first version of this fix, which only made the result of the executor a struct, was 40% above the baseline.
-/// The threshold of TxnAck is NOT met. TxnAck_SteadyState minus PlainAck is 848 B (2396 B on the thread pool), where the awaiter (96 B) and a continuation (64-112 B) allow about 210 B.
-/// Minus PlainAck_Receipt, which has the same awaiter, the same timeout (linked token source and timer, 144 B) and the same direct send, it is 536 B (972 B on the thread pool).
-/// 344 B of the 536 B is the command: the transactional acknowledgment creates a new CommandAck (152 B), a new MessageIdData (104 B) and the array of its message id list (88 B)
-/// for every acknowledgment, where the plain acknowledgment uses the CommandAck of its pool. The other 192 B are two more result tasks of 72 B (the transactional path returns a task from
-/// each of ConsumerChannel.SendTransactional, InternalSendTransactional and the local function SendOnce, where the plain path returns one from ConsumerChannel.Send) and a second closure (48 B).
-/// TxnAck_BatchIndex adds 88 B for the array of the ack set, which is also new for every acknowledgment, and 0 B for building the ack set itself (see AckSetBenchmarks).
+/// </para>
+/// <para>
+/// P2 (TxnAck) is met. TxnAck_SteadyState minus PlainAck_Receipt, which has the same awaiter, the same timeout (linked token source and timer, 144 B) and the same send, is 8 B (9 B on the thread pool),
+/// and TxnAck_BatchIndex minus PlainAck_Receipt is 8 B (12 B on the thread pool), where one continuation (64-112 B) is allowed. It was 536 B (972 B on the thread pool).
+/// What was done, in bytes per acknowledgment with direct completion:
+/// the command of a transactional acknowledgment of one message id comes from the pool of the plain acknowledgments, with its MessageIdData and the array of its ack set
+/// (a RepeatedField keeps its array when it is cleared), where it was a new CommandAck (152 B), MessageIdData (104 B), array of the message id list (88 B) and, for a message in a batch, ack set (88 B) for every acknowledgment (-344 B, -432 B for a message in a batch);
+/// the local function SendOnce returns a value task and calls the channel itself, where the transactional path returned a task from each of ConsumerChannel.SendTransactional, InternalSendTransactional and SendOnce (-144 B);
+/// the closure of the plain acknowledgment is created in its own method and not when Send is entered, which it was also for a transactional acknowledgment (-40 B);
+/// ExecutionResult is a struct (-32 B, for every acknowledgment that waits for a receipt).
+/// The 8 B that are left are the closure of SendOnce (48 B), which is 8 B bigger than the closure of a plain acknowledgment (40 B).
+/// On the thread pool, where the receipt has not arrived when the acknowledgment waits for it, every async method that waits allocates its state machine, and what was left was the methods that the receipt does not need:
+/// the acknowledgment is an operation of the transaction that begins and ends in the method of the acknowledgment (Transaction.BeginOp and EndOp), and no longer a task that is registered with a continuation
+/// (ContinueWith, and a method of its own for the task), and the two acknowledgments of one message id are not async methods that await another. Together with the rest, they take the difference to PlainAck_Receipt on the thread pool from 972 B to 9 B.
+/// The transactional acknowledgment is 28-30% faster than before this change in runs that alternate the two builds (direct completion, 5th percentile and median), which is more than its allocations alone explain.
+/// The fake connection does not have the request id handling and the dictionary entry of the real one, which every acknowledgment that waits for a receipt needs (see followups/0007, section 4).
 /// </para>
 /// </summary>
 [MemoryDiagnoser]

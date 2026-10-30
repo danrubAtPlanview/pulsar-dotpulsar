@@ -57,4 +57,30 @@ public static class AllocationMeasurement
 
         return smallest;
     }
+
+    // The same for operations that continue on other threads, so that the allocations of all threads are counted. Every other thread that allocates adds to the number, so the tests
+    // that use this are in a collection that does not run in parallel with other tests.
+    public static async Task<double> BytesPerOperationOfAllThreads(Func<ValueTask> operation, double target = 0)
+    {
+        for (var i = 0; i < WarmupOperations; ++i)
+        {
+            await operation().ConfigureAwait(false);
+        }
+
+        var smallest = double.MaxValue;
+
+        for (var attempt = 0; attempt < MaxAttempts && smallest > target; ++attempt)
+        {
+            var before = GC.GetTotalAllocatedBytes(true);
+
+            for (var i = 0; i < Operations; ++i)
+            {
+                await operation().ConfigureAwait(false);
+            }
+
+            smallest = Math.Min(smallest, (GC.GetTotalAllocatedBytes(true) - before) / (double) Operations);
+        }
+
+        return smallest;
+    }
 }

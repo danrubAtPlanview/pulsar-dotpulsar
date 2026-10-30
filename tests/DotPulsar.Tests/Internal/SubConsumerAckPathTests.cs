@@ -19,6 +19,7 @@ using DotPulsar.Internal;
 using DotPulsar.Internal.Abstractions;
 using DotPulsar.Internal.Events;
 using DotPulsar.Internal.PulsarApi;
+using DotPulsar.Tests.Internal.Chunking;
 
 // The allocations and the pooled command of the acknowledgment path, which is the hot path of a consumer. See followups/0007.
 [Trait("Category", "Unit")]
@@ -138,7 +139,8 @@ public sealed class SubConsumerAckPathTests
             new ConsumerEpoch(),
             null,
             new NegativeAcknowledgeTracker(TimeSpan.FromMinutes(1), (_, _) => default),
-            null);
+            null,
+            ChunkTestData.CreateAssembler());
     }
 
     // A channel that does not allocate, so that the allocations of the sub-consumer can be measured. A mocked channel records its calls, which allocates.
