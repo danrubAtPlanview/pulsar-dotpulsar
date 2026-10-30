@@ -210,22 +210,17 @@ public sealed class BatchHandler<TMessage>
     }
 
     // Must be called while holding the lock
+    // Upstream: ConsumerImpl#receiveIndividualMessagesFromBatch (every delivery of a batch gets its own BatchMessageAcker)
+    // When an entry is delivered again, the tracker of the earlier delivery is replaced and never merged with the new one. The broker
+    // delivers the entry again with its own view of what is acknowledged, and what the client has cleared in the old tracker may not
+    // have been acknowledged (a transactional cumulative acknowledgment clears bits, and the transaction can then be aborted).
+    // Merging them would complete the batch too early, so that messages that were not acknowledged again are lost.
     private void Track(BatchAckTracker tracker)
     {
-        var key = tracker.Key;
-
-        if (_trackers.TryGetValue(key, out var existing))
-        {
-            // The entry was delivered again. What is already acknowledged stays acknowledged.
-            existing.IntersectWith(tracker);
-
-            if (existing.IsEmpty)
-                _trackers.Remove(key);
-        }
-        else if (!tracker.IsEmpty)
-        {
-            _trackers.Add(key, tracker);
-        }
+        if (tracker.IsEmpty)
+            _trackers.Remove(tracker.Key);
+        else
+            _trackers[tracker.Key] = tracker;
     }
 
     // Must be called while holding the lock

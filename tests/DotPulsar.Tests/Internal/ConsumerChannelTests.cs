@@ -881,6 +881,73 @@ public sealed class ConsumerChannelTests
         command.MessageId[0].AckSet.Count.ShouldBe(0);
     }
 
+    // A cumulative acknowledgment of a transaction clears the bits of the tracker. When the transaction is aborted, the broker delivers the entry again.
+    [Fact]
+    public async Task Send_GivenRedeliveryAfterTransactionalCumulativeAck_ShouldAcknowledgeEntryOnlyWhenAllIndexesAreAcknowledgedAgain()
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var queue = new AsyncQueue<MessagePackage>();
+        var connection = CreateTransactionalConnection(out var transactionalSent);
+        var plainSent = new List<CommandAck>();
+        connection.Send(Arg.Do<CommandAck>(ack => plainSent.Add(ack.Clone())), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
+        await using var channel = CreateChannel(connection, batchHandler, messageFactory, queue: queue);
+        queue.Enqueue(BatchTestData.CreateBatchPackage(BatchTestData.CreateEntryId(1, 2), 5));
+        var delivered = await ReceiveMessages(channel, 5);
+        await channel.SendTransactional(CreateTransactionalAck(CommandAck.Types.AckType.Cumulative, delivered[2]), Current.CancellationToken);
+        queue.Enqueue(BatchTestData.CreateBatchPackage(BatchTestData.CreateEntryId(1, 2), 5));
+        var redelivered = await ReceiveMessages(channel, 5);
+
+        //Act
+        var entryAcksAfterEachAck = new List<int>();
+        foreach (var batchIndex in new[] { 3, 4, 0, 1, 2 })
+        {
+            await channel.Send(CreateAck(CommandAck.Types.AckType.Individual, redelivered[batchIndex]), Current.CancellationToken);
+            entryAcksAfterEachAck.Add(plainSent.Count);
+        }
+
+        //Assert
+        transactionalSent.Count.ShouldBe(1);
+        entryAcksAfterEachAck.ShouldBeSequence(0, 0, 0, 0, 1);
+        plainSent[0].MessageId[0].LedgerId.ShouldBe(1UL);
+        plainSent[0].MessageId[0].EntryId.ShouldBe(2UL);
+        plainSent[0].MessageId[0].HasBatchIndex.ShouldBeFalse();
+        plainSent[0].MessageId[0].AckSet.Count.ShouldBe(0);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Send_GivenRedeliveryOfPartiallyAcknowledgedBatch_ShouldAcknowledgeEntryOnlyWhenAllDeliveredIndexesAreAcknowledged(bool batchIndexAckEnabled)
+    {
+        //Arrange
+        var (batchHandler, messageFactory) = CreateBatchHandler();
+        var queue = new AsyncQueue<MessagePackage>();
+        var connection = CreateConnection(out var sent);
+        await using var channel = CreateChannel(connection, batchHandler, messageFactory, batchIndexAckEnabled: batchIndexAckEnabled, queue: queue);
+        queue.Enqueue(BatchTestData.CreateBatchPackage(BatchTestData.CreateEntryId(1, 2), 5));
+        var delivered = await ReceiveMessages(channel, 5);
+        await channel.Send(CreateAck(CommandAck.Types.AckType.Individual, delivered[0]), Current.CancellationToken);
+        await channel.Send(CreateAck(CommandAck.Types.AckType.Individual, delivered[1]), Current.CancellationToken);
+
+        // The broker only knows about the indexes that were sent to it, which is none when the batch index acknowledgment is disabled
+        queue.Enqueue(BatchTestData.CreateBatchPackage(BatchTestData.CreateEntryId(1, 2), 5, batchIndexAckEnabled ? BatchTestData.CreateAckSet(0b11100) : null));
+        var redelivered = await ReceiveMessages(channel, batchIndexAckEnabled ? 3 : 5);
+        sent.Clear();
+
+        //Act
+        var entryAcks = new List<int>();
+        foreach (var message in Enumerable.Reverse(redelivered))
+        {
+            await channel.Send(CreateAck(CommandAck.Types.AckType.Individual, message), Current.CancellationToken);
+            entryAcks.Add(sent.Count(ack => ack.MessageId[0].AckSet.Count == 0));
+        }
+
+        //Assert
+        redelivered.Select(message => message.MessageId.BatchIndex).ShouldBeSequence(batchIndexAckEnabled ? [2, 3, 4] : [0, 1, 2, 3, 4]);
+        entryAcks.ShouldBeSequence(batchIndexAckEnabled ? [0, 0, 1] : [0, 0, 0, 0, 1]);
+    }
+
     [Fact]
     public async Task Receive_GivenEntryWithAllIndexesAcked_ShouldContinueToNextEntryAndKeepFlowAccounting()
     {
@@ -972,6 +1039,18 @@ public sealed class ConsumerChannelTests
         first.MessageId.Topic.ShouldBe(BatchTestData.Topic);
         second.MessageId.Topic.ShouldBe(BatchTestData.Topic);
         unbatched.MessageId.Topic.ShouldBe(BatchTestData.Topic);
+    }
+
+    private static async Task<List<DotPulsar.Abstractions.IMessage<byte[]>>> ReceiveMessages(ConsumerChannel<byte[]> channel, int count)
+    {
+        var messages = new List<DotPulsar.Abstractions.IMessage<byte[]>>();
+
+        for (var i = 0; i < count; ++i)
+        {
+            messages.Add(await channel.Receive(Current.CancellationToken));
+        }
+
+        return messages;
     }
 
     private static (BatchHandler<byte[]> Handler, MessageFactory<byte[]> Factory) CreateBatchHandler()

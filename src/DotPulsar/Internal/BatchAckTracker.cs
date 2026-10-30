@@ -35,7 +35,7 @@ public sealed class BatchAckTracker
         _remaining = batchSize;
 
         if (brokerAckSet is not null)
-            IntersectWith(brokerAckSet);
+            ApplyBrokerAckSet(brokerAckSet);
     }
 
     public ulong LedgerId { get; }
@@ -95,8 +95,11 @@ public sealed class BatchAckTracker
     public bool IsAcked(int batchIndex)
         => batchIndex < 0 || batchIndex >= BatchSize || (_words[batchIndex >> 6] & (1UL << (batchIndex & 63))) == 0;
 
+    public void CopyAckSetTo(RepeatedField<long> target)
+        => AckSetWriter.WriteWords(target, _words);
+
     // An empty ack set means that nothing is acknowledged
-    public void IntersectWith(RepeatedField<long> brokerAckSet)
+    private void ApplyBrokerAckSet(RepeatedField<long> brokerAckSet)
     {
         if (brokerAckSet.Count == 0)
             return;
@@ -108,19 +111,6 @@ public sealed class BatchAckTracker
 
         _remaining = CountBits();
     }
-
-    public void IntersectWith(BatchAckTracker other)
-    {
-        for (var i = 0; i < _words.Length; ++i)
-        {
-            _words[i] &= i < other._words.Length ? other._words[i] : 0;
-        }
-
-        _remaining = CountBits();
-    }
-
-    public void CopyAckSetTo(RepeatedField<long> target)
-        => AckSetWriter.WriteWords(target, _words);
 
     private int CountBits()
     {

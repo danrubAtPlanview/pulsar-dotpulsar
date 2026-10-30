@@ -241,54 +241,6 @@ public sealed class BatchAckTrackerTests
     }
 
     [Fact]
-    public void IntersectWith_GivenRedeliveryAckSet_ShouldMerge()
-    {
-        //Arrange
-        var uut = new BatchAckTracker(_entryId, 5, null);
-        uut.AckIndividual(0);
-
-        //Act
-        uut.IntersectWith(BatchTestData.CreateAckSet(0b01110));
-
-        //Assert
-        uut.IsAcked(0).ShouldBeTrue();
-        uut.IsAcked(1).ShouldBeFalse();
-        uut.IsAcked(2).ShouldBeFalse();
-        uut.IsAcked(3).ShouldBeFalse();
-        uut.IsAcked(4).ShouldBeTrue();
-    }
-
-    [Fact]
-    public void IntersectWith_GivenEmptyAckSet_ShouldNotChangeTheTracker()
-    {
-        //Arrange
-        var uut = new BatchAckTracker(_entryId, 5, null);
-        uut.AckIndividual(0);
-
-        //Act
-        uut.IntersectWith(new RepeatedField<long>());
-
-        //Assert
-        uut.IsAcked(0).ShouldBeTrue();
-        Enumerable.Range(1, 4).ShouldAllBe(index => !uut.IsAcked(index));
-    }
-
-    [Fact]
-    public void IntersectWith_GivenTrackerWithAllIndexesAcknowledged_ShouldBeEmpty()
-    {
-        //Arrange
-        var uut = new BatchAckTracker(_entryId, 3, null);
-        var other = new BatchAckTracker(_entryId, 3, null);
-        other.AckCumulative(2);
-
-        //Act
-        uut.IntersectWith(other);
-
-        //Assert
-        uut.IsEmpty.ShouldBeTrue();
-    }
-
-    [Fact]
     public void CopyAckSetTo_GivenPartiallyAcknowledgedBatch_ShouldWriteTheUnacknowledgedIndexes()
     {
         //Arrange

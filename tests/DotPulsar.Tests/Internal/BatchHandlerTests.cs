@@ -159,8 +159,9 @@ public sealed class BatchHandlerTests
         uut.AcknowledgeIndividual(BatchTestData.CreateBatchedId(1, 2, 0), out _).ShouldBeNull();
     }
 
+    // Upstream: ConsumerImpl#receiveIndividualMessagesFromBatch (every delivery of a batch gets its own BatchMessageAcker)
     [Fact]
-    public void Add_GivenRedeliveryOfTrackedEntry_ShouldMergeTrackers()
+    public void Add_GivenRedeliveryOfTrackedEntry_ShouldReplaceTheTrackerAndNotKeepTheEarlierAcknowledgments()
     {
         //Arrange
         var uut = CreateHandler();
@@ -176,7 +177,68 @@ public sealed class BatchHandlerTests
         tracker.ShouldNotBeNull();
         var ackSet = new RepeatedField<long>();
         uut.CopyAckSetTo(tracker, ackSet);
-        ackSet.ShouldBeAckSet(0b00100);
+        ackSet.ShouldBeAckSet(0b00101);
+    }
+
+    [Fact]
+    public void Add_GivenRedeliveryWithoutBrokerAckSet_ShouldRequireAllIndexesToBeAcknowledgedAgain()
+    {
+        //Arrange
+        var uut = CreateHandler();
+        _ = BatchTestData.AddBatch(uut, 1, 2, 5);
+        uut.AcknowledgeIndividual(BatchTestData.CreateBatchedId(1, 2, 0), out _);
+        uut.AcknowledgeIndividual(BatchTestData.CreateBatchedId(1, 2, 1), out _);
+        _ = BatchTestData.AddBatch(uut, 1, 2, 5);
+
+        //Act
+        var completed = new List<bool>();
+        foreach (var batchIndex in new[] { 2, 3, 4, 1, 0 })
+        {
+            uut.AcknowledgeIndividual(BatchTestData.CreateBatchedId(1, 2, batchIndex), out var isComplete);
+            completed.Add(isComplete);
+        }
+
+        //Assert
+        completed.ShouldBeSequence(false, false, false, false, true);
+    }
+
+    // The hazard that makes merging unsafe: a cumulative acknowledgment of a transaction clears the bits of the tracker, and the transaction is aborted afterwards
+    [Fact]
+    public void Add_GivenRedeliveryAfterCumulativeAcknowledgment_ShouldRequireAllIndexesToBeAcknowledgedAgain()
+    {
+        //Arrange
+        var uut = CreateHandler();
+        _ = BatchTestData.AddBatch(uut, 1, 2, 5);
+        uut.AcknowledgeCumulative(BatchTestData.CreateBatchedId(1, 2, 2), out _);
+        _ = BatchTestData.AddBatch(uut, 1, 2, 5);
+
+        //Act
+        var completed = new List<bool>();
+        foreach (var batchIndex in new[] { 3, 4, 0, 1, 2 })
+        {
+            uut.AcknowledgeIndividual(BatchTestData.CreateBatchedId(1, 2, batchIndex), out var isComplete);
+            completed.Add(isComplete);
+        }
+
+        //Assert
+        completed.ShouldBeSequence(false, false, false, false, true);
+    }
+
+    [Fact]
+    public void Add_GivenRedeliveryOfOtherEntry_ShouldKeepTheTrackerOfTheFirstEntry()
+    {
+        //Arrange
+        var uut = CreateHandler();
+        _ = BatchTestData.AddBatch(uut, 1, 2, 3);
+        uut.AcknowledgeIndividual(BatchTestData.CreateBatchedId(1, 2, 0), out _);
+
+        //Act
+        _ = BatchTestData.AddBatch(uut, 1, 3, 3);
+
+        //Assert
+        var tracker = uut.AcknowledgeIndividual(BatchTestData.CreateBatchedId(1, 2, 1), out var isComplete);
+        tracker.ShouldNotBeNull();
+        isComplete.ShouldBeFalse();
     }
 
     [Fact]
