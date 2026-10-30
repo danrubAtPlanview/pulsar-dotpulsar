@@ -152,7 +152,7 @@ public class SubProducerTests
         await Task.Delay(TimeSpan.FromMilliseconds(250), Current.CancellationToken);
 
         //Act
-        _ = cancelledOp.ReceiptTcs.TrySetCanceled(); // This is what Producer.Send does when the caller cancels
+        _ = cancelledOp.ReceiptTcs.TrySetCanceled(Current.CancellationToken); // This is what Producer.Send does when the caller cancels
 
         //Assert
         await plainOp.ReceiptTcs.Task.WaitAsync(_timeout, Current.CancellationToken);

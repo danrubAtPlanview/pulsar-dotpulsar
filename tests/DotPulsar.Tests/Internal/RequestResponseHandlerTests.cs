@@ -293,7 +293,7 @@ public sealed class RequestResponseHandlerTests
         uut.Outgoing(new CommandSend { ProducerId = 3, SequenceId = 5, HighestSequenceId = 9 }, tcs);
 
         //Act
-        tcs.SetCanceled();
+        tcs.SetCanceled(Current.CancellationToken);
 
         //Assert
         await WaitFor.Until(() => GetNumberOfRequests(uut) == 0, "both requests are removed");

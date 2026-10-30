@@ -241,7 +241,7 @@ public sealed class SubProducerBatchingTests
         var channel = new FakeProducerChannel();
         await using var sut = await CreateSubProducer(channel);
         var cancelledOp = CreateSendOp(2);
-        _ = cancelledOp.ReceiptTcs.TrySetCanceled();
+        _ = cancelledOp.ReceiptTcs.TrySetCanceled(Current.CancellationToken);
         var sendOps = new[] { CreateSendOp(1), cancelledOp, CreateSendOp(3) };
 
         //Act
@@ -261,7 +261,7 @@ public sealed class SubProducerBatchingTests
         var channel = new FakeProducerChannel();
         await using var sut = await CreateSubProducer(channel);
         var cancelledOp = CreateSendOp(1);
-        _ = cancelledOp.ReceiptTcs.TrySetCanceled();
+        _ = cancelledOp.ReceiptTcs.TrySetCanceled(Current.CancellationToken);
         var sendOps = new[] { cancelledOp, CreateSendOp(2), CreateSendOp(3) };
 
         //Act
@@ -284,7 +284,7 @@ public sealed class SubProducerBatchingTests
         await WaitFor.Until(() => channel.Entries.Count == 1, "the batch is sent");
 
         //Act
-        _ = sendOps[1].ReceiptTcs.TrySetCanceled();
+        _ = sendOps[1].ReceiptTcs.TrySetCanceled(Current.CancellationToken);
         await sut.EstablishNewChannel(Current.CancellationToken);
         await WaitFor.Until(() => channel.Entries.Count == 2, "the batch is sent again");
 
@@ -369,6 +369,7 @@ public sealed class SubProducerBatchingTests
         await Send(sut, sendOps);
         await sut.Flush().WaitAsync(_timeout, Current.CancellationToken);
         await WhenCompleted(sendOps);
+        var messageIds = await Task.WhenAll(sendOps.Select(sendOp => sendOp.ReceiptTcs.Task));
 
         //Assert
         var entries = channel.Entries;
@@ -377,13 +378,13 @@ public sealed class SubProducerBatchingTests
         entries[0].SequenceId.ShouldBe(3UL, "the sequence id of a batch of the key based batcher is its highest sequence id");
         entries[1].MessageSequenceIds.ShouldBe([1UL, 4UL, 5UL]);
         entries[1].SequenceId.ShouldBe(5UL);
-        sendOps[1].ReceiptTcs.Task.Result.BatchIndex.ShouldBe(0);
-        sendOps[2].ReceiptTcs.Task.Result.BatchIndex.ShouldBe(1);
-        sendOps[0].ReceiptTcs.Task.Result.BatchIndex.ShouldBe(0);
-        sendOps[3].ReceiptTcs.Task.Result.BatchIndex.ShouldBe(1);
-        sendOps[4].ReceiptTcs.Task.Result.BatchIndex.ShouldBe(2);
-        sendOps[1].ReceiptTcs.Task.Result.EntryId.ShouldBe(sendOps[2].ReceiptTcs.Task.Result.EntryId);
-        sendOps[1].ReceiptTcs.Task.Result.EntryId.ShouldNotBe(sendOps[0].ReceiptTcs.Task.Result.EntryId);
+        messageIds[1].BatchIndex.ShouldBe(0);
+        messageIds[2].BatchIndex.ShouldBe(1);
+        messageIds[0].BatchIndex.ShouldBe(0);
+        messageIds[3].BatchIndex.ShouldBe(1);
+        messageIds[4].BatchIndex.ShouldBe(2);
+        messageIds[1].EntryId.ShouldBe(messageIds[2].EntryId);
+        messageIds[1].EntryId.ShouldNotBe(messageIds[0].EntryId);
     }
 
     [Fact]
