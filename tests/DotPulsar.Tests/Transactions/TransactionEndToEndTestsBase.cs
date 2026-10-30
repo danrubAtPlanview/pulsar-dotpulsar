@@ -21,12 +21,15 @@ using System.Text;
 using System.Text.Json;
 
 // Upstream: TransactionEndToEndTest
+// The tests are run against a broker with batch index acknowledgment on and against one with it off, see the subclasses.
+//
+// A batch is produced by TransactionFixtureBase.ProduceBatchedMessages. It produces numbered payloads, so the tests that produce batches identify the messages by their batch index instead of by their value.
 public abstract class TransactionEndToEndTestsBase<TFixture> : IDisposable where TFixture : TransactionFixture
 {
     protected const int TopicPartition = 3; // Upstream: TransactionEndToEndTest#TOPIC_PARTITION
 
-    private static readonly TimeSpan _waitTimeForCanReceiveMsg = TimeSpan.FromSeconds(5);
-    private static readonly TimeSpan _waitTimeForCannotReceiveMsg = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan _waitTimeForCanReceiveMsg = TimeSpan.FromSeconds(5); // Upstream: TransactionEndToEndTest#waitTimeForCanReceiveMsgInSec
+    private static readonly TimeSpan _waitTimeForCannotReceiveMsg = TimeSpan.FromSeconds(5); // Upstream: TransactionEndToEndTest#waitTimeForCannotReceiveMsgInSec
 
     private readonly CancellationTokenSource _cts;
     private readonly ITestOutputHelper _testOutputHelper;
@@ -39,6 +42,12 @@ public abstract class TransactionEndToEndTestsBase<TFixture> : IDisposable where
     }
 
     protected TFixture Fixture { get; }
+
+    // Upstream: TransactionEndToEndWithoutBatchIndexAckTest#testUnackMessageAfterAckAllMessages and #testAckWithTransactionReduceUnAckMessageCount (enabled = false)
+    protected virtual string? SkipReasonForUnackMessageCountTests => null;
+
+    // Upstream: TransactionEndToEndWithoutBatchIndexAckTest#txnIndividualAckTestBatchAndFailoverSub (the test turns batch index acknowledgment on at runtime)
+    protected virtual string? SkipReasonForBatchAndFailoverIndividualAck => null;
 
     // Upstream: TransactionEndToEndTest#produceCommitTest
     [Theory]
@@ -312,6 +321,824 @@ public abstract class TransactionEndToEndTestsBase<TFixture> : IDisposable where
             received.ShouldContain($"msg-{i}");
     }
 
+    // Upstream: TransactionEndToEndTest#testIndividualAckAbortFilterAckSetInPendingAckState
+    // The values 0 to 8 of the upstream test are the batch indexes of the messages of the batch.
+    [Fact]
+    public async Task Abort_GivenBatchIndexesAckedByTwoTransactionsAndPlainAck_ShouldRedeliverOnlyTheAbortedIndexes()
+    {
+        //Arrange
+        const int count = 9;
+        var topicName = TransactionFixture.CreateTopicName("testIndividualAckAbortFilterAckSetInPendingAckState");
+        await Fixture.CreateTopic(topicName, _cts.Token);
+        await using var client = CreateClient();
+        await using var consumer = client.NewConsumer(Schema.ByteArray)
+            .Topic(topicName)
+            .AckReceiptEnabled(true)
+            .BatchIndexAckEnabled(true) // The default of the Java consumer
+            .InitialPosition(SubscriptionInitialPosition.Earliest)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .SubscriptionName("test")
+            .SubscriptionType(SubscriptionType.Shared)
+            .Create();
+        await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+        await Fixture.ProduceBatchedMessages(topicName, 1, count, _cts.Token);
+        var firstTransaction = await GetTxn(client);
+        var secondTransaction = await GetTxn(client);
+
+        // firstTransaction ack the first three messages and don't end the firstTransaction
+        for (var i = 0; i < count / 3; i++)
+        {
+            await consumer.Acknowledge((await consumer.Receive(_cts.Token)).MessageId, firstTransaction, _cts.Token);
+        }
+
+        // if secondTransaction abort we only can receive the middle three messages
+        for (var i = 0; i < count / 3; i++)
+        {
+            await consumer.Acknowledge((await consumer.Receive(_cts.Token)).MessageId, secondTransaction, _cts.Token);
+        }
+
+        // consumer normal ack the last three messages
+        for (var i = 0; i < count / 3; i++)
+        {
+            await consumer.Acknowledge(await consumer.Receive(_cts.Token), _cts.Token);
+        }
+
+        //Act
+        await secondTransaction.Abort(_cts.Token);
+
+        //Assert
+        // can receive 3 4 5 bit sit message
+        for (var i = 0; i < count / 3; i++)
+        {
+            (await consumer.Receive(_cts.Token)).MessageId.BatchIndex.ShouldBe(i + 3);
+        }
+
+        // can't receive message anymore
+        (await TransactionFixture.ReceiveOrNull(consumer, _waitTimeForCannotReceiveMsg, _cts.Token)).ShouldBeNull();
+    }
+
+    // Upstream: TransactionEndToEndTest#testFilterMsgsInPendingAckStateWhenConsumerDisconnect
+    // The values 0 to 9 of the upstream test are the batch indexes when the messages are produced as a batch.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Abort_GivenPendingAcksAndReconnectedConsumer_ShouldDeliverOnlyAbortedMessages(bool enableBatch)
+    {
+        //Arrange
+        const int count = 10;
+        var topicName = TransactionFixture.CreateTopicName($"testFilterMsgsInPendingAckStateWhenConsumerDisconnect-{(enableBatch ? "true" : "false")}");
+        await Fixture.CreateTopic(topicName, _cts.Token);
+        await using var client = CreateClient();
+        var consumer = CreateSharedConsumer(client, topicName, "test");
+        await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+        await ProduceNumbers(client, topicName, count, enableBatch);
+        var txn1 = await GetTxn(client);
+        var txn2 = await GetTxn(client);
+
+        // txn1 ack half of messages and don't end the txn1
+        for (var i = 0; i < count / 2; i++)
+        {
+            await consumer.Acknowledge((await consumer.Receive(_cts.Token)).MessageId, txn1, _cts.Token);
+        }
+
+        // txn2 ack the rest half of messages and commit tnx2
+        for (var i = count / 2; i < count; i++)
+        {
+            await consumer.Acknowledge((await consumer.Receive(_cts.Token)).MessageId, txn2, _cts.Token);
+        }
+
+        // commit txn2
+        await txn2.Commit(_cts.Token);
+
+        // close and re-create consumer
+        await consumer.DisposeAsync();
+        await using var recreatedConsumer = CreateSharedConsumer(client, topicName, "test");
+        await recreatedConsumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+
+        var message = await TransactionFixture.ReceiveOrNull(recreatedConsumer, _waitTimeForCannotReceiveMsg, _cts.Token);
+        message.ShouldBeNull();
+
+        //Act
+        // abort txn1
+        await txn1.Abort(_cts.Token);
+
+        //Assert
+        // after txn1 aborted, consumer will receive messages txn1 contains
+        var receiveCounter = 0;
+        while ((message = await TransactionFixture.ReceiveOrNull(recreatedConsumer, _waitTimeForCanReceiveMsg, _cts.Token)) is not null)
+        {
+            GetNumber(message, enableBatch).ShouldBe(receiveCounter);
+            receiveCounter++;
+        }
+
+        receiveCounter.ShouldBe(count / 2);
+    }
+
+    // Upstream: TransactionEndToEndTest#testMsgsInPendingAckStateWouldNotGetTheConsumerStuck
+    // The Java producer batches by default, but every message is sent before the next one is produced, so every batch has one message.
+    // DotPulsar does not batch by default.
+    [Fact]
+    public async Task Receive_GivenMessagesInPendingAckStateAndSmallPrefetch_ShouldNotGetConsumerStuck()
+    {
+        //Arrange
+        var topicName = TransactionFixture.CreateTopicName("testMsgsInPendingAckStateWouldNotGetTheConsumerStuck");
+        const string subscription = "test";
+        await Fixture.CreateTopic(topicName, _cts.Token);
+        await using var client = CreateClient();
+        await using var producer = client.NewProducer(Schema.Int32)
+            .Topic(topicName)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .Create();
+        var consumer = client.NewConsumer(Schema.Int32)
+            .Topic(topicName)
+            .InitialPosition(SubscriptionInitialPosition.Earliest)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .SubscriptionName(subscription)
+            .SubscriptionType(SubscriptionType.Shared)
+            .Create();
+        await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+
+        const int numStep1Receive = 2;
+        const int numStep2Receive = 2;
+        const int numStep3Receive = 2;
+        const int numTotalMessage = numStep1Receive + numStep2Receive + numStep3Receive;
+
+        for (var i = 0; i < numTotalMessage; i++)
+        {
+            await producer.Send(i, _cts.Token);
+        }
+
+        var step1Txn = await GetTxn(client);
+        var step2Txn = await GetTxn(client);
+
+        // Step 1, try to consume some messages but do not commit the transaction
+        for (var i = 0; i < numStep1Receive; i++)
+        {
+            await consumer.Acknowledge((await consumer.Receive(_cts.Token)).MessageId, step1Txn, _cts.Token);
+        }
+
+        // Step 2, try to consume some messages and commit the transaction
+        for (var i = 0; i < numStep2Receive; i++)
+        {
+            await consumer.Acknowledge((await consumer.Receive(_cts.Token)).MessageId, step2Txn, _cts.Token);
+        }
+
+        // commit step2Txn
+        await step2Txn.Commit(_cts.Token);
+
+        // close and re-create consumer
+        await consumer.DisposeAsync();
+        await using var consumer2 = client.NewConsumer(Schema.Int32)
+            .Topic(topicName)
+            .InitialPosition(SubscriptionInitialPosition.Earliest)
+            .MessagePrefetchCount(numStep3Receive)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .SubscriptionName(subscription)
+            .SubscriptionType(SubscriptionType.Shared)
+            .Create();
+        await consumer2.StateChangedTo(ConsumerState.Active, _cts.Token);
+
+        //Act
+        var received = new List<int>();
+
+        // Step 3, try to consume the rest messages and should receive all of them
+        for (var i = 0; i < numStep3Receive; i++)
+        {
+            // should get the message instead of timeout. The first receive can wait for the retry interval of 3 seconds, because the consumer is active before its channel is usable (followup 0016)
+            var message = await TransactionFixture.ReceiveOrNull(consumer2, i == 0 ? TimeSpan.FromSeconds(10) : TimeSpan.FromSeconds(3), _cts.Token);
+            message.ShouldNotBeNull();
+            received.Add(message.Value());
+        }
+
+        //Assert
+        received.ShouldBe([numStep1Receive + numStep2Receive, numStep1Receive + numStep2Receive + 1]);
+    }
+
+    // Upstream: TransactionEndToEndTest#testUnackMessageAfterAckAllMessages
+    [Theory]
+    [InlineData(true, true, true)]
+    [InlineData(true, true, false)]
+    [InlineData(true, false, true)]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, true)]
+    [InlineData(false, true, false)]
+    [InlineData(false, false, true)]
+    [InlineData(false, false, false)]
+    public async Task Commit_GivenAllMessagesAckedWithTransaction_ShouldLeaveNoUnackedMessages(bool batchSend, bool batchAck, bool asyncAck)
+    {
+        Assert.SkipWhen(SkipReasonForUnackMessageCountTests is not null, SkipReasonForUnackMessageCountTests ?? string.Empty);
+
+        //Arrange
+        const int messageCount = 50;
+        const string subName = "s1";
+        var topicName = TransactionFixture.CreateTopicName("tp");
+        await Fixture.CreateTopic(topicName, _cts.Token);
+        await using var client = CreateClient();
+        await using var consumer = client.NewConsumer(Schema.ByteArray)
+            .Topic(topicName)
+            .AckReceiptEnabled(true)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .SubscriptionName(subName)
+            .SubscriptionType(SubscriptionType.Shared)
+            .Create();
+        await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+
+        // Publish messages.
+        if (batchSend)
+        {
+            await Fixture.ProduceBatchedMessages(topicName, messageCount / 10, 10, _cts.Token);
+        }
+        else
+        {
+            await using var producer = client.NewProducer(Schema.ByteArray)
+                .Topic(topicName)
+                .StateChangedHandler(_testOutputHelper.Log)
+                .Create();
+            await producer.StateChangedTo(ProducerState.Connected, _cts.Token);
+
+            Task<MessageId>? latestSendFuture = null;
+            for (var i = 0; i < messageCount; i++)
+            {
+                latestSendFuture = await SendAsync(producer, Encoding.UTF8.GetBytes(i.ToString()));
+            }
+
+            await latestSendFuture!;
+        }
+
+        // Ack messages with TXN.
+        var txn = await GetTxn(client);
+        var msgIds = new List<MessageId>();
+        for (var i = 0; i < messageCount; i++)
+        {
+            var message = await ReceiveMessage(consumer);
+            msgIds.Add(message.MessageId);
+        }
+
+        //Act
+        if (batchAck)
+        {
+            await consumer.Acknowledge(msgIds, txn, _cts.Token);
+        }
+        else if (asyncAck)
+        {
+            Task? latestAckFuture = null;
+            foreach (var msgId in msgIds)
+            {
+                latestAckFuture = consumer.Acknowledge(msgId, txn, _cts.Token).AsTask();
+            }
+
+            await latestAckFuture!;
+        }
+        else
+        {
+            foreach (var msgId in msgIds)
+            {
+                await consumer.Acknowledge(msgId, txn, _cts.Token);
+            }
+        }
+
+        await txn.Commit(_cts.Token);
+
+        //Assert
+        // Verify: the quantity of un-ack messages is 0.
+        (await GetConsumerUnackedMessages(topicName, subName, 0)).ShouldBe(0);
+    }
+
+    // Upstream: TransactionEndToEndTest#testAckWithTransactionReduceUnAckMessageCount
+    // The broker is not accessible from the test, so the unacknowledged messages of the consumer are read from the topic stats of the admin API.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Commit_GivenHalfOfMessagesAckedWithTransaction_ShouldReduceUnackedMessageCount(bool enableBatch)
+    {
+        Assert.SkipWhen(SkipReasonForUnackMessageCountTests is not null, SkipReasonForUnackMessageCountTests ?? string.Empty);
+
+        //Arrange
+        const int messageCount = 50;
+        const string subName = "testAckWithTransactionReduceUnAckMessageCount";
+        var topicName = TransactionFixture.CreateTopicName($"testAckWithTransactionReduceUnAckMessageCount-{(enableBatch ? "true" : "false")}");
+        await Fixture.CreateTopic(topicName, _cts.Token);
+        await using var client = CreateClient();
+        await using var consumer = client.NewConsumer(Schema.ByteArray)
+            .Topic(topicName)
+            .AckReceiptEnabled(true)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .SubscriptionName(subName)
+            .SubscriptionType(SubscriptionType.Shared)
+            .Create();
+        await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+
+        if (enableBatch)
+        {
+            await Fixture.ProduceBatchedMessages(topicName, messageCount / 10, 10, _cts.Token);
+        }
+        else
+        {
+            await using var producer = client.NewProducer(Schema.ByteArray)
+                .Topic(topicName)
+                .StateChangedHandler(_testOutputHelper.Log)
+                .Create();
+
+            var receipts = new List<Task<MessageId>>();
+            for (var i = 0; i < messageCount; i++)
+            {
+                receipts.Add(await SendAsync(producer, Encoding.UTF8.GetBytes(i.ToString())));
+            }
+
+            await Task.WhenAll(receipts);
+        }
+
+        var txn = await GetTxn(client);
+
+        for (var i = 0; i < messageCount / 2; i++)
+        {
+            var message = await ReceiveMessage(consumer);
+            await consumer.Acknowledge(message.MessageId, txn, _cts.Token);
+        }
+
+        //Act
+        await txn.Commit(_cts.Token);
+
+        //Assert
+        (await GetConsumerUnackedMessages(topicName, subName, 0)).ShouldBe(messageCount / 2);
+    }
+
+    // Upstream: TransactionEndToEndTest#txnIndividualAckTestNoBatchAndSharedSub
+    [Fact]
+    public async Task Acknowledge_GivenNoBatchAndSharedSubscription_ShouldRedeliverAfterAbortAndRemoveAfterCommit()
+        => await TxnAckTest(false, 1, SubscriptionType.Shared);
+
+    // Upstream: TransactionEndToEndTest#txnIndividualAckTestBatchAndSharedSub
+    [Fact]
+    public async Task Acknowledge_GivenBatchAndSharedSubscription_ShouldRedeliverAfterAbortAndRemoveAfterCommit()
+        => await TxnAckTest(true, 200, SubscriptionType.Shared);
+
+    // Upstream: TransactionEndToEndTest#txnIndividualAckTestNoBatchAndFailoverSub
+    [Fact]
+    public async Task Acknowledge_GivenNoBatchAndFailoverSubscription_ShouldRedeliverAfterAbortAndRemoveAfterCommit()
+        => await TxnAckTest(false, 1, SubscriptionType.Failover);
+
+    // Upstream: TransactionEndToEndTest#txnIndividualAckTestBatchAndFailoverSub
+    [Fact]
+    public async Task Acknowledge_GivenBatchAndFailoverSubscription_ShouldRedeliverAfterAbortAndRemoveAfterCommit()
+    {
+        Assert.SkipWhen(SkipReasonForBatchAndFailoverIndividualAck is not null, SkipReasonForBatchAndFailoverIndividualAck ?? string.Empty);
+
+        await TxnAckTest(true, 200, SubscriptionType.Failover);
+    }
+
+    // Upstream: TransactionEndToEndTest#txnAckTestBatchAndCumulativeSub
+    [Fact]
+    public async Task AcknowledgeCumulative_GivenBatchAndFailoverSubscription_ShouldConflictRedeliverAfterAbortAndRemoveAfterCommit()
+        => await TxnCumulativeAckTest(true, 200, SubscriptionType.Failover);
+
+    // Upstream: TransactionEndToEndTest#txnAckTestNoBatchAndCumulativeSub
+    [Fact]
+    public async Task AcknowledgeCumulative_GivenNoBatchAndFailoverSubscription_ShouldConflictRedeliverAfterAbortAndRemoveAfterCommit()
+        => await TxnCumulativeAckTest(false, 1, SubscriptionType.Failover);
+
+    // Upstream: TransactionEndToEndTest#transactionTimeoutTest
+    [Fact]
+    public async Task Acknowledge_GivenTransactionTimesOut_ShouldRedeliverMessage()
+    {
+        //Arrange
+        var topicName = TransactionFixture.CreateTopicName("txn-timeout");
+        await Fixture.CreateTopic(topicName, _cts.Token);
+        await using var client = CreateClient();
+        await using var consumer = client.NewConsumer(Schema.String)
+            .Topic(topicName)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .SubscriptionName("test")
+            .Create();
+        await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+        await using var producer = client.NewProducer(Schema.String)
+            .Topic(topicName)
+            .ProducerName("txn-timeout")
+            .StateChangedHandler(_testOutputHelper.Log)
+            .Create();
+        await producer.Send("Hello Pulsar!", _cts.Token);
+        var consumeTimeoutTxn = await client.NewTransaction().Timeout(TimeSpan.FromSeconds(7)).Create(_cts.Token);
+        var message = await ReceiveMessage(consumer);
+        await consumer.Acknowledge(message.MessageId, consumeTimeoutTxn, _cts.Token);
+
+        //Act
+        var reReceiveMessage = await TransactionFixture.ReceiveOrNull(consumer, _waitTimeForCannotReceiveMsg, _cts.Token);
+        reReceiveMessage.ShouldBeNull();
+        reReceiveMessage = await TransactionFixture.ReceiveOrNull(consumer, _waitTimeForCanReceiveMsg, _cts.Token);
+
+        //Assert
+        reReceiveMessage.ShouldNotBeNull();
+        reReceiveMessage.Value().ShouldBe(message.Value());
+        reReceiveMessage.MessageId.ShouldBe(message.MessageId);
+    }
+
+    // Upstream: TransactionEndToEndTest#oneTransactionOneTopicWithMultiSubTest
+    // The metadata of the transaction is read from the admin API, because the transaction metadata store of the broker is not accessible from the test.
+    [Fact]
+    public async Task Acknowledge_GivenOneTransactionAndTwoSubscriptions_ShouldRegisterBothSubscriptions()
+    {
+        //Arrange
+        var topicName = TransactionFixture.CreateTopicName("oneTransactionOneTopicWithMultiSubTest");
+        const string subName1 = "test1";
+        const string subName2 = "test2";
+        await Fixture.CreateTopic(topicName, _cts.Token);
+        await using var client = CreateClient();
+        await using var consumer1 = client.NewConsumer(Schema.ByteArray)
+            .Topic(topicName)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .SubscriptionName(subName1)
+            .Create();
+        await consumer1.StateChangedTo(ConsumerState.Active, _cts.Token);
+        await using var consumer2 = client.NewConsumer(Schema.ByteArray)
+            .Topic(topicName)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .SubscriptionName(subName2)
+            .Create();
+        await consumer2.StateChangedTo(ConsumerState.Active, _cts.Token);
+        await using var producer = client.NewProducer(Schema.ByteArray)
+            .Topic(topicName)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .Create();
+        var messageId = await producer.Send(Encoding.UTF8.GetBytes("Hello Pulsar"), _cts.Token);
+        var txn = await GetTxn(client);
+
+        //Act
+        await consumer1.Acknowledge(messageId, txn, _cts.Token);
+        await consumer2.Acknowledge(messageId, txn, _cts.Token);
+        var metadata = await Fixture.GetTransactionMetadata(txn.Id, _cts.Token);
+
+        //Assert
+        var ackedPartitions = metadata.GetProperty("ackedPartitions");
+        ackedPartitions.EnumerateObject().Sum(topic => topic.Value.EnumerateObject().Count()).ShouldBe(2);
+        ackedPartitions.GetProperty(topicName).EnumerateObject().Select(subscription => subscription.Name).ShouldBe([subName1, subName2], true);
+
+        await txn.Abort(_cts.Token);
+    }
+
+    // Upstream: TransactionEndToEndTest#testCumulativeAckRedeliverMessages
+    // The Java producer has batching enabled, but it sends each message with a blocking send, so each message is a batch of its own. The row with batching sends the 5 messages as one batch, so the
+    // cumulative acknowledgment of the third message is an acknowledgment of a batch index. The conflict is also tested without redelivery, in TransactionConsumerTests.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AcknowledgeCumulative_GivenConflictingTransactionThenAbort_ShouldRedeliverMessages(bool batching)
+    {
+        //Arrange
+        const int count = 5;
+        const int transactionCumulativeAck = 3;
+        var topicName = TransactionFixture.CreateTopicName("testCumulativeAckRedeliverMessages");
+        await Fixture.CreateTopic(topicName, _cts.Token);
+        await using var client = CreateClient();
+        await using var consumer = client.NewConsumer(Schema.ByteArray)
+            .Topic(topicName)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .SubscriptionName("test")
+            .Create();
+        await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+        await using var producer = client.NewProducer(Schema.ByteArray)
+            .BatchingMaxMessages(count)
+            .BatchingMaxPublishDelay(TimeSpan.FromSeconds(5))
+            .EnableBatching(batching)
+            .SendTimeout(TimeSpan.Zero)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .Topic(topicName)
+            .Create();
+
+        // Send 5 messages
+        var receipts = new List<Task<MessageId>>();
+        for (var i = 0; i < count; i++)
+        {
+            receipts.Add(await SendAsync(producer, Encoding.UTF8.GetBytes(i.ToString())));
+        }
+
+        var sentIds = await Task.WhenAll(receipts).WaitAsync(TimeSpan.FromSeconds(30), _cts.Token);
+        sentIds.Select(messageId => messageId.BatchIndex >= 0).Distinct().ShouldBe([batching]);
+        var transaction = await GetTxn(client);
+        var invalidTransaction = await GetTxn(client);
+        IMessage<byte[]>? message = null;
+        for (var i = 0; i < transactionCumulativeAck; i++)
+        {
+            message = await ReceiveMessage(consumer);
+        }
+
+        // Receive the messages in order
+        Encoding.UTF8.GetString(message!.Value()).ShouldBe("2");
+
+        // Acknowledge the last message
+        await consumer.AcknowledgeCumulative(message.MessageId, transaction, _cts.Token);
+
+        // Another acknowledgment throws TransactionConflictException
+        await Should.ThrowAsync<TransactionConflictException>(async () => await consumer.AcknowledgeCumulative(message.MessageId, invalidTransaction, _cts.Token));
+
+        //Act
+        // Abort the transaction, and then redeliver the messages
+        await transaction.Abort(_cts.Token);
+        await consumer.RedeliverUnacknowledgedMessages(_cts.Token);
+
+        //Assert
+        // All the messages are received again, and the ones that were already received before the redelivery are not received twice
+        for (var i = 0; i < count; i++)
+        {
+            message = await ReceiveMessage(consumer);
+        }
+
+        Encoding.UTF8.GetString(message!.Value()).ShouldBe("4");
+        var commitTransaction = await GetTxn(client);
+        await consumer.AcknowledgeCumulative(message.MessageId, commitTransaction, _cts.Token);
+        await commitTransaction.Commit(_cts.Token);
+
+        // Then the redelivery does not receive any message
+        (await TransactionFixture.ReceiveOrNull(consumer, _waitTimeForCannotReceiveMsg, _cts.Token)).ShouldBeNull();
+    }
+
+    // Upstream: TransactionEndToEndTest#testSendTxnAckMessageToDLQ
+    // The assertion of the Java test on the available permits of the consumer is dropped, it is a counter of the Java client. The dead letter consumer receiving the message covers it.
+    [Fact]
+    public async Task Abort_GivenMessageExceedsMaxRedeliverCount_ShouldSendMessageToDeadLetterTopic()
+    {
+        //Arrange
+        const string value = "test";
+        var topicName = TransactionFixture.CreateTopicName("testSendTxnAckMessageToDLQ");
+        await Fixture.CreateTopic(topicName, _cts.Token);
+        await using var client = CreateClient();
+        await using var producer = client.NewProducer(Schema.ByteArray)
+            .Topic(topicName)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .Create();
+        await using var consumer = CreateDeadLetterConsumer(client, topicName);
+        await using var deadLetterConsumer = CreateDeadLetterConsumer(client, $"{topicName}-test-DLQ");
+        await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+        await deadLetterConsumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+        _ = await producer.Send(Encoding.UTF8.GetBytes(value), _cts.Token);
+
+        //Act
+        var transaction = await client.NewTransaction().Timeout(TimeSpan.FromMinutes(1)).Create(_cts.Token);
+        var message = await ReceiveMessage(consumer);
+        message.RedeliveryCount.ShouldBe(0U);
+        await consumer.Acknowledge(message.MessageId, transaction, _cts.Token);
+        await transaction.Abort(_cts.Token);
+
+        transaction = await client.NewTransaction().Timeout(TimeSpan.FromMinutes(5)).Create(_cts.Token);
+        message = await ReceiveMessage(consumer);
+        message.RedeliveryCount.ShouldBe(1U);
+        await consumer.Acknowledge(message.MessageId, transaction, _cts.Token);
+        await transaction.Abort(_cts.Token);
+
+        //Assert
+        (await TransactionFixture.ReceiveOrNull(consumer, _waitTimeForCannotReceiveMsg, _cts.Token)).ShouldBeNull();
+        var deadLetter = await ReceiveMessage(deadLetterConsumer);
+        Encoding.UTF8.GetString(deadLetter.Value()).ShouldBe(value);
+    }
+
+    // Upstream: TransactionEndToEndTest#testSendTxnAckBatchMessageToDLQ
+    // The two messages are sent as one batch. Java relies on the default maximum publish delay of 1 millisecond, so two sends that follow each other form a batch in practice. The test
+    // makes it certain with a batch of exactly two messages. The send timeout is 5 seconds and not the 1 second of the upstream test, so that a loaded machine does not fail the test.
+    [Fact]
+    public async Task Abort_GivenBatchMessageExceedsMaxRedeliverCount_ShouldSendBatchToDeadLetterTopic()
+    {
+        //Arrange
+        const string value1 = "test1";
+        const string value2 = "test2";
+        var topicName = TransactionFixture.CreateTopicName("testSendTxnAckBatchMessageToDLQ");
+        await Fixture.CreateTopic(topicName, _cts.Token);
+        await using var client = CreateClient();
+        await using var producer = client.NewProducer(Schema.ByteArray)
+            .Topic(topicName)
+            .EnableBatching(true)
+            .BatchingMaxMessages(2)
+            .BatchingMaxPublishDelay(TimeSpan.FromSeconds(1))
+            .SendTimeout(TimeSpan.FromSeconds(5))
+            .StateChangedHandler(_testOutputHelper.Log)
+            .Create();
+        await using var consumer = CreateDeadLetterConsumer(client, topicName);
+        await using var deadLetterConsumer = CreateDeadLetterConsumer(client, $"{topicName}-test-DLQ");
+        await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+        await deadLetterConsumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+        var receipts = new[] { await SendAsync(producer, Encoding.UTF8.GetBytes(value1)), await SendAsync(producer, Encoding.UTF8.GetBytes(value2)) };
+        await Task.WhenAll(receipts);
+
+        //Act
+        var transaction = await client.NewTransaction().Timeout(TimeSpan.FromMinutes(1)).Create(_cts.Token);
+        var message = await ReceiveMessage(consumer);
+        Encoding.UTF8.GetString(message.Value()).ShouldBe(value1);
+        await consumer.Acknowledge(message.MessageId, transaction, _cts.Token);
+        await transaction.Abort(_cts.Token);
+
+        // The second message of the first delivery, and then the two messages of the batch again
+        for (var i = 0; i < 3; i++)
+            message = await ReceiveMessage(consumer);
+
+        transaction = await client.NewTransaction().Timeout(TimeSpan.FromMinutes(5)).Create(_cts.Token);
+        Encoding.UTF8.GetString(message.Value()).ShouldBe(value2);
+        await consumer.Acknowledge(message.MessageId, transaction, _cts.Token);
+        await transaction.Abort(_cts.Token);
+
+        //Assert
+        (await TransactionFixture.ReceiveOrNull(consumer, _waitTimeForCannotReceiveMsg, _cts.Token)).ShouldBeNull();
+        var deadLetter = await ReceiveMessage(deadLetterConsumer);
+        Encoding.UTF8.GetString(deadLetter.Value()).ShouldBe(value1);
+        deadLetter = await ReceiveMessage(deadLetterConsumer);
+        Encoding.UTF8.GetString(deadLetter.Value()).ShouldBe(value2);
+    }
+
+    // Upstream: TransactionEndToEndTest#testAckWithTransactionReduceUnackCountNotInPendingAcks
+    // The unacknowledged messages of the consumer are read from the topic stats of the admin API.
+    [Fact]
+    public async Task Acknowledge_GivenOneBatchIndexAckedWithTransaction_ShouldReduceUnackedCountByOne()
+    {
+        //Arrange
+        var topicName = TransactionFixture.CreateTopicName("testAckWithTransactionReduceUnackCountNotInPendingAcks");
+        const string subName = "test";
+        await Fixture.CreateTopic(topicName, _cts.Token);
+        await using var client = CreateClient();
+        await using var consumer = client.NewConsumer(Schema.ByteArray)
+            .Topic(topicName)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .SubscriptionName(subName)
+            .SubscriptionType(SubscriptionType.Shared)
+            .Create();
+        await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+
+        // send 5 messages with one batch
+        await Fixture.ProduceBatchedMessages(topicName, 1, 5, _cts.Token);
+
+        // receive the batch messages add to a list
+        var messageIds = new List<MessageId>();
+        for (var i = 0; i < 5; i++)
+        {
+            messageIds.Add((await ReceiveMessage(consumer)).MessageId);
+        }
+
+        // Ack one message in the batch with a transaction.
+        var txn = await GetTxn(client);
+
+        //Act
+        await consumer.Acknowledge(messageIds[1], txn, _cts.Token);
+
+        //Assert
+        // ack one message, the unack count is 4
+        (await GetConsumerUnackedMessages(topicName, subName, 0)).ShouldBe(4);
+
+        await txn.Abort(_cts.Token);
+    }
+
+    // Upstream: TransactionEndToEndTest#txnAckTest
+    private async Task TxnAckTest(bool batchEnable, uint maxBatchSize, SubscriptionType subscriptionType)
+    {
+        //Arrange
+        const int messageCnt = 1000;
+        var normalTopic = TransactionFixture.CreateTopicName("normal-topic");
+        await Fixture.CreateTopic(normalTopic, _cts.Token);
+        await using var client = CreateClient();
+        await using var consumer = client.NewConsumer(Schema.ByteArray)
+            .Topic(normalTopic)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .SubscriptionName("test")
+            .SubscriptionType(subscriptionType)
+            .Create();
+        await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+        await using var producer = client.NewProducer(Schema.ByteArray)
+            .Topic(normalTopic)
+            .EnableBatching(batchEnable)
+            .BatchingMaxMessages(maxBatchSize)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .Create();
+
+        for (var retryCnt = 0; retryCnt < 2; retryCnt++)
+        {
+            var txn = await GetTxn(client);
+
+            // produce normal messages
+            var receipts = new List<Task<MessageId>>();
+            for (var i = 0; i < messageCnt; i++)
+            {
+                receipts.Add(await SendAsync(producer, Encoding.UTF8.GetBytes("hello")));
+            }
+
+            // consume and ack messages with txn
+            for (var i = 0; i < messageCnt; i++)
+            {
+                var message = await ReceiveMessage(consumer);
+                await consumer.Acknowledge(message.MessageId, txn, _cts.Token);
+            }
+
+            // the messages are pending ack state and can't be received
+            (await TransactionFixture.ReceiveOrNull(consumer, _waitTimeForCannotReceiveMsg, _cts.Token)).ShouldBeNull();
+
+            //Act
+            // 1) txn abort
+            await txn.Abort(_cts.Token);
+
+            // after transaction abort, the messages could be received
+            var commitTxn = await GetTxn(client);
+            for (var i = 0; i < messageCnt; i++)
+            {
+                var message = await ReceiveMessage(consumer);
+                await consumer.Acknowledge(message.MessageId, commitTxn, _cts.Token);
+            }
+
+            // 2) ack committed by a new txn
+            await commitTxn.Commit(_cts.Token);
+
+            //Assert
+            // after transaction commit, the messages can't be received
+            (await TransactionFixture.ReceiveOrNull(consumer, _waitTimeForCannotReceiveMsg, _cts.Token)).ShouldBeNull();
+
+            // Upstream sets the state of the transaction to open using reflection and commits it again. The transaction coordinator is asked to
+            // commit the transaction that has ended, as it is done there, and the expected exception is the same.
+            var tcClient = ((PulsarClient) client).TransactionCoordinatorClient!;
+            await Should.ThrowAsync<TransactionNotFoundException>(async () => await tcClient.Commit(commitTxn.Id, _cts.Token));
+
+            await Task.WhenAll(receipts);
+        }
+    }
+
+    // Upstream: TransactionEndToEndTest#txnCumulativeAckTest
+    private async Task TxnCumulativeAckTest(bool batchEnable, uint maxBatchSize, SubscriptionType subscriptionType)
+    {
+        //Arrange
+        const int messageCnt = 1000;
+        var normalTopic = TransactionFixture.CreateTopicName("normal-topic");
+        await Fixture.CreateTopic(normalTopic, _cts.Token);
+        await using var client = CreateClient();
+        await using var consumer = client.NewConsumer(Schema.ByteArray)
+            .Topic(normalTopic)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .AckTimeout(TimeSpan.FromMinutes(1)) // It must not expire while the test runs
+            .SubscriptionName("test")
+            .SubscriptionType(subscriptionType)
+            .Create();
+        await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+        await using var producer = client.NewProducer(Schema.ByteArray)
+            .Topic(normalTopic)
+            .EnableBatching(batchEnable)
+            .BatchingMaxMessages(maxBatchSize)
+            .BatchingMaxPublishDelay(TimeSpan.FromSeconds(1))
+            .StateChangedHandler(_testOutputHelper.Log)
+            .Create();
+
+        for (var retryCnt = 0; retryCnt < 2; retryCnt++)
+        {
+            var abortTxn = await GetTxn(client);
+
+            // produce normal messages
+            var receipts = new List<Task<MessageId>>();
+            for (var i = 0; i < messageCnt; i++)
+            {
+                receipts.Add(await SendAsync(producer, Encoding.UTF8.GetBytes("hello")));
+            }
+
+            await Task.WhenAll(receipts);
+            await Task.Delay(TimeSpan.FromSeconds(1), _cts.Token);
+
+            // consume and ack messages with txn
+            IMessage<byte[]>? message = null;
+            for (var i = 0; i < messageCnt; i++)
+            {
+                message = await ReceiveMessage(consumer);
+
+                if (i % 3 == 0)
+                    await consumer.AcknowledgeCumulative(message.MessageId, abortTxn, _cts.Token);
+            }
+
+            // the last message was acknowledged by the transaction, so the same acknowledgment conflicts
+            var lastMessageId = message!.MessageId;
+            await Should.ThrowAsync<TransactionConflictException>(async () => await consumer.AcknowledgeCumulative(lastMessageId, abortTxn, _cts.Token));
+
+            // the entry before the last entry is before the position of the transaction
+            var previousEntryId = new MessageId(lastMessageId.LedgerId, lastMessageId.EntryId - 1, -1, -1, lastMessageId.Topic);
+            await Should.ThrowAsync<TransactionConflictException>(async () => await consumer.AcknowledgeCumulative(previousEntryId, abortTxn, _cts.Token));
+
+            // the messages are pending ack state and can't be received
+            (await TransactionFixture.ReceiveOrNull(consumer, _waitTimeForCannotReceiveMsg, _cts.Token)).ShouldBeNull();
+
+            //Act
+            await abortTxn.Abort(_cts.Token);
+            await consumer.RedeliverUnacknowledgedMessages(_cts.Token);
+
+            //Assert
+            // after transaction abort and redelivery, exactly the messages that were not acknowledged are received
+            var commitTxn = await GetTxn(client);
+            for (var i = 0; i < messageCnt; i++)
+            {
+                message = await ReceiveMessage(consumer);
+
+                if (i % 3 == 0)
+                    await consumer.AcknowledgeCumulative(message.MessageId, commitTxn, _cts.Token);
+            }
+
+            await commitTxn.Commit(_cts.Token);
+
+            // Upstream sets the state of the transaction to open using reflection and commits it again. The transaction coordinator is asked to
+            // commit the transaction that has ended, as it is done there, and the expected exception is the same.
+            var tcClient = ((PulsarClient) client).TransactionCoordinatorClient!;
+            await Should.ThrowAsync<TransactionNotFoundException>(async () => await tcClient.Commit(commitTxn.Id, _cts.Token));
+
+            // after transaction commit, the messages can't be received
+            (await TransactionFixture.ReceiveOrNull(consumer, _waitTimeForCannotReceiveMsg, _cts.Token)).ShouldBeNull();
+        }
+    }
+
     public void Dispose()
         => _cts.Dispose();
 
@@ -348,6 +1175,68 @@ public abstract class TransactionEndToEndTestsBase<TFixture> : IDisposable where
 
         while (!await condition())
             await Task.Delay(TimeSpan.FromMilliseconds(100), cts.Token);
+    }
+
+    // Upstream: TransactionEndToEndTest#testSendTxnAckMessageToDLQ (the dead letter consumer has the same dead letter policy)
+    private IConsumer<byte[]> CreateDeadLetterConsumer(IPulsarClient client, string topicName)
+        => client.NewConsumer(Schema.ByteArray)
+        .DeadLetterPolicy(new DeadLetterPolicy(1))
+        .StateChangedHandler(_testOutputHelper.Log)
+        .SubscriptionName("test")
+        .SubscriptionType(SubscriptionType.Shared)
+        .Topic(topicName)
+        .Create();
+
+    private IConsumer<byte[]> CreateSharedConsumer(IPulsarClient client, string topicName, string subscription)
+        => client.NewConsumer(Schema.ByteArray)
+        .Topic(topicName)
+        .AckReceiptEnabled(true)
+        .BatchIndexAckEnabled(true) // The default of the Java consumer
+        .InitialPosition(SubscriptionInitialPosition.Earliest)
+        .StateChangedHandler(_testOutputHelper.Log)
+        .SubscriptionName(subscription)
+        .SubscriptionType(SubscriptionType.Shared)
+        .Create();
+
+    // Produces the numbers 0 to count - 1, not in a transaction. A batch has the numbers as batch indexes, see the remarks of this class.
+    private async Task ProduceNumbers(IPulsarClient client, string topicName, int count, bool enableBatch)
+    {
+        if (enableBatch)
+        {
+            await Fixture.ProduceBatchedMessages(topicName, 1, count, _cts.Token);
+            return;
+        }
+
+        await using var producer = client.NewProducer(Schema.ByteArray)
+            .Topic(topicName)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .Create();
+
+        var receipts = new List<Task<MessageId>>();
+        for (var i = 0; i < count; i++)
+        {
+            receipts.Add(await SendAsync(producer, BitConverter.GetBytes(i)));
+        }
+
+        await Task.WhenAll(receipts);
+    }
+
+    private static int GetNumber(IMessage<byte[]> message, bool isBatch)
+        => isBatch ? message.MessageId.BatchIndex : BitConverter.ToInt32(message.Value(), 0);
+
+    // Java: consumer.receive(5, SECONDS) that is not null
+    private async Task<IMessage<TMessage>> ReceiveMessage<TMessage>(IReceive<IMessage<TMessage>> receiver)
+    {
+        var message = await TransactionFixture.ReceiveOrNull(receiver, _waitTimeForCanReceiveMsg, _cts.Token);
+        message.ShouldNotBeNull();
+        return message;
+    }
+
+    // Java: getConsumers().get(consumerIndex).getUnackedMessages()
+    private async Task<long> GetConsumerUnackedMessages(string topicName, string subscription, int consumerIndex)
+    {
+        var stats = await Fixture.GetTopicStats(topicName, _cts.Token);
+        return stats.GetProperty("subscriptions").GetProperty(subscription).GetProperty("consumers")[consumerIndex].GetProperty("unackedMessages").GetInt64();
     }
 
     // Upstream: the broker checks that the mark delete position of the subscription is the last confirmed entry, or that the last confirmed entry is the next valid position after it,

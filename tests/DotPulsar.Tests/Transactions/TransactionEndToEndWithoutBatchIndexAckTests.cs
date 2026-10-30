@@ -15,8 +15,13 @@
 namespace DotPulsar.Tests.Transactions;
 
 // Upstream: TransactionEndToEndWithoutBatchIndexAckTest
+// The broker has acknowledgmentAtBatchIndexLevelEnabled=false
 [Collection("TransactionWithoutBatchIndexAck"), Trait("Category", "Integration")]
 public sealed class TransactionEndToEndWithoutBatchIndexAckTests : TransactionEndToEndTestsBase<TransactionWithoutBatchIndexAckFixture>
 {
     public TransactionEndToEndWithoutBatchIndexAckTests(TransactionWithoutBatchIndexAckFixture fixture, ITestOutputHelper outputHelper) : base(fixture, outputHelper) { }
+
+    protected override string SkipReasonForUnackMessageCountTests => "Disabled upstream in TransactionEndToEndWithoutBatchIndexAckTest (enabled = false)";
+
+    protected override string SkipReasonForBatchAndFailoverIndividualAck => "Upstream turns acknowledgmentAtBatchIndexLevelEnabled on at runtime for this test, and the same scenario runs in TransactionEndToEndTests";
 }

@@ -14,6 +14,7 @@
 
 namespace DotPulsar.Tests.Transactions;
 
+// The broker has acknowledgmentAtBatchIndexLevelEnabled=true
 [Collection("Transaction"), Trait("Category", "Integration")]
 public sealed class TransactionEndToEndTests : TransactionEndToEndTestsBase<TransactionFixture>
 {
