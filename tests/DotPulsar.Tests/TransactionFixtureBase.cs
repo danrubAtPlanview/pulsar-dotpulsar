@@ -303,6 +303,14 @@ public abstract class TransactionFixtureBase : IAsyncLifetime
         return stats.GetProperty("subscriptions").GetProperty(subscription).GetProperty("unackedMessages").GetInt64();
     }
 
+    // ---- Namespace and topic policies (admin v2) ----
+
+    public Task SetNamespaceDeduplication(string ns, bool enabled, CancellationToken cancellationToken)
+        => PostJson($"/admin/v2/namespaces/{ns}/deduplication", enabled ? "true" : "false", cancellationToken);
+
+    public Task SetTopicDelayedDeliveryPolicy(string topic, bool active, long tickTimeMillis, long maxDeliveryDelayInMillis, CancellationToken cancellationToken)
+        => PostJson($"/admin/v2/{ToRestPath(topic)}/delayedDelivery", $"{{\"active\":{(active ? "true" : "false")},\"tickTime\":{tickTimeMillis},\"maxDeliveryDelayInMillis\":{maxDeliveryDelayInMillis}}}", cancellationToken);
+
     // ---- Transaction admin (admin v3) ----
 
     public Task<JsonElement> ListCoordinators(CancellationToken cancellationToken)
@@ -338,6 +346,23 @@ public abstract class TransactionFixtureBase : IAsyncLifetime
 
     public Task<JsonElement> GetTransactionBufferStats(string topic, bool lowWaterMarks, bool segmentStats, CancellationToken cancellationToken)
         => GetJson($"/admin/v3/transactions/transactionBufferStats/{ToRestPath(topic, false)}?lowWaterMarks={(lowWaterMarks ? "true" : "false")}&segmentStats={(segmentStats ? "true" : "false")}", cancellationToken);
+
+    // The broker does not know a topic that is not loaded, for example after it was unloaded, until a producer or a consumer connects to it again
+    public async Task<JsonElement?> TryGetTransactionBufferStats(string topic, bool lowWaterMarks, bool segmentStats, CancellationToken cancellationToken)
+    {
+        var path = $"/admin/v3/transactions/transactionBufferStats/{ToRestPath(topic, false)}?lowWaterMarks={(lowWaterMarks ? "true" : "false")}&segmentStats={(segmentStats ? "true" : "false")}";
+
+        using var httpClient = CreateAdminClient();
+        using var response = await httpClient.GetAsync(path, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.NotFound)
+            return null;
+
+        if (!response.IsSuccessStatusCode)
+            throw new Exception($"GET {path} failed: {response.StatusCode} {await response.Content.ReadAsStringAsync(cancellationToken)}");
+
+        return await ReadJson(response, cancellationToken);
+    }
 
     public Task<JsonElement> GetTransactionBufferInternalStats(string topic, bool metadata, CancellationToken cancellationToken)
         => GetJson($"/admin/v3/transactions/transactionBufferInternalStats/{ToRestPath(topic, false)}?metadata={(metadata ? "true" : "false")}", cancellationToken);
@@ -383,6 +408,16 @@ public abstract class TransactionFixtureBase : IAsyncLifetime
             throw new Exception($"GET {path} failed: {response.StatusCode} {await response.Content.ReadAsStringAsync(cancellationToken)}");
 
         return await ReadJson(response, cancellationToken);
+    }
+
+    private async Task PostJson(string path, string json, CancellationToken cancellationToken)
+    {
+        using var httpClient = CreateAdminClient();
+        using var content = new StringContent(json, Encoding.UTF8, "application/json");
+        using var response = await httpClient.PostAsync(path, content, cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+            throw new Exception($"POST {path} failed: {response.StatusCode} {await response.Content.ReadAsStringAsync(cancellationToken)}");
     }
 
     private static async Task<JsonElement> ReadJson(HttpResponseMessage response, CancellationToken cancellationToken)

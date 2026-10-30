@@ -19,6 +19,7 @@ using DotPulsar.Exceptions;
 using DotPulsar.Extensions;
 using DotPulsar.Internal.Transactions;
 using System.Net;
+using System.Text;
 
 [Collection("Transaction"), Trait("Category", "Integration")]
 public sealed class TransactionTests : IDisposable
@@ -225,6 +226,95 @@ public sealed class TransactionTests : IDisposable
         await transaction.Abort(_cts.Token);
     }
 
+    // Upstream: TransactionTest#testMaxReadPositionForNormalPublish
+    [Fact]
+    public async Task Send_GivenNormalAndTransactionalMessages_ShouldMoveMaxReadPositionOnlyWhenNoOpenTransaction()
+    {
+        //Arrange
+        var topic = TransactionFixture.CreateTopicName("NormalPublish");
+        await _fixture.CreateTopic(topic, _cts.Token);
+        await using var noTransactionClient = _fixture.CreateClient(_testOutputHelper.Log, false);
+        await using var normalProducer = noTransactionClient.NewProducer(Schema.String).ProducerName("testNormalPublish").Topic(topic).Create(); // TODO(WP7): .SendTimeout(TimeSpan.Zero), which is what the producer does without a send timeout
+        await WaitUntilTransactionBufferState(topic, "NoSnapshot");
+
+        //Act
+        var normalId = await normalProducer.Send("normal message", _cts.Token);
+
+        //Assert
+        (await GetMaxReadPosition(topic)).ShouldBe(ToPosition(normalId));
+
+        //Arrange
+        await using var client = _fixture.CreateClient(_testOutputHelper.Log);
+        await using var transactionProducer = client.NewProducer(Schema.String).ProducerName("testTransactionPublish").Topic(topic).Create(); // TODO(WP7): .SendTimeout(TimeSpan.Zero), which is what the producer does without a send timeout
+        await WaitUntilTransactionBufferState(topic, "NoSnapshot");
+        var transaction = await client.NewTransaction().Timeout(TimeSpan.FromSeconds(5)).Create(_cts.Token);
+
+        //Act
+        _ = await transactionProducer.NewMessage().Transaction(transaction).Send("txn message", _cts.Token);
+
+        //Assert
+        (await GetMaxReadPosition(topic)).ShouldBe(ToPosition(normalId));
+
+        //Act
+        var secondNormalId = await normalProducer.Send("normal message", _cts.Token);
+
+        //Assert
+        (await GetMaxReadPosition(topic)).ShouldBe(ToPosition(normalId));
+
+        //Act
+        await transaction.Commit(_cts.Token);
+
+        //Assert
+        (await GetMaxReadPosition(topic)).ShouldBe($"{secondNormalId.LedgerId}:{secondNormalId.EntryId + 1}"); // The commit marker
+
+        //Act
+        var thirdNormalId = await normalProducer.Send("normal message", _cts.Token);
+
+        //Assert
+        (await GetMaxReadPosition(topic)).ShouldBe(ToPosition(thirdNormalId));
+    }
+
+    // Upstream: TransactionTest#testDelayedDeliveryExceedsMaxDelay
+    [Fact]
+    public async Task Send_GivenTransactionalMessageExceedingMaxDeliveryDelay_ShouldThrowNotAllowedException()
+    {
+        //Arrange
+        const long maxDeliveryDelayInMillis = 5000;
+        var ns = $"{TransactionFixture.Tenant}/testDelayedDeliveryExceedsMaxDelay-{Guid.NewGuid():N}";
+        var topic = $"persistent://{ns}/test_transaction_topic{Guid.NewGuid():N}";
+        await _fixture.CreateNamespace(ns, 4, _cts.Token);
+        await _fixture.CreateTopic(topic, _cts.Token);
+        await _fixture.SetTopicDelayedDeliveryPolicy(topic, true, 100, maxDeliveryDelayInMillis, _cts.Token);
+        await using var client = _fixture.CreateClient(_testOutputHelper.Log);
+        await using var producer = client.NewProducer(Schema.ByteArray).Topic(topic).Create(); // TODO(WP7): .SendTimeout(TimeSpan.FromSeconds(5)), and TODO(WP9): .EncryptionKey("my-app-key") and .CryptoKeyReader(...), as upstream
+        var transaction = await client.NewTransaction().Timeout(TimeSpan.FromSeconds(5)).Create(_cts.Token);
+        var payload = Encoding.UTF8.GetBytes(Guid.NewGuid().ToString());
+
+        //Act
+        var exception = await Record.ExceptionAsync(async () => await producer.NewMessage().Transaction(transaction).DeliverAt(DateTimeOffset.UtcNow.AddSeconds(6)).Send(payload, _cts.Token));
+
+        //Assert
+        exception.ShouldBeOfType<NotAllowedException>().Message.ShouldBe($"Exceeds max allowed delivery delay of {maxDeliveryDelayInMillis} milliseconds");
+        producer.State.IsFinalState().ShouldBeFalse("A message that is not allowed must not fault the producer"); // Additional coverage
+        _ = await producer.Send(payload, _cts.Token); // Additional coverage
+        await Should.ThrowAsync<TransactionHasOperationFailedException>(async () => await transaction.Commit(_cts.Token)); // Additional coverage: the failed send makes the commit abort
+    }
+
     public void Dispose()
         => _cts.Dispose();
+
+    private async Task WaitUntilTransactionBufferState(string topic, string state)
+    {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+        cts.CancelAfter(TimeSpan.FromSeconds(10));
+
+        while ((await _fixture.GetTransactionBufferStats(topic, false, false, _cts.Token)).GetProperty("state").GetString() != state)
+            await Task.Delay(TimeSpan.FromMilliseconds(100), cts.Token);
+    }
+
+    private async Task<string> GetMaxReadPosition(string topic)
+        => (await _fixture.GetTransactionBufferStats(topic, false, false, _cts.Token)).GetProperty("maxReadPosition").GetString()!;
+
+    private static string ToPosition(MessageId messageId)
+        => $"{messageId.LedgerId}:{messageId.EntryId}";
 }
