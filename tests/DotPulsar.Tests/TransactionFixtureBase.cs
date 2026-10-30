@@ -17,6 +17,7 @@ namespace DotPulsar.Tests;
 using DotNet.Testcontainers.Containers;
 using DotPulsar.Abstractions;
 using DotPulsar.Extensions;
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
@@ -292,6 +293,13 @@ public abstract class TransactionFixtureBase : IAsyncLifetime
     public async Task DeletePartitionedTopic(string topic, bool force, CancellationToken cancellationToken)
         => await RunAdminCommand($"topics delete-partitioned-topic {topic}{(force ? " -f" : string.Empty)}", "Could not delete the partitioned topic", cancellationToken);
 
+    public async Task DeleteTopic(string topic, bool force, CancellationToken cancellationToken)
+        => await RunAdminCommand($"topics delete {topic}{(force ? " -f" : string.Empty)}", "Could not delete the topic", cancellationToken);
+
+    // Java: admin.topics().createSubscription(topic, subscription, MessageId.earliest) or MessageId.latest
+    public async Task CreateSubscription(string topic, string subscription, bool earliest, CancellationToken cancellationToken)
+        => await RunAdminCommand($"topics create-subscription {topic} -s {subscription} -m {(earliest ? "earliest" : "latest")}", "Could not create the subscription", cancellationToken);
+
     public async Task UnloadTopic(string topic, CancellationToken cancellationToken)
         => await RunAdminCommand($"topics unload {topic}", "Could not unload the topic", cancellationToken);
 
@@ -409,6 +417,45 @@ public abstract class TransactionFixtureBase : IAsyncLifetime
     // The broker removes a transaction from its metadata store when the transaction has been committed or aborted
     public Task<HttpStatusCode> GetTransactionMetadataStatusCode(TransactionId transactionId, CancellationToken cancellationToken)
         => GetStatusCode($"/admin/v3/transactions/transactionMetadata/{ToPath(ToSigned(transactionId.MostSigBits), ToSigned(transactionId.LeastSigBits))}", cancellationToken);
+
+    // Java: TransactionMetadataStore#getTxnMeta fails with TransactionNotFoundException (the admin API answers 404) when the transaction has ended or timed out at the coordinator
+    public async Task<bool> TransactionMetadataExists(TransactionId transactionId, CancellationToken cancellationToken)
+    {
+        var statusCode = await GetTransactionMetadataStatusCode(transactionId, cancellationToken);
+
+        return statusCode switch
+        {
+            HttpStatusCode.OK => true,
+            HttpStatusCode.NotFound => false,
+            _ => throw new Exception($"The transaction metadata of {transactionId} was requested, and the broker answered {(int) statusCode}")
+        };
+    }
+
+    // Java: the sum of getMetadataStoreStats().timeoutCount of the transaction metadata stores. The broker exposes it as pulsar_txn_timeout_total, with one sample for every coordinator
+    public async Task<long> GetTransactionTimeoutTotal(CancellationToken cancellationToken)
+    {
+        const string metricName = "pulsar_txn_timeout_total";
+
+        using var httpClient = CreateAdminClient();
+        using var response = await httpClient.GetAsync("/metrics/", cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+            throw new Exception($"GET /metrics/ failed: {response.StatusCode} {await response.Content.ReadAsStringAsync(cancellationToken)}");
+
+        var total = 0d;
+
+        foreach (var line in (await response.Content.ReadAsStringAsync(cancellationToken)).Split('\n'))
+        {
+            if (!line.StartsWith(metricName, StringComparison.Ordinal))
+                continue;
+
+            var endOfLabels = line.IndexOf('}');
+            var value = (endOfLabels < 0 ? line.Substring(metricName.Length) : line.Substring(endOfLabels + 1)).Trim().Split(' ')[0];
+            total += double.Parse(value, CultureInfo.InvariantCulture);
+        }
+
+        return (long) total;
+    }
 
     public Task<JsonElement> GetTransactionInBufferStats(long mostSigBits, long leastSigBits, string topic, CancellationToken cancellationToken)
         => GetJson($"/admin/v3/transactions/transactionInBufferStats/{ToRestPath(topic, false)}/{ToPath(mostSigBits, leastSigBits)}", cancellationToken);

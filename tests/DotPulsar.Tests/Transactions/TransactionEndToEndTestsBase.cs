@@ -687,6 +687,114 @@ public abstract class TransactionEndToEndTestsBase<TFixture> : IDisposable where
         await TxnAckTest(true, 200, SubscriptionType.Failover);
     }
 
+    // Upstream: TransactionEndToEndTest#testAfterDeleteTopicOtherTopicCanRecover
+    [Fact]
+    public async Task Send_GivenOtherTopicWithSubscriptionWasDeleted_ShouldProduceAndConsume()
+    {
+        //Arrange
+        var topicOne = TransactionFixture.CreateTopicName("topic-one");
+        var topicTwo = TransactionFixture.CreateTopicName("topic-two");
+        const string sub = "test";
+        await Fixture.CreateTopic(topicOne, _cts.Token);
+        await Fixture.CreateSubscription(topicOne, sub, true, _cts.Token);
+        await Fixture.DeleteTopic(topicOne, false, _cts.Token);
+        await using var client = CreateClient();
+        await using var producer = client.NewProducer(Schema.String)
+            .Topic(topicTwo)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .Create();
+        await using var consumer = client.NewConsumer(Schema.String)
+            .Topic(topicTwo)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .SubscriptionName(sub)
+            .Create();
+        await consumer.StateChangedTo(ConsumerState.Active, _cts.Token); // The subscription is created when the consumer is created upstream, but here it is done in the background
+        const string content = "test";
+
+        //Act
+        _ = await producer.Send(content, _cts.Token);
+        var message = await ReceiveMessage(consumer);
+
+        //Assert
+        message.Value().ShouldBe(content);
+    }
+
+    // Upstream: TransactionEndToEndTest#txnMessageAckTest
+    // Upstream reads the cursor of the broker, here it comes from the internal stats of the partition. Upstream sets acknowledgmentGroupTime to 0, DotPulsar acknowledges immediately.
+    [Fact]
+    public async Task Acknowledge_GivenCommittedTransactionalMessages_ShouldAckAndMoveMarkDeleteToEnd()
+    {
+        //Arrange
+        const string subName = "test";
+        const int messageCnt = 10;
+        var topic = TransactionFixture.CreateTopicName("message-ack-test");
+        await Fixture.CreatePartitionedTopic(topic, 1, _cts.Token);
+        await using var client = CreateClient();
+        await using var consumer = client.NewConsumer(Schema.ByteArray)
+            .Topic(topic)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .SubscriptionName(subName)
+            .Create();
+        await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+        await using var producer = client.NewProducer(Schema.ByteArray)
+            .Topic(topic)
+            .EnableBatching(false)
+            .SendTimeout(TimeSpan.Zero)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .Create();
+        var txn = await GetTxn(client);
+
+        for (var i = 0; i < messageCnt; i++)
+        {
+            _ = await SendAsync(producer, Encoding.UTF8.GetBytes("Hello Txn - " + i), txn);
+        }
+
+        // Can't receive transaction messages before commit.
+        (await TransactionFixture.ReceiveOrNull(consumer, _waitTimeForCannotReceiveMsg, _cts.Token)).ShouldBeNull();
+
+        //Act
+        await txn.Commit(_cts.Token);
+
+        //Assert
+        var ackedMessageCount = 0;
+        var receiveCnt = 0;
+        for (var i = 0; i < messageCnt; i++)
+        {
+            var message = await ReceiveMessage(consumer);
+            receiveCnt++;
+
+            if (i % 2 == 0)
+            {
+                await consumer.Acknowledge(message, _cts.Token);
+                ackedMessageCount++;
+            }
+        }
+
+        receiveCnt.ShouldBe(messageCnt);
+        (await TransactionFixture.ReceiveOrNull(consumer, _waitTimeForCannotReceiveMsg, _cts.Token)).ShouldBeNull();
+
+        var checkTopic = $"{topic}-partition-0";
+        var stats = await Fixture.GetInternalStats(checkTopic, _cts.Token);
+        GetMarkDeletePosition(stats, subName).ShouldNotBe(stats.GetProperty("lastConfirmedEntry").GetString());
+
+        await consumer.RedeliverUnacknowledgedMessages(_cts.Token);
+
+        receiveCnt = 0;
+        for (var i = 0; i < messageCnt - ackedMessageCount; i++)
+        {
+            var message = await ReceiveMessage(consumer);
+            await consumer.Acknowledge(message, _cts.Token);
+            receiveCnt++;
+        }
+
+        receiveCnt.ShouldBe(messageCnt - ackedMessageCount);
+        (await TransactionFixture.ReceiveOrNull(consumer, _waitTimeForCannotReceiveMsg, _cts.Token)).ShouldBeNull();
+
+        // Upstream checks it once, so there is no polling. The marker of the commit is the only entry that the subscription does not acknowledge.
+        stats = await Fixture.GetInternalStats(checkTopic, _cts.Token);
+        IsMarkDeleteAtEnd(stats, subName).ShouldBeTrue("The mark delete position is not the position of the marker of the commit");
+    }
+
     // Upstream: TransactionEndToEndTest#txnAckTestBatchAndCumulativeSub
     [Fact]
     public async Task AcknowledgeCumulative_GivenBatchAndFailoverSubscription_ShouldConflictRedeliverAfterAbortAndRemoveAfterCommit()
@@ -696,6 +804,82 @@ public abstract class TransactionEndToEndTestsBase<TFixture> : IDisposable where
     [Fact]
     public async Task AcknowledgeCumulative_GivenNoBatchAndFailoverSubscription_ShouldConflictRedeliverAfterAbortAndRemoveAfterCommit()
         => await TxnCumulativeAckTest(false, 1, SubscriptionType.Failover);
+
+    // Upstream: TransactionEndToEndTest#produceAndConsumeCloseStateTxnTest
+    // Upstream looks the transaction up in the transaction metadata store of the broker, here it is read from the admin API until the broker has forgotten it. Upstream creates a transaction by reflection
+    // that does not know that it has timed out, here it is created with the constructor of the internal class. The commit has to start within the 5 milliseconds of the timeout of that transaction.
+    // Upstream aborts the transaction that has timed out without waiting for the result, which is not asserted, so it is not done here.
+    [Fact]
+    public async Task SendAndAcknowledge_GivenEndedOrTimedOutTransaction_ShouldThrow()
+    {
+        //Arrange
+        var topic = TransactionFixture.CreateTopicName("txn-close-state");
+        await Fixture.CreateTopic(topic, _cts.Token);
+        await using var client = CreateClient();
+        await using var consumer = client.NewConsumer(Schema.ByteArray)
+            .Topic(topic)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .SubscriptionName("test")
+            .Create();
+        await using var producer = client.NewProducer(Schema.ByteArray)
+            .Topic(topic)
+            .ProducerName("txn-close-state")
+            .SendTimeout(TimeSpan.Zero)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .Create();
+        await consumer.StateChangedTo(ConsumerState.Active, _cts.Token); // The subscription is created when the consumer is created upstream, but here it is done in the background
+        await producer.StateChangedTo(ProducerState.Connected, _cts.Token);
+        var produceTxn = await client.NewTransaction().Timeout(TimeSpan.FromSeconds(2)).Create(_cts.Token);
+        var consumeTxn = await client.NewTransaction().Timeout(TimeSpan.FromSeconds(2)).Create(_cts.Token);
+        _ = await producer.NewMessage().Transaction(produceTxn).Send(Encoding.UTF8.GetBytes("Hello Pulsar!"), _cts.Token);
+        await produceTxn.Commit(_cts.Token);
+
+        //Act
+        var sendException = await Record.ExceptionAsync(async () => await producer.NewMessage().Transaction(produceTxn).Send(Encoding.UTF8.GetBytes("Hello Pulsar!"), _cts.Token));
+        var produceCommitException = await Record.ExceptionAsync(async () => await produceTxn.Commit(_cts.Token));
+        var message = await ReceiveMessage(consumer);
+        await consumer.Acknowledge(message.MessageId, consumeTxn, _cts.Token);
+        await consumeTxn.Commit(_cts.Token);
+        var acknowledgeException = await Record.ExceptionAsync(async () => await consumer.Acknowledge(message.MessageId, consumeTxn, _cts.Token));
+        var consumeCommitException = await Record.ExceptionAsync(async () => await consumeTxn.Commit(_cts.Token));
+
+        //Assert
+        sendException.ShouldBeOfType<InvalidTransactionStatusException>();
+        produceCommitException.ShouldBeOfType<InvalidTransactionStatusException>();
+        acknowledgeException.ShouldBeOfType<InvalidTransactionStatusException>();
+        consumeCommitException.ShouldBeOfType<InvalidTransactionStatusException>();
+
+        //Arrange
+        var timeoutTxn = await client.NewTransaction().Timeout(TimeSpan.FromSeconds(1)).Create(_cts.Token);
+        await WaitUntil(async () => !await Fixture.TransactionMetadataExists(timeoutTxn.Id, _cts.Token));
+        var timeoutTxnSkipClientTimeout = new DotPulsar.Internal.Transactions.Transaction(((PulsarClient) client).TransactionCoordinatorClient!, timeoutTxn.Id, TimeSpan.FromMilliseconds(5));
+
+        //Act
+        var commitException = await Record.ExceptionAsync(async () => await timeoutTxnSkipClientTimeout.Commit(_cts.Token));
+
+        //Assert
+        commitException.ShouldBeOfType<TransactionNotFoundException>();
+        timeoutTxnSkipClientTimeout.CurrentState.ShouldBe(TransactionState.Error);
+    }
+
+    // Upstream: TransactionEndToEndTest#testTxnTimeoutAtTransactionMetadataStore
+    // Upstream creates the transaction in the transaction metadata store service of the broker with a timeout of 1 millisecond, and sums the timeout counts of the stores of the coordinators.
+    // Here the transaction is created by a client, and the count is the metric of the broker. The broker publishes the metrics from time to time, so it may take a while before the count is increased.
+    [Fact]
+    public async Task Create_GivenTimeoutElapsesAtCoordinator_ShouldIncrementCoordinatorTimeoutCount()
+    {
+        //Arrange
+        var timeoutCountOriginal = await Fixture.GetTransactionTimeoutTotal(_cts.Token);
+        await using var client = CreateClient();
+
+        //Act
+        var txnId = (await client.NewTransaction().Timeout(TimeSpan.FromMilliseconds(1)).Create(_cts.Token)).Id;
+        await WaitUntil(async () => !await Fixture.TransactionMetadataExists(txnId, _cts.Token));
+        await WaitUntil(async () => await Fixture.GetTransactionTimeoutTotal(_cts.Token) == timeoutCountOriginal + 1);
+
+        //Assert
+        (await Fixture.GetTransactionTimeoutTotal(_cts.Token)).ShouldBe(timeoutCountOriginal + 1);
+    }
 
     // Upstream: TransactionEndToEndTest#transactionTimeoutTest
     [Fact]
@@ -1244,7 +1428,7 @@ public abstract class TransactionEndToEndTestsBase<TFixture> : IDisposable where
     private static bool IsMarkDeleteAtEnd(JsonElement internalStats, string subscription)
     {
         var lastConfirmedEntry = ParsePosition(internalStats.GetProperty("lastConfirmedEntry").GetString()!);
-        var markDeletePosition = ParsePosition(internalStats.GetProperty("cursors").GetProperty(subscription).GetProperty("markDeletePosition").GetString()!);
+        var markDeletePosition = ParsePosition(GetMarkDeletePosition(internalStats, subscription));
 
         if (markDeletePosition == lastConfirmedEntry)
             return true;
@@ -1262,6 +1446,9 @@ public abstract class TransactionEndToEndTestsBase<TFixture> : IDisposable where
         var nextLedgerId = ledgers.Where(x => x.LedgerId > markDeletePosition.LedgerId && (x.Entries > 0 || x.LedgerId == lastConfirmedEntry.LedgerId)).Select(x => (long?) x.LedgerId).FirstOrDefault();
         return nextLedgerId.HasValue && (nextLedgerId.Value, 0L) == lastConfirmedEntry;
     }
+
+    private static string GetMarkDeletePosition(JsonElement internalStats, string subscription)
+        => internalStats.GetProperty("cursors").GetProperty(subscription).GetProperty("markDeletePosition").GetString()!;
 
     private static (long LedgerId, long EntryId) ParsePosition(string position)
     {
