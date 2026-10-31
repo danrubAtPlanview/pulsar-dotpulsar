@@ -21,14 +21,14 @@ using DotPulsar.Internal;
 [Trait("Category", "Unit")]
 public sealed class MessageProcessorTests : IDisposable
 {
-    private bool _taskHasStarted;
-    private bool _taskHasCompleted;
+    private readonly TaskCompletionSource _taskHasStarted;
+    private volatile bool _taskHasCompleted;
     private readonly SemaphoreSlim _semaphore;
     private readonly CancellationTokenSource _cts;
 
     public MessageProcessorTests()
     {
-        _taskHasStarted = false;
+        _taskHasStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         _taskHasCompleted = false;
         _semaphore = new SemaphoreSlim(1);
         _cts = new CancellationTokenSource();
@@ -65,7 +65,7 @@ public sealed class MessageProcessorTests : IDisposable
         //Act
         await _semaphore.WaitAsync(Current.CancellationToken);
         var processTask = uut.Process(_cts.Token).AsTask();
-        while (!_taskHasStarted) { }
+        await _taskHasStarted.Task.WaitAsync(Current.CancellationToken);
         _cts.Cancel();
         await processTask;
         _semaphore.Release();
@@ -87,7 +87,7 @@ public sealed class MessageProcessorTests : IDisposable
         //Act
         await _semaphore.WaitAsync(Current.CancellationToken);
         var processTask = uut.Process(_cts.Token).AsTask();
-        while (!_taskHasStarted) { }
+        await _taskHasStarted.Task.WaitAsync(Current.CancellationToken);
         _cts.Cancel();
         _semaphore.Release();
         await processTask;
@@ -98,7 +98,7 @@ public sealed class MessageProcessorTests : IDisposable
 
     private async ValueTask ProcessMessage(IMessage<byte[]> _, CancellationToken token)
     {
-        _taskHasStarted = true;
+        _taskHasStarted.TrySetResult();
         await _semaphore.WaitAsync(token);
         _semaphore.Release();
         _taskHasCompleted = true;
