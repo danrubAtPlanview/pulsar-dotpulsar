@@ -147,7 +147,7 @@ public sealed class Producer<TMessage> : IProducer<TMessage>, IRegisterEvent
         var isPartitionedTopic = numberOfPartitions != 0;
         var numberOfSubProducers = isPartitionedTopic ? numberOfPartitions : 1;
         var monitoringTasks = new Task<ProducerState>[numberOfSubProducers];
-        var states = new ProducerState[numberOfSubProducers];
+        var states = Enumerable.Repeat(ProducerState.Disconnected, (int) numberOfSubProducers).ToArray(); // What a sub producer is before it has reported
 
         for (var i = 0; i < numberOfSubProducers; ++i)
         {

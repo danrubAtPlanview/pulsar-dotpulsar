@@ -67,6 +67,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 - A consumer of a partitioned topic, of several topics or of a topics pattern reported the state Active as soon as the first of its topics was subscribed. It is now Active when every topic is subscribed, until then it is PartiallyConnected or Disconnected
 - A consumer or a reader published the state Active or Connected when the broker had answered the subscribe command, before it had its channel, so a Receive that followed the state change could wait for the retry interval (3 seconds by default). The state is published when the channel is in place
 - Disposing a producer, a consumer or a reader waited without a limit for the answer to the command that closes it, which was 91 seconds when the connection was dead but not detected yet. It waits as long as the OperationTimeout of the client (30 seconds by default) and then goes on
+- A producer of a partitioned topic reported the state WaitingForExclusive, and not PartiallyConnected, while only some of its partitions were connected
 
 ## [5.3.4] - 2026-10-09
 

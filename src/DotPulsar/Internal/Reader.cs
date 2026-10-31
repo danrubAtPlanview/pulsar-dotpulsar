@@ -102,7 +102,7 @@ public sealed class Reader<TMessage> : IReader<TMessage>
         _receiveTasks = new Task<IMessage<TMessage>>[numberOfSubReaders];
         _subReaders = new SubReader<TMessage>[numberOfSubReaders];
         var monitoringTasks = new Task<ReaderState>[numberOfSubReaders];
-        var states = new ReaderState[numberOfSubReaders];
+        var states = Enumerable.Repeat(ReaderState.Disconnected, numberOfSubReaders).ToArray(); // What a sub reader is before it has reported
         _subReaderIndex = _isPartitionedTopic ? -1 : 0;
 
         for (var i = 0; i < numberOfSubReaders; i++)
