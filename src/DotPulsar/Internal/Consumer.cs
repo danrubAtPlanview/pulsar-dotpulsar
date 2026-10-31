@@ -148,7 +148,7 @@ public sealed class Consumer<TMessage> : IConsumer<TMessage>
         _numberOfSubConsumers = topics.Count;
         _receiveTasks = Enumerable.Repeat(_neverEndingTask.Task, _numberOfSubConsumers + 1).ToArray();
         var monitoringTasks = new Task<ConsumerStateChanged>[_numberOfSubConsumers];
-        var states = new ConsumerState[_numberOfSubConsumers];
+        var states = Enumerable.Repeat(ConsumerState.Disconnected, _numberOfSubConsumers).ToArray();
 
         for (var i = 0; i < _numberOfSubConsumers; ++i)
         {

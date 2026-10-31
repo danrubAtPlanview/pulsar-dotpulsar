@@ -343,7 +343,6 @@ public sealed class PendingAckPersistentTests : IDisposable
             .StateChangedHandler(_testOutputHelper.Log)
             .Create();
         await patternConsumer.StateChangedTo(ConsumerState.Active, _cts.Token);
-        await WaitForSubscription(topic, partitions, "patternSub");
 
         for (var i = 0; i < partitions; i++)
         {
@@ -365,22 +364,6 @@ public sealed class PendingAckPersistentTests : IDisposable
 
     public void Dispose()
         => _cts.Dispose();
-
-    // The Java subscribe of a consumer with a topics pattern returns when the consumer is subscribed to every topic that matches, and the consumer here is active before that,
-    // so the messages are only sent when the broker has the subscription on every partition (the subscription starts at the latest message)
-    private async Task WaitForSubscription(string topic, int partitions, string subscription)
-    {
-        while (true)
-        {
-            var stats = await _fixture.GetPartitionedTopicStats(topic, true, _cts.Token);
-            var subscribed = stats.GetProperty("partitions").EnumerateObject().Count(partition => partition.Value.GetProperty("subscriptions").TryGetProperty(subscription, out _));
-
-            if (subscribed == partitions)
-                return;
-
-            await Task.Delay(TimeSpan.FromMilliseconds(100), _cts.Token);
-        }
-    }
 
     // Makes the broker create the pending ack topic of the subscription of the consumer
     private async Task AcknowledgeInTransaction(IPulsarClient client, string topic, IConsumer<byte[]> consumer)

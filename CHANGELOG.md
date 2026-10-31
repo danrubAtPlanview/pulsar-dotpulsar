@@ -64,6 +64,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 - A message that a consumer of a partitioned topic or of several topics had already received from one of the topics, but not yet delivered to the application, was delivered besides the redelivered message after IConsumer.RedeliverUnacknowledgedMessages
 - The number of messages of the pooled send command was never reset
 - A producer with a schema never put the schema version in its messages, so IMessage.SchemaVersion was null for every message that DotPulsar produced
+- A consumer of a partitioned topic, of several topics or of a topics pattern reported the state Active as soon as the first of its topics was subscribed. It is now Active when every topic is subscribed, until then it is PartiallyConnected or Disconnected
 
 ## [5.3.4] - 2026-10-09
 
