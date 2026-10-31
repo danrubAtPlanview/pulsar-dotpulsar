@@ -32,6 +32,7 @@ public sealed class SubReader<TMessage> : IContainsChannel, IReader<TMessage>
     private readonly IConsumerChannelFactory<TMessage> _factory;
     private readonly ChunkedMessageAssembler _chunkAssembler;
     private readonly MessageCrypto? _messageCrypto;
+    private readonly TimeSpan _operationTimeout;
     private int _isDisposed;
     private Exception? _faultException;
 
@@ -49,7 +50,8 @@ public sealed class SubReader<TMessage> : IContainsChannel, IReader<TMessage>
         IState<ReaderState> state,
         IConsumerChannelFactory<TMessage> factory,
         ChunkedMessageAssembler chunkAssembler,
-        MessageCrypto? messageCrypto)
+        MessageCrypto? messageCrypto,
+        TimeSpan operationTimeout = default)
     {
         _correlationId = correlationId;
         ServiceUrl = serviceUrl;
@@ -61,6 +63,7 @@ public sealed class SubReader<TMessage> : IContainsChannel, IReader<TMessage>
         _factory = factory;
         _chunkAssembler = chunkAssembler;
         _messageCrypto = messageCrypto;
+        _operationTimeout = operationTimeout;
         _isDisposed = 0;
 
         _eventRegister.Register(new ReaderCreated(_correlationId));
@@ -112,9 +115,11 @@ public sealed class SubReader<TMessage> : IContainsChannel, IReader<TMessage>
         await DisposeChannel().ConfigureAwait(false);
     }
 
+    // The close command is waited for as long as the operation timeout (no limit if it is not set), like the Java client does
     private async ValueTask DisposeChannel()
     {
-        await _channel.ClosedByClient(CancellationToken.None).ConfigureAwait(false);
+        using var timeout = new CancellationTokenSource(_operationTimeout > TimeSpan.Zero ? _operationTimeout : Timeout.InfiniteTimeSpan);
+        await _channel.ClosedByClient(timeout.Token).ConfigureAwait(false);
         await _channel.DisposeAsync().ConfigureAwait(false);
     }
 

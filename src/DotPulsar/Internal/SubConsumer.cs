@@ -119,9 +119,12 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
         await DisposeChannel().ConfigureAwait(false);
     }
 
+    // Upstream: ConsumerImpl#closeAsync
+    // The close command is waited for as long as the operation timeout, like the Java client does, because a connection that is dead but not detected yet would keep the disposal waiting for the keep-alive
     private async ValueTask DisposeChannel()
     {
-        await _channel.ClosedByClient(CancellationToken.None).ConfigureAwait(false);
+        using var timeout = new CancellationTokenSource(_operationTimeout > TimeSpan.Zero ? _operationTimeout : Timeout.InfiniteTimeSpan);
+        await _channel.ClosedByClient(timeout.Token).ConfigureAwait(false);
         await _channel.DisposeAsync().ConfigureAwait(false);
     }
 

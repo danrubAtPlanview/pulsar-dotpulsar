@@ -34,6 +34,7 @@ public sealed class Reader<TMessage> : IReader<TMessage>
     private readonly StateManager<ReaderState> _state;
     private readonly SemaphoreSlim _semaphoreSlim;
     private readonly AsyncLock _lock;
+    private readonly TimeSpan _operationTimeout;
     private SubReader<TMessage>[] _subReaders;
     private bool _allSubReadersAreReady;
     private Task<IMessage<TMessage>>[] _receiveTasks;
@@ -51,9 +52,11 @@ public sealed class Reader<TMessage> : IReader<TMessage>
         Uri serviceUrl,
         ReaderOptions<TMessage> readerOptions,
         IHandleException exceptionHandler,
-        IConnectionPool connectionPool)
+        IConnectionPool connectionPool,
+        TimeSpan operationTimeout = default)
     {
         _lock = new AsyncLock();
+        _operationTimeout = operationTimeout;
         ServiceUrl = serviceUrl;
         Topic = readerOptions.Topic;
         _readerOptions = readerOptions;
@@ -306,7 +309,7 @@ public sealed class Reader<TMessage> : IReader<TMessage>
         var stateManager = new StateManager<ReaderState>(ReaderState.Disconnected, ReaderState.Closed, ReaderState.ReachedEndOfTopic, ReaderState.Faulted);
         var initialChannel = new NotReadyChannel<TMessage>();
         var executor = new Executor(correlationId, _processManager, _exceptionHandler);
-        var subReader = new SubReader<TMessage>(correlationId, ServiceUrl, topic, _processManager, initialChannel, executor, stateManager, factory, chunkAssembler, messageCrypto);
+        var subReader = new SubReader<TMessage>(correlationId, ServiceUrl, topic, _processManager, initialChannel, executor, stateManager, factory, chunkAssembler, messageCrypto, _operationTimeout);
         var process = new ReaderProcess(correlationId, stateManager, subReader);
         _processManager.Add(process);
         process.Start();

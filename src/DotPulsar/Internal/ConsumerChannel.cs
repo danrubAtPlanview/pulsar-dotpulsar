@@ -724,7 +724,9 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
         try
         {
             var closeConsumer = new CommandCloseConsumer { ConsumerId = _id };
-            await _connection.Send(closeConsumer, cancellationToken).ConfigureAwait(false);
+
+            // The token of the connection only guards its lock, so a close command that the broker never answers is waited for with the token here
+            await _connection.Send(closeConsumer, cancellationToken).WaitAsync(cancellationToken).ConfigureAwait(false);
         }
         catch
         {

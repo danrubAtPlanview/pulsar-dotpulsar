@@ -100,7 +100,7 @@ public sealed class PulsarClient : IPulsarClient
                 throw new CompressionException($"Support for {compressionType} compression was not found");
         }
 
-        var producer = new Producer<TMessage>(ServiceUrl, options, _exceptionHandler, _connectionPool, compressorFactory, _transactionCoordinatorClient is not null);
+        var producer = new Producer<TMessage>(ServiceUrl, options, _exceptionHandler, _connectionPool, compressorFactory, _transactionCoordinatorClient is not null, _operationTimeout);
 
         if (options.StateChangedHandler is not null)
             _ = StateMonitor.MonitorProducer(producer, options.StateChangedHandler);
@@ -157,7 +157,7 @@ public sealed class PulsarClient : IPulsarClient
         if (!Enum.IsDefined(typeof(ConsumerCryptoFailureAction), options.CryptoFailureAction))
             throw new ConfigurationException("ReaderOptions.CryptoFailureAction is not a valid ConsumerCryptoFailureAction");
 
-        var reader = new Reader<TMessage>(ServiceUrl, options, _exceptionHandler, _connectionPool);
+        var reader = new Reader<TMessage>(ServiceUrl, options, _exceptionHandler, _connectionPool, _operationTimeout);
         if (options.StateChangedHandler is not null)
             _ = StateMonitor.MonitorReader(reader, options.StateChangedHandler);
 

@@ -53,6 +53,7 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
     private readonly CancellationTokenSource? _sendTimeoutCts;
     private readonly Task? _sendTimeoutTask;
     private readonly MessageCrypto? _messageCrypto;
+    private readonly TimeSpan _operationTimeout;
     private SendOp? _sendingHead;
     private long _lastSequenceIdPushed;
     private int _flushRequests;
@@ -82,7 +83,8 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
         TimeSpan sendTimeout,
         bool enableChunking = false,
         int chunkMaxMessageSize = 0,
-        MessageCrypto? messageCrypto = null)
+        MessageCrypto? messageCrypto = null,
+        TimeSpan operationTimeout = default)
     {
         _sendQueue = new AsyncQueueWithCursor<SendOp>(maxPendingMessages);
         _correlationId = correlationId;
@@ -106,6 +108,7 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
         _queueSync = new object();
         _dequeued = [];
         _messageCrypto = messageCrypto;
+        _operationTimeout = operationTimeout;
         Topic = topic;
         _isDisposed = 0;
 
@@ -156,7 +159,14 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
         _messageCrypto?.Dispose();
 
         await _sendQueue.DisposeAsync().ConfigureAwait(false);
-        await _channel.ClosedByClient(CancellationToken.None).ConfigureAwait(false);
+
+        // Upstream: ProducerImpl#closeAsync
+        // The close command is waited for as long as the operation timeout (no limit if it is not set), like the Java client does
+        using (var timeout = new CancellationTokenSource(_operationTimeout > TimeSpan.Zero ? _operationTimeout : Timeout.InfiniteTimeSpan))
+        {
+            await _channel.ClosedByClient(timeout.Token).ConfigureAwait(false);
+        }
+
         await _channel.DisposeAsync().ConfigureAwait(false);
     }
 

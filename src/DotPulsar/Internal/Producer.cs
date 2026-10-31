@@ -41,6 +41,7 @@ public sealed class Producer<TMessage> : IProducer<TMessage>, IRegisterEvent
     private readonly IMessageRouter _messageRouter;
     private readonly CancellationTokenSource _cts;
     private readonly Executor _executor;
+    private readonly TimeSpan _operationTimeout;
     private MessageCrypto? _initialMessageCrypto;
     private int _isDisposed;
     private int _producerCount;
@@ -57,7 +58,8 @@ public sealed class Producer<TMessage> : IProducer<TMessage>, IRegisterEvent
         IHandleException exceptionHandler,
         IConnectionPool connectionPool,
         ICompressorFactory? compressorFactory,
-        bool transactionsEnabled)
+        bool transactionsEnabled,
+        TimeSpan operationTimeout = default)
     {
         // Upstream: ProducerImpl#ProducerImpl, #addPublicKeyCipher
         // The public keys are read and the data key is wrapped now, so that a key that can not be used makes the creation of the producer fail, before anything is started.
@@ -87,6 +89,7 @@ public sealed class Producer<TMessage> : IProducer<TMessage>, IRegisterEvent
         _exceptionHandler = exceptionHandler;
         _connectionPool = connectionPool;
         _compressorFactory = compressorFactory;
+        _operationTimeout = operationTimeout;
         _processManager = new ProcessManager();
         _messageRouter = options.MessageRouter;
         _cts = new CancellationTokenSource();
@@ -219,7 +222,8 @@ public sealed class Producer<TMessage> : IProducer<TMessage>, IRegisterEvent
             _options.SendTimeout,
             IsChunkingEnabled(topic),
             _options.ChunkMaxMessageSize,
-            messageCrypto);
+            messageCrypto,
+            _operationTimeout);
         var process = new ProducerProcess(correlationId, stateManager, producer);
         _processManager.Add(process);
         process.Start();

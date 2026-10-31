@@ -18,6 +18,7 @@ using DotPulsar.Exceptions;
 using DotPulsar.Internal.Abstractions;
 using DotPulsar.Internal.Chunking;
 using DotPulsar.Internal.Crypto;
+using DotPulsar.Internal.Extensions;
 using DotPulsar.Internal.PulsarApi;
 using Google.Protobuf;
 using Microsoft.Extensions.ObjectPool;
@@ -63,7 +64,9 @@ public sealed class ProducerChannel : IProducerChannel
         try
         {
             var closeProducer = new CommandCloseProducer { ProducerId = _id };
-            await _connection.Send(closeProducer, cancellationToken).ConfigureAwait(false);
+
+            // The token of the connection only guards its lock, so a close command that the broker never answers is waited for with the token here
+            await _connection.Send(closeProducer, cancellationToken).WaitAsync(cancellationToken).ConfigureAwait(false);
         }
         catch
         {

@@ -596,7 +596,7 @@ public sealed class Consumer<TMessage> : IConsumer<TMessage>
     private IProducer<ReadOnlySequence<byte>> CreateDeadLetterProducer(ProducerOptions<ReadOnlySequence<byte>> options, string? initialSubscriptionName)
     {
         options.InitialSubscriptionName = initialSubscriptionName;
-        return new Producer<ReadOnlySequence<byte>>(ServiceUrl, options, _exceptionHandler, _connectionPool, null, false);
+        return new Producer<ReadOnlySequence<byte>>(ServiceUrl, options, _exceptionHandler, _connectionPool, null, false, _operationTimeout);
     }
 
     private static string GetPartitionedTopicName(string topic, int partitionNumber) => $"{topic}-partition-{partitionNumber}";
