@@ -23,11 +23,15 @@ public sealed class PreparedBatch
     private readonly PreparedBatchPool _pool;
 
     private int _isReturned;
+    private int _isWriting;
+    private int _isReturnRequested;
 
     public PreparedBatch(PreparedBatchPool pool)
     {
         _pool = pool;
         _isReturned = 0;
+        _isWriting = 0;
+        _isReturnRequested = 0;
         Buffer = new PooledBufferWriter();
         Metadata = new MessageMetadata();
         Count = 0;
@@ -88,10 +92,36 @@ public sealed class PreparedBatch
     }
 
     public void MarkRented()
-        => Volatile.Write(ref _isReturned, 0);
+    {
+        Volatile.Write(ref _isWriting, 0);
+        Volatile.Write(ref _isReturnRequested, 0);
+        Volatile.Write(ref _isReturned, 0);
+    }
 
-    // Resets the batch and gives it back to the pool. Does nothing if it has already been returned.
+    // The dispatcher writes the batch to the channel, which changes the metadata of the batch while it writes and resets it afterwards. A receipt can be processed before the write has returned, so the batch
+    // is not given back to the pool while it is written: a Return that comes during the write is done by EndWrite. Both sides write their own flag and then read the flag of the other, with a full fence
+    // in between, so at least one of them sees the other, and Return does nothing for a batch that has been given back already.
+    public void BeginWrite()
+        => _ = Interlocked.Exchange(ref _isWriting, 1);
+
+    public void EndWrite()
+    {
+        _ = Interlocked.Exchange(ref _isWriting, 0);
+
+        if (Volatile.Read(ref _isReturnRequested) != 0)
+            GiveBack();
+    }
+
+    // Resets the batch and gives it back to the pool, when it is not being written (otherwise when the write ends). Does nothing if it has already been returned.
     public void Return()
+    {
+        _ = Interlocked.Exchange(ref _isReturnRequested, 1);
+
+        if (Volatile.Read(ref _isWriting) == 0)
+            GiveBack();
+    }
+
+    private void GiveBack()
     {
         if (Interlocked.Exchange(ref _isReturned, 1) != 0)
             return;

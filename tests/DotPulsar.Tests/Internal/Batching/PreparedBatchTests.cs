@@ -135,6 +135,90 @@ public sealed class PreparedBatchTests
 
     // Additional coverage
     [Fact]
+    public void Return_GivenBatchThatIsBeingWritten_ShouldWaitForTheEndOfTheWrite()
+    {
+        //Arrange
+        var pool = new PreparedBatchPool(1);
+        var uut = pool.Get();
+        uut.BeginWrite();
+
+        //Act
+        uut.Return();
+        var returnedDuringTheWrite = uut.IsReturned;
+        var other = pool.Get();
+        uut.EndWrite();
+        var returnedAfterTheWrite = uut.IsReturned;
+        var actual = pool.Get();
+
+        //Assert
+        returnedDuringTheWrite.ShouldBeFalse();
+        other.ShouldNotBeSameAs(uut);
+        returnedAfterTheWrite.ShouldBeTrue();
+        actual.ShouldBeSameAs(uut);
+    }
+
+    // Additional coverage
+    [Fact]
+    public void EndWrite_GivenNoReturn_ShouldNotReturnTheBatch()
+    {
+        //Arrange
+        var pool = new PreparedBatchPool(1);
+        var uut = pool.Get();
+        uut.BeginWrite();
+
+        //Act
+        uut.EndWrite();
+
+        //Assert
+        uut.IsReturned.ShouldBeFalse();
+        pool.Get().ShouldNotBeSameAs(uut);
+    }
+
+    // Additional coverage
+    [Fact]
+    public void Return_GivenBatchThatIsBeingWrittenAndReturnedTwice_ShouldBeGivenToTheNextCallersOnlyOnce()
+    {
+        //Arrange
+        var pool = new PreparedBatchPool(4);
+        var uut = pool.Get();
+        uut.BeginWrite();
+
+        //Act
+        uut.Return();
+        uut.Return();
+        uut.EndWrite();
+        uut.Return();
+        var first = pool.Get();
+        var second = pool.Get();
+
+        //Assert
+        first.ShouldBeSameAs(uut);
+        second.ShouldNotBeSameAs(uut);
+    }
+
+    // Additional coverage
+    [Fact]
+    public void Return_GivenBatchThatWasWrittenAndRentedAgain_ShouldNotKeepTheStateOfTheEarlierWrite()
+    {
+        //Arrange
+        var pool = new PreparedBatchPool(1);
+        var uut = pool.Get();
+        uut.BeginWrite();
+        uut.Return();
+        uut.EndWrite();
+        var rentedAgain = pool.Get();
+        rentedAgain.ShouldBeSameAs(uut);
+
+        //Act
+        rentedAgain.Return();
+
+        //Assert
+        rentedAgain.IsReturned.ShouldBeTrue();
+        pool.Get().ShouldBeSameAs(uut);
+    }
+
+    // Additional coverage
+    [Fact]
     public void Return_GivenBatchThatWasRentedAgain_ShouldBeReturnedAgain()
     {
         //Arrange

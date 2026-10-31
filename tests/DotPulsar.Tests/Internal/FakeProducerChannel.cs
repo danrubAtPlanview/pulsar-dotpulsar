@@ -37,6 +37,9 @@ public sealed class FakeProducerChannel : IProducerChannel
     // The write of an entry is not completed before this task is. Null means that it is completed at once.
     public Task? WriteGate { get; set; }
 
+    // With a write gate, the entry is answered when it is written (before the gate is open) and not after the gate, like a receipt that comes before the write of the connection has returned
+    public bool RespondBeforeWriteCompletes { get; set; }
+
     // Decides if planning the chunks of a message fails
     public Func<MessageMetadata, Exception?>? FailPlanning { get; set; }
 
@@ -61,7 +64,7 @@ public sealed class FakeProducerChannel : IProducerChannel
 
         _entries.Enqueue(entry);
 
-        return WriteGate is null ? Answer(entry, responseTcs) : AnswerAfterWrite(entry, responseTcs, WriteGate);
+        return Answer(entry, responseTcs, WriteGate);
     }
 
     public ChunkedSendState? PlanChunking(MessageMetadata metadata, ReadOnlySequence<byte> payload, int chunkMaxMessageSize)
@@ -94,7 +97,19 @@ public sealed class FakeProducerChannel : IProducerChannel
 
         _entries.Enqueue(entry);
 
-        return WriteGate is null ? Answer(entry, responseTcs) : AnswerAfterWrite(entry, responseTcs, WriteGate);
+        return Answer(entry, responseTcs, WriteGate);
+    }
+
+    private Task Answer(SentEntry entry, TaskCompletionSource<BaseCommand> responseTcs, Task? writeGate)
+    {
+        if (writeGate is null)
+            return Answer(entry, responseTcs);
+
+        if (!RespondBeforeWriteCompletes)
+            return AnswerAfterWrite(entry, responseTcs, writeGate);
+
+        _ = Answer(entry, responseTcs);
+        return writeGate;
     }
 
     private Task Answer(SentEntry entry, TaskCompletionSource<BaseCommand> responseTcs)

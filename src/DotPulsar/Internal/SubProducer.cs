@@ -267,6 +267,7 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
 
                 batch = sendOp.Batch;
                 _sendingHead = sendOp;
+                batch?.BeginWrite();
             }
 
             bool success;
@@ -286,6 +287,9 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
                     if (batch is not null && sendOp.IsRemoved)
                         batch.Return();
                 }
+
+                // A receipt can have returned the batch while it was written, and the batch goes back to the pool now that the channel is done with its metadata
+                batch?.EndWrite();
             }
 
             if (!success)

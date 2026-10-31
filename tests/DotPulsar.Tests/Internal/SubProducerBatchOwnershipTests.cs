@@ -62,6 +62,7 @@ public sealed class SubProducerBatchOwnershipTests
         //Act
         await Send(sut, failedOps);
         await WaitFor.Until(() => failedOps.All(sendOp => sendOp.ReceiptTcs.Task.IsCompleted), "the messages of the batch have failed");
+        await WaitFor.Until(() => batch!.IsReturned, "the producer returns the batch when the write of the batch has ended"); // A batch that is being written is returned when the write ends
         var returned = batch!.IsReturned;
         var rented = RentEverythingThatThePoolHas();
 
@@ -71,6 +72,47 @@ public sealed class SubProducerBatchOwnershipTests
         rented.Count(rentedBatch => ReferenceEquals(rentedBatch, batch)).ShouldBe(1, "the pool gives out the batch once");
         failedOps.ShouldAllBe(sendOp => sendOp.Batch == null);
         registerEvent.ReceivedCalls().Select(call => call.GetArguments()[0]).ShouldNotContain(argument => argument is ExecutorFaulted);
+    }
+
+    // Additional coverage
+    // The receipt of a batch can be processed before the write of the batch has returned to the dispatcher, while the channel still resets the metadata of the batch. The batch goes back to the
+    // pool when the write is done, and not before: another producer could rent it, and the channel would reset the metadata that it uses.
+    [Fact]
+    public async Task Dispatcher_GivenReceiptBeforeTheWriteOfTheBatchHasReturned_ShouldReturnTheBatchWhenTheWriteIsDone()
+    {
+        //Arrange
+        var registerEvent = Substitute.For<IRegisterEvent>();
+        var writeGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var sendOps = CreateSendOps(1, 3);
+        PreparedBatch? batch = null;
+        var channel = new FakeProducerChannel
+        {
+            WriteGate = writeGate.Task,
+            RespondBeforeWriteCompletes = true,
+            Fail = entry =>
+            {
+                if (entry.IsBatch)
+                    batch ??= sendOps[0].Batch;
+
+                return null;
+            }
+        };
+        await using var sut = await CreateSubProducer(channel, registerEvent, batchingMaxMessages: 3);
+
+        //Act
+        await Send(sut, sendOps);
+        await WaitFor.Until(() => sendOps.All(sendOp => sendOp.ReceiptTcs.Task.IsCompleted), "the receipt of the batch is processed while the batch is still written");
+        var returnedWhileWritten = batch!.IsReturned;
+        var rentedWhileWritten = RentEverythingThatThePoolHas();
+        writeGate.SetResult();
+        await WaitFor.Until(() => batch.IsReturned, "the batch is returned when the write is done");
+
+        //Assert
+        batch.ShouldNotBeNull();
+        returnedWhileWritten.ShouldBeFalse("the channel is still writing the batch");
+        rentedWhileWritten.ShouldNotContain(rentedBatch => ReferenceEquals(rentedBatch, batch), "the pool does not give out a batch that is written");
+        sendOps.ShouldAllBe(sendOp => sendOp.ReceiptTcs.Task.IsCompletedSuccessfully);
+        registerEvent.ReceivedCalls().Select(call => call.GetArguments()[0]).ShouldNotContain(argument => argument is ExecutorFaulted || argument is ChannelDisconnected);
     }
 
     // Upstream: BatchMessageContainerImplTest#oversizedSingleMessageReleasesTheBatchBufferExactlyOnce
@@ -140,6 +182,7 @@ public sealed class SubProducerBatchOwnershipTests
         //Act
         await Send(sut, failedOps);
         var callbackExceptions = await Task.WhenAll(continuations.Select(continuation => Record.ExceptionAsync(() => continuation).AsTask()).ToArray()).WaitAsync(_timeout, Current.CancellationToken);
+        await WaitFor.Until(() => batch!.IsReturned, "the producer returns the batch when the write of the batch has ended"); // A batch that is being written is returned when the write ends
         var returned = batch!.IsReturned;
         await sut.Send(nextOp, Current.CancellationToken);
         await sut.Flush().WaitAsync(_timeout, Current.CancellationToken);
