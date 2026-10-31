@@ -221,14 +221,17 @@ public sealed class SubProducerSendTimeoutTests
     }
 
     // Additional coverage
+    // The first message is written before the second one is sent, and the send timeout is longer than the one of the other tests: a machine that is so busy that the dispatcher has not written
+    // the first message within the send timeout lets the timeout remove it unsent, and then only the second message is ever written, which the test would wait for in vain
     [Fact]
     public async Task SendTimeout_GivenQueueFullAndEnqueuerBlocked_ShouldUnblockEnqueuerAfterTimeout()
     {
         //Arrange
         var channel = new FakeProducerChannel { Respond = _ => null };
-        await using var sut = await CreateSubProducer(channel, maxPendingMessages: 1);
+        await using var sut = await CreateSubProducer(channel, sendTimeout: TimeSpan.FromSeconds(1), maxPendingMessages: 1);
         var firstOp = CreateSendOp(1);
         await sut.Send(firstOp, Current.CancellationToken);
+        await WaitFor.Until(() => channel.Entries.Count == 1, "the first message is written");
         var secondOp = CreateSendOp(2);
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
