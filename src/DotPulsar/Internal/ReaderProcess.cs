@@ -57,7 +57,9 @@ public sealed class ReaderProcess : Process
                 ScheduleReconnect(_subReader);
                 return;
             case ChannelState.Connected:
-                _stateManager.SetState(ReaderState.Connected);
+                // A reader is not connected before its channel is in place, because a Receive that follows the state change would find no channel and wait for the retry
+                if (IsChannelEstablished)
+                    _stateManager.SetState(ReaderState.Connected);
                 return;
             case ChannelState.ReachedEndOfTopic:
                 _stateManager.SetState(ReaderState.ReachedEndOfTopic);

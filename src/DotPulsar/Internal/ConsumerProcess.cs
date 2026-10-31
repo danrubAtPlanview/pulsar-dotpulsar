@@ -55,10 +55,13 @@ public sealed class ConsumerProcess : Process
         switch (ChannelState)
         {
             case ChannelState.Active:
-                _stateManager.SetState(ConsumerState.Active);
+                // A consumer is not active before its channel is in place, because a Receive that follows the state change would find no channel and wait for the retry
+                if (IsChannelEstablished)
+                    _stateManager.SetState(ConsumerState.Active);
                 return;
             case ChannelState.Inactive:
-                _stateManager.SetState(ConsumerState.Inactive);
+                if (IsChannelEstablished)
+                    _stateManager.SetState(ConsumerState.Inactive);
                 return;
             case ChannelState.ClosedByServer:
             case ChannelState.Disconnected:
@@ -66,7 +69,7 @@ public sealed class ConsumerProcess : Process
                 ScheduleReconnect(_subConsumer);
                 return;
             case ChannelState.Connected:
-                if (!_isFailoverSubscription)
+                if (!_isFailoverSubscription && IsChannelEstablished)
                     _stateManager.SetState(ConsumerState.Active);
                 return;
             case ChannelState.ReachedEndOfTopic:

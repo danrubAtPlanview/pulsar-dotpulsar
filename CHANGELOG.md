@@ -65,6 +65,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 - The number of messages of the pooled send command was never reset
 - A producer with a schema never put the schema version in its messages, so IMessage.SchemaVersion was null for every message that DotPulsar produced
 - A consumer of a partitioned topic, of several topics or of a topics pattern reported the state Active as soon as the first of its topics was subscribed. It is now Active when every topic is subscribed, until then it is PartiallyConnected or Disconnected
+- A consumer or a reader published the state Active or Connected when the broker had answered the subscribe command, before it had its channel, so a Receive that followed the state change could wait for the retry interval (3 seconds by default). The state is published when the channel is in place
 
 ## [5.3.4] - 2026-10-09
 

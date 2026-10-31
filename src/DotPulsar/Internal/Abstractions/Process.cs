@@ -21,6 +21,7 @@ public abstract class Process : IProcess
     private readonly CancellationTokenSource _cancellationTokenSource;
     private readonly object _stateLock = new object();
     private int _isReconnecting;
+    private bool _isChannelEstablished;
     protected readonly AsyncQueue<Func<CancellationToken, Task>> ActionQueue;
     private Task? _actionProcessorTask;
     protected ChannelState ChannelState;
@@ -33,10 +34,15 @@ public abstract class Process : IProcess
         ActionQueue = new AsyncQueue<Func<CancellationToken, Task>>();
         ChannelState = ChannelState.Disconnected;
         ExecutorState = ExecutorState.Ok;
+        _isChannelEstablished = false;
         CorrelationId = correlationId;
     }
 
     public Guid CorrelationId { get; }
+
+    // True when the channel of the last connect has been handed to its owner, which is after the broker has answered the subscribe or the create command. The channel raises its events
+    // when the broker answers, which is before that, so a state that tells the user that the channel can be used must wait for it. Only read when the state lock is held (CalculateState).
+    protected bool IsChannelEstablished => _isChannelEstablished;
 
     public void Start()
     {
@@ -70,9 +76,13 @@ public abstract class Process : IProcess
                     break;
                 case ChannelClosedByServer _:
                     ChannelState = ChannelState.ClosedByServer;
+                    _isChannelEstablished = false;
                     break;
                 case ChannelConnected _:
-                    ChannelState = ChannelState.Connected;
+                    // The broker tells a failover consumer whether it is the active consumer before it answers the subscribe command, so the channel can be active or inactive when it is connected,
+                    // and being connected does not change that. A disconnect has reset the state when the channel of an earlier connection was lost.
+                    if (ChannelState is not (ChannelState.Active or ChannelState.Inactive))
+                        ChannelState = ChannelState.Connected;
                     break;
                 case ChannelDeactivated _:
                     ChannelState = ChannelState.Inactive;
@@ -80,6 +90,7 @@ public abstract class Process : IProcess
                 case SendReceiptWrongOrdering _:
                 case ChannelDisconnected _:
                     ChannelState = ChannelState.Disconnected;
+                    _isChannelEstablished = false;
                     break;
                 case ChannelReachedEndOfTopic _:
                     ChannelState = ChannelState.ReachedEndOfTopic;
@@ -105,10 +116,13 @@ public abstract class Process : IProcess
 
         ActionQueue.Enqueue(async cancellationToken =>
         {
+            var isEstablished = false;
+
             try
             {
                 await channel.CloseChannel(cancellationToken).ConfigureAwait(false);
                 await channel.EstablishNewChannel(cancellationToken).ConfigureAwait(false);
+                isEstablished = true;
             }
             finally
             {
@@ -116,7 +130,11 @@ public abstract class Process : IProcess
 
                 lock (_stateLock)
                 {
-                    if (ChannelState is ChannelState.ClosedByServer or ChannelState.Disconnected)
+                    // The events that the channel raised while it was being established have been waiting for this, and they are applied now
+                    if (isEstablished)
+                        _isChannelEstablished = true;
+
+                    if (isEstablished || ChannelState is ChannelState.ClosedByServer or ChannelState.Disconnected)
                         CalculateState();
                 }
             }

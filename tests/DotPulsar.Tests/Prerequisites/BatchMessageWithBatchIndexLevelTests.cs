@@ -495,8 +495,7 @@ public sealed class BatchMessageWithBatchIndexLevelTests : IDisposable
         var nextMessageValue = ackedMessagesCountInTheFistStep + 1;
         var values = new List<string>();
 
-        // The first receive can wait for the retry interval of 3 seconds, because the consumer is active before its channel is usable (followup 0016)
-        while (await TransactionFixture.ReceiveOrNull(consumer2, values.Count == 0 ? TimeSpan.FromSeconds(10) : TimeSpan.FromSeconds(2), _cts.Token) is { } message)
+        while (await TransactionFixture.ReceiveOrNull(consumer2, TimeSpan.FromSeconds(2), _cts.Token) is { } message)
         {
             values.Add(message.Value());
             messages.Add(message);

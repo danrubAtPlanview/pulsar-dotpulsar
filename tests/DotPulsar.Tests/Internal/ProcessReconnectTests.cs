@@ -43,6 +43,93 @@ public sealed class ProcessReconnectTests
         channel.EstablishCount.ShouldBe(1);
     }
 
+    // Additional coverage
+    // The broker answers the subscribe command, and the channel raises its event, before the owner has the channel. A Receive that follows the state change would find no channel and wait for the retry.
+    [Theory]
+    [InlineData(ProcessKind.Consumer)]
+    [InlineData(ProcessKind.Reader)]
+    public async Task Handle_WhenChannelConnectedBeforeTheChannelIsEstablished_ShouldPublishTheStateWhenTheChannelIsEstablished(ProcessKind processKind)
+    {
+        //Arrange
+        var correlationId = Guid.NewGuid();
+        var channel = new TrackingChannelContainer();
+        await using var harness = CreateHarness(processKind, correlationId, channel);
+        using var connectedRaised = new ManualResetEventSlim();
+        using var establishGate = new ManualResetEventSlim();
+        channel.OnEstablished = generation =>
+        {
+            harness.Process.Handle(new ChannelConnected(correlationId));
+            connectedRaised.Set();
+            _ = establishGate.Wait(TimeSpan.FromSeconds(10)); // The owner is still waiting for the channel
+        };
+
+        //Act
+        harness.Process.Start();
+        await Task.Run(() => connectedRaised.Wait(TimeSpan.FromSeconds(10)), Current.CancellationToken);
+        var waitForConnected = harness.WaitForConnected(Current.CancellationToken);
+        var publishedBeforeTheChannelIsEstablished = await Task.WhenAny(waitForConnected, Task.Delay(TimeSpan.FromMilliseconds(300), Current.CancellationToken)) == waitForConnected;
+        establishGate.Set();
+        await waitForConnected.WaitAsync(TimeSpan.FromSeconds(10), Current.CancellationToken);
+
+        //Assert
+        publishedBeforeTheChannelIsEstablished.ShouldBeFalse();
+    }
+
+    // Additional coverage
+    // The broker sends the change of the active consumer of a failover subscription before it answers the subscribe command, so the consumer is told that it is active (or not) before the channel
+    // is connected. The state must not be lost when the connected event follows, and it is published when the channel is established.
+    [Theory]
+    [InlineData(true, ConsumerState.Active)]
+    [InlineData(false, ConsumerState.Inactive)]
+    public async Task Handle_WhenFailoverConsumerIsToldBeforeTheSubscribeResponse_ShouldPublishThatStateWhenTheChannelIsEstablished(bool isActive, ConsumerState expected)
+    {
+        //Arrange
+        var correlationId = Guid.NewGuid();
+        var channel = new TrackingChannelContainer();
+        var stateManager = new StateManager<ConsumerState>(ConsumerState.Disconnected, ConsumerState.Closed, ConsumerState.ReachedEndOfTopic, ConsumerState.Faulted);
+        await using var process = new ConsumerProcess(correlationId, stateManager, channel, true);
+        channel.OnEstablished = _ =>
+        {
+            process.Handle(isActive ? new ChannelActivated(correlationId) : new ChannelDeactivated(correlationId));
+            process.Handle(new ChannelConnected(correlationId));
+        };
+
+        //Act
+        process.Start();
+        await stateManager.OnStateChangeTo(expected, Current.CancellationToken).AsTask().WaitAsync(TimeSpan.FromSeconds(10), Current.CancellationToken);
+
+        //Assert
+        stateManager.IsFinalState().ShouldBeFalse();
+    }
+
+    // Additional coverage
+    [Theory]
+    [InlineData(ProcessKind.Consumer)]
+    [InlineData(ProcessKind.Reader)]
+    public async Task Handle_WhenChannelDisconnectedWhileTheChannelIsBeingEstablished_ShouldNotPublishTheStateOfTheChannelThatWasLost(ProcessKind processKind)
+    {
+        //Arrange
+        var correlationId = Guid.NewGuid();
+        var channel = new TrackingChannelContainer();
+        await using var harness = CreateHarness(processKind, correlationId, channel);
+        channel.OnEstablished = generation =>
+        {
+            harness.Process.Handle(new ChannelConnected(correlationId));
+            if (generation == 1)
+                harness.Process.Handle(new ChannelDisconnected(correlationId));
+        };
+
+        //Act
+        harness.Process.Start();
+        await channel.WaitForEstablishAsync(Current.CancellationToken);
+        await channel.WaitForEstablishAsync(Current.CancellationToken);
+        await harness.WaitForConnected(Current.CancellationToken);
+
+        //Assert
+        channel.EstablishCount.ShouldBe(2);
+        channel.CurrentGeneration.ShouldBe(2);
+    }
+
     [Theory]
     [InlineData(ProcessKind.Producer)]
     [InlineData(ProcessKind.Consumer)]

@@ -504,8 +504,8 @@ public abstract class TransactionEndToEndTestsBase<TFixture> : IDisposable where
         // Step 3, try to consume the rest messages and should receive all of them
         for (var i = 0; i < numStep3Receive; i++)
         {
-            // should get the message instead of timeout. The first receive can wait for the retry interval of 3 seconds, because the consumer is active before its channel is usable (followup 0016)
-            var message = await TransactionFixture.ReceiveOrNull(consumer2, i == 0 ? TimeSpan.FromSeconds(10) : TimeSpan.FromSeconds(3), _cts.Token);
+            // should get the message instead of timeout
+            var message = await TransactionFixture.ReceiveOrNull(consumer2, TimeSpan.FromSeconds(3), _cts.Token);
             message.ShouldNotBeNull();
             received.Add(message.Value());
         }
