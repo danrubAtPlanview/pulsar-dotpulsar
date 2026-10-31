@@ -136,7 +136,7 @@ public class AsyncQueueWithCursorTests
         var sut = new AsyncQueueWithCursor<IDisposable>(1);
         await sut.Enqueue(Substitute.For<IDisposable>(), CancellationToken.None);
         var cts = new CancellationTokenSource();
-        cts.CancelAfter(100);
+        cts.CancelAfter(TimeSpan.FromSeconds(10)); // Only there so that the test does not wait for ever; the cancellation of an enqueue is tested below
         var pendingEnqueue = sut.Enqueue(Substitute.For<IDisposable>(), cts.Token);
 
         //Act
