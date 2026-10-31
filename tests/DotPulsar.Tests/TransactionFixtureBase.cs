@@ -45,12 +45,13 @@ public abstract class TransactionFixtureBase : IAsyncLifetime
     private readonly bool _acknowledgmentAtBatchIndexLevelEnabled;
     private readonly CancellationTokenSource _cts;
     private PulsarContainer _pulsarCluster;
+    private IDisposable? _brokerSlot;
     private string? _token;
 
     protected TransactionFixtureBase(bool acknowledgmentAtBatchIndexLevelEnabled)
     {
         _acknowledgmentAtBatchIndexLevelEnabled = acknowledgmentAtBatchIndexLevelEnabled;
-        _cts = new CancellationTokenSource(TimeSpan.FromMinutes(15));
+        _cts = new CancellationTokenSource(); // The time limit starts when the fixture has a broker slot
         _pulsarCluster = null!; // This will be set in `InitializeAsync`
     }
 
@@ -111,16 +112,39 @@ public abstract class TransactionFixtureBase : IAsyncLifetime
 
     public virtual async ValueTask DisposeAsync()
     {
-        if (_pulsarCluster is not null)
-            await _pulsarCluster.DisposeAsync();
+        try
+        {
+            if (_pulsarCluster is not null)
+                await _pulsarCluster.DisposeAsync();
+        }
+        finally
+        {
+            _brokerSlot?.Dispose();
+        }
 
         _cts.Dispose();
         GC.SuppressFinalize(this);
     }
 
+    public virtual async ValueTask InitializeAsync()
+    {
+        _brokerSlot = await BrokerResources.WaitForSlot();
+        _cts.CancelAfter(TimeSpan.FromMinutes(15));
+
+        try
+        {
+            await StartClusterWithRetries();
+        }
+        catch
+        {
+            _brokerSlot.Dispose();
+            throw;
+        }
+    }
+
     // Under memory pressure the container sometimes fails to start ("Failed to create token") or hangs. A bounded attempt that is
     // repeated with a new container fails in minutes with a clear message instead of after the 10 minutes of the fixture.
-    public virtual async ValueTask InitializeAsync()
+    private async Task StartClusterWithRetries()
     {
         for (var attempt = 1; ; ++attempt)
         {
@@ -172,6 +196,7 @@ public abstract class TransactionFixtureBase : IAsyncLifetime
     {
         var builder = new PulsarBuilder("apachepulsar/pulsar:4.0.9")
             .WithAuthentication()
+            .WithBrokerMemory()
             .WithEnvironment("PULSAR_PREFIX_transactionCoordinatorEnabled", "true")
             .WithEnvironment("PULSAR_PREFIX_brokerDeduplicationEnabled", "true")
             .WithEnvironment("PULSAR_PREFIX_acknowledgmentAtBatchIndexLevelEnabled", _acknowledgmentAtBatchIndexLevelEnabled ? "true" : "false")

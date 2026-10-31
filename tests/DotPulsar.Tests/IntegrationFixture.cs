@@ -35,6 +35,7 @@ public class IntegrationFixture : IAsyncLifetime
     private readonly INetwork _network;
     private readonly PulsarContainer _pulsarCluster;
     private readonly IContainer _toxiProxy;
+    private IDisposable? _brokerSlot;
     private Client _toxiProxyClient;
     private Connection _toxiProxyConnection;
     private Proxy _toxiProxyPulsarProxy;
@@ -46,7 +47,7 @@ public class IntegrationFixture : IAsyncLifetime
     // conf/standalone.conf when .WithAuthentication() is used, so that call must never be removed.
     protected IntegrationFixture(IReadOnlyDictionary<string, string>? brokerSettings)
     {
-        _cts = new CancellationTokenSource(TimeSpan.FromMinutes(10));
+        _cts = new CancellationTokenSource(); // The time limit starts when the fixture has a broker slot
 
         _network = new NetworkBuilder()
             .WithName(Guid.NewGuid().ToString("D"))
@@ -63,7 +64,8 @@ public class IntegrationFixture : IAsyncLifetime
         var pulsarBuilder = new PulsarBuilder("apachepulsar/pulsar:4.0.9")
             .WithAuthentication()
             .WithNetwork(_network)
-            .WithHostname("pulsar");
+            .WithHostname("pulsar")
+            .WithBrokerMemory();
 
         foreach (var (key, value) in brokerSettings ?? new Dictionary<string, string>())
         {
@@ -96,14 +98,38 @@ public class IntegrationFixture : IAsyncLifetime
 
     public async ValueTask DisposeAsync()
     {
-        await _pulsarCluster.DisposeAsync();
-        await _toxiProxy.DisposeAsync();
+        try
+        {
+            await _pulsarCluster.DisposeAsync();
+            await _toxiProxy.DisposeAsync();
+        }
+        finally
+        {
+            _brokerSlot?.Dispose();
+        }
+
         _toxiProxyConnection.Dispose();
         _cts.Dispose();
         GC.SuppressFinalize(this);
     }
 
     public async ValueTask InitializeAsync()
+    {
+        _brokerSlot = await BrokerResources.WaitForSlot();
+        _cts.CancelAfter(TimeSpan.FromMinutes(10));
+
+        try
+        {
+            await StartContainers();
+        }
+        catch
+        {
+            _brokerSlot.Dispose();
+            throw;
+        }
+    }
+
+    private async Task StartContainers()
     {
         SubscribeToContainerEvents(_toxiProxy, "Toxiproxy");
         SubscribeToContainerEvents(_pulsarCluster, "Pulsar cluster");
