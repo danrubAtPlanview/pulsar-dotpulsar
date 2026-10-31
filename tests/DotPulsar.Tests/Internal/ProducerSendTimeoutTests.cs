@@ -29,6 +29,9 @@ public sealed class ProducerSendTimeoutTests
     private static readonly TimeSpan _timeout = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan _sendTimeout = TimeSpan.FromMilliseconds(300);
 
+    // For the tests that check what was written before the timeout: a machine that is so busy that the dispatcher has not written the message within the send timeout lets the timeout remove the message unsent
+    private static readonly TimeSpan _longSendTimeout = TimeSpan.FromSeconds(2);
+
     // Additional coverage
     [Fact]
     public async Task Send_GivenNoReceiptWithinSendTimeout_ShouldThrowOperationTimeoutException()
@@ -53,7 +56,7 @@ public sealed class ProducerSendTimeoutTests
         //Arrange
         var connection = new FakeProducerConnection();
         connection.HoldResponses();
-        await using var producer = await CreateConnectedProducer(connection);
+        await using var producer = await CreateConnectedProducer(connection, sendTimeout: _longSendTimeout);
         _ = await Record.ExceptionAsync(async () => await producer.Send(new MessageMetadata(), [1], Current.CancellationToken));
 
         //Act
@@ -74,7 +77,7 @@ public sealed class ProducerSendTimeoutTests
         //Arrange
         var connection = new FakeProducerConnection();
         connection.HoldResponses();
-        await using var producer = await CreateConnectedProducer(connection, enableBatching: true);
+        await using var producer = await CreateConnectedProducer(connection, enableBatching: true, sendTimeout: _longSendTimeout);
 
         //Act
         var sends = Enumerable.Range(0, 3).Select(i => producer.Send(new MessageMetadata(), [(byte) i], Current.CancellationToken).AsTask()).ToArray();
@@ -130,12 +133,12 @@ public sealed class ProducerSendTimeoutTests
         called.ShouldBeFalse();
     }
 
-    private static async Task<Producer<byte[]>> CreateConnectedProducer(FakeProducerConnection connection, bool enableBatching = false)
+    private static async Task<Producer<byte[]>> CreateConnectedProducer(FakeProducerConnection connection, bool enableBatching = false, TimeSpan? sendTimeout = null)
     {
         var options = new ProducerOptions<byte[]>(_topic, DotPulsar.Schema.ByteArray)
         {
             MaxPendingMessages = 500,
-            SendTimeout = _sendTimeout,
+            SendTimeout = sendTimeout ?? _sendTimeout,
             EnableBatching = enableBatching,
             BatchingMaxMessages = 3,
             BatchingMaxPublishDelay = TimeSpan.FromHours(1)
