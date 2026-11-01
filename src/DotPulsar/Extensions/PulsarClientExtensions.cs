@@ -15,6 +15,7 @@
 namespace DotPulsar.Extensions;
 
 using DotPulsar.Abstractions;
+using DotPulsar.Internal.Abstractions;
 using DotPulsar.Internal;
 using System.Buffers;
 
@@ -64,4 +65,10 @@ public static class PulsarClientExtensions
     /// </summary>
     public static ITransactionBuilder NewTransaction(this IPulsarClient pulsarClient)
         => new TransactionBuilder(pulsarClient);
+
+    /// <summary>
+    /// Create a transaction.
+    /// </summary>
+    public static ValueTask<ITransaction> CreateTransaction(this IPulsarClient pulsarClient, TransactionOptions options, CancellationToken cancellationToken = default)
+        => ExtendedApi.Require<IExtendedPulsarClient>(pulsarClient, nameof(pulsarClient), nameof(CreateTransaction)).CreateTransaction(options, cancellationToken);
 }

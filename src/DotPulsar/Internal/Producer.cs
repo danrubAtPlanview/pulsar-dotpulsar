@@ -23,7 +23,7 @@ using DotPulsar.Internal.Transactions;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 
-public sealed class Producer<TMessage> : IProducer<TMessage>, IRegisterEvent
+public sealed class Producer<TMessage> : IProducer<TMessage>, IExtendedProducer, IRegisterEvent
 {
     private readonly string _operationName;
     private readonly KeyValuePair<string, object?>[] _activityTags;

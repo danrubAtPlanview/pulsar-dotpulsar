@@ -57,8 +57,8 @@ public sealed class EncryptionInteropTests : IDisposable
 
         //Assert
         Encoding.UTF8.GetString(actual.Data.ToArray()).ShouldBe("java-rsa-0");
-        actual.EncryptionContext.ShouldNotBeNull().IsEncrypted.ShouldBeFalse();
-        actual.EncryptionContext.Keys.Keys.ShouldBe(["client-rsa.pem"]);
+        actual.GetEncryptionContext().ShouldNotBeNull().IsEncrypted.ShouldBeFalse();
+        actual.GetEncryptionContext()!.Keys.Keys.ShouldBe(["client-rsa.pem"]);
     }
 
     // Additional coverage
@@ -78,8 +78,8 @@ public sealed class EncryptionInteropTests : IDisposable
 
         //Assert
         Encoding.UTF8.GetString(actual.Data.ToArray()).ShouldBe("java-ecdsa-0");
-        actual.EncryptionContext.ShouldNotBeNull().IsEncrypted.ShouldBeFalse();
-        actual.EncryptionContext.Keys.Keys.ShouldBe(["client-ecdsa.pem"]);
+        actual.GetEncryptionContext().ShouldNotBeNull().IsEncrypted.ShouldBeFalse();
+        actual.GetEncryptionContext()!.Keys.Keys.ShouldBe(["client-ecdsa.pem"]);
     }
 
     // Additional coverage: the messages of SimpleProducerConsumerTest#testECDSAEncryption are produced by the Java client, the test with a DotPulsar producer is ConsumerEncryptionTests
@@ -101,8 +101,8 @@ public sealed class EncryptionInteropTests : IDisposable
         //Assert
         actual.Count.ShouldBeGreaterThanOrEqualTo(10);
         actual.ShouldAllBe(message => message.Data.Length == 100);
-        actual.ShouldAllBe(message => message.EncryptionContext != null && !message.EncryptionContext.IsEncrypted && message.EncryptionContext.CompressionType == DotPulsar.CompressionType.Lz4);
-        actual.ShouldAllBe(message => message.EncryptionContext!.Keys.ContainsKey("client-ecdsa.pem"));
+        actual.ShouldAllBe(message => message.GetEncryptionContext() != null && !message.GetEncryptionContext()!.IsEncrypted && message.GetEncryptionContext()!.CompressionType == DotPulsar.CompressionType.Lz4);
+        actual.ShouldAllBe(message => message.GetEncryptionContext()!.Keys.ContainsKey("client-ecdsa.pem"));
     }
 
     // Additional coverage: the message of SimpleProducerConsumerTest#testCryptoWithChunking is produced by the Java client, which splits it in chunks that are encrypted one by one, the test with a DotPulsar producer is ConsumerEncryptionTests
@@ -125,8 +125,8 @@ public sealed class EncryptionInteropTests : IDisposable
         //Assert
         message.Data.Length.ShouldBe(messageSize);
         message.MessageId.GetChunkMessageIds()!.Length.ShouldBeGreaterThanOrEqualTo(3);
-        message.EncryptionContext.ShouldNotBeNull().IsEncrypted.ShouldBeFalse();
-        message.EncryptionContext.Keys.Count.ShouldBe(1);
+        message.GetEncryptionContext().ShouldNotBeNull().IsEncrypted.ShouldBeFalse();
+        message.GetEncryptionContext()!.Keys.Count.ShouldBe(1);
     }
 
     // The messages of a batch that the Java client has encrypted as a whole
@@ -153,10 +153,10 @@ public sealed class EncryptionInteropTests : IDisposable
         //Assert
         actual.Select(message => message.MessageId.BatchIndex).ShouldBe([0, 1, 2, 3, 4]);
         actual.ShouldAllBe(message => message.Data.Length == 8);
-        var context = actual[0].EncryptionContext.ShouldNotBeNull();
+        var context = actual[0].GetEncryptionContext().ShouldNotBeNull();
         context.IsEncrypted.ShouldBeFalse();
         context.BatchSize.ShouldBe(5);
-        actual.ShouldAllBe(message => ReferenceEquals(message.EncryptionContext, context));
+        actual.ShouldAllBe(message => ReferenceEquals(message.GetEncryptionContext(), context));
     }
 
     // The key name of the Java client is a name, and the public key of it is the one of the file
@@ -338,7 +338,7 @@ public sealed class EncryptionInteropTests : IDisposable
         {
             var message = await TransactionFixture.ReceiveOrNull(reader, TimeSpan.FromSeconds(60), _cts.Token);
             message.ShouldNotBeNull();
-            var context = message.EncryptionContext.ShouldNotBeNull("the message is not encrypted");
+            var context = message.GetEncryptionContext().ShouldNotBeNull("the message is not encrypted");
             context.IsEncrypted.ShouldBeFalse();
             context.Keys.Keys.ShouldBe([keyName]);
             context.Param.Length.ShouldBe(12);

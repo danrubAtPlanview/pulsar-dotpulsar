@@ -17,6 +17,7 @@ namespace DotPulsar.Tests.Internal.Transactions;
 using DotPulsar.Abstractions;
 using DotPulsar.Exceptions;
 using DotPulsar.Extensions;
+using DotPulsar.Internal.Abstractions;
 using DotPulsar.Internal;
 
 [Trait("Category", "Unit")]
@@ -58,7 +59,8 @@ public sealed class TransactionBuilderTests
     public async Task Create_GivenZeroOrNegativeTimeout_ShouldThrowConfigurationException(int milliseconds)
     {
         //Arrange
-        var client = Substitute.For<IPulsarClient>();
+        var client = Substitute.For<IPulsarClient, IExtendedPulsarClient>();
+        var extendedClient = (IExtendedPulsarClient) client;
         var uut = new TransactionBuilder(client).Timeout(TimeSpan.FromMilliseconds(milliseconds));
 
         //Act
@@ -66,7 +68,7 @@ public sealed class TransactionBuilderTests
 
         //Assert
         exception.ShouldBeOfType<ConfigurationException>().Message.ShouldBe("TransactionOptions.Timeout must be greater than zero");
-        await client.DidNotReceive().CreateTransaction(Arg.Any<TransactionOptions>(), Arg.Any<CancellationToken>());
+        await extendedClient.DidNotReceive().CreateTransaction(Arg.Any<TransactionOptions>(), Arg.Any<CancellationToken>());
     }
 
     // Additional coverage
@@ -74,7 +76,8 @@ public sealed class TransactionBuilderTests
     public async Task Create_GivenInfiniteTimeout_ShouldThrowConfigurationException()
     {
         //Arrange
-        var client = Substitute.For<IPulsarClient>();
+        var client = Substitute.For<IPulsarClient, IExtendedPulsarClient>();
+        var extendedClient = (IExtendedPulsarClient) client;
         var uut = new TransactionBuilder(client).Timeout(System.Threading.Timeout.InfiniteTimeSpan);
 
         //Act
@@ -89,15 +92,16 @@ public sealed class TransactionBuilderTests
     public async Task Create_GivenDefaultTimeout_ShouldCreateTransactionWithOneMinute()
     {
         //Arrange
-        var client = Substitute.For<IPulsarClient>();
-        client.CreateTransaction(Arg.Any<TransactionOptions>(), Arg.Any<CancellationToken>()).Returns(new ValueTask<ITransaction>(Substitute.For<ITransaction>()));
+        var client = Substitute.For<IPulsarClient, IExtendedPulsarClient>();
+        var extendedClient = (IExtendedPulsarClient) client;
+        extendedClient.CreateTransaction(Arg.Any<TransactionOptions>(), Arg.Any<CancellationToken>()).Returns(new ValueTask<ITransaction>(Substitute.For<ITransaction>()));
         var uut = new TransactionBuilder(client);
 
         //Act
         await uut.Create(Current.CancellationToken);
 
         //Assert
-        await client.Received(1).CreateTransaction(Arg.Is<TransactionOptions>(options => options.Timeout == TimeSpan.FromMinutes(1)), Current.CancellationToken);
+        await extendedClient.Received(1).CreateTransaction(Arg.Is<TransactionOptions>(options => options.Timeout == TimeSpan.FromMinutes(1)), Current.CancellationToken);
     }
 
     // Additional coverage
@@ -105,15 +109,16 @@ public sealed class TransactionBuilderTests
     public async Task Create_GivenTimeout_ShouldCreateTransactionWithTheTimeout()
     {
         //Arrange
-        var client = Substitute.For<IPulsarClient>();
-        client.CreateTransaction(Arg.Any<TransactionOptions>(), Arg.Any<CancellationToken>()).Returns(new ValueTask<ITransaction>(Substitute.For<ITransaction>()));
+        var client = Substitute.For<IPulsarClient, IExtendedPulsarClient>();
+        var extendedClient = (IExtendedPulsarClient) client;
+        extendedClient.CreateTransaction(Arg.Any<TransactionOptions>(), Arg.Any<CancellationToken>()).Returns(new ValueTask<ITransaction>(Substitute.For<ITransaction>()));
         var uut = new TransactionBuilder(client).Timeout(TimeSpan.FromMilliseconds(200));
 
         //Act
         await uut.Create(Current.CancellationToken);
 
         //Assert
-        await client.Received(1).CreateTransaction(Arg.Is<TransactionOptions>(options => options.Timeout == TimeSpan.FromMilliseconds(200)), Current.CancellationToken);
+        await extendedClient.Received(1).CreateTransaction(Arg.Is<TransactionOptions>(options => options.Timeout == TimeSpan.FromMilliseconds(200)), Current.CancellationToken);
     }
 
     // Additional coverage
@@ -122,8 +127,9 @@ public sealed class TransactionBuilderTests
     {
         //Arrange
         var transaction = Substitute.For<ITransaction>();
-        var client = Substitute.For<IPulsarClient>();
-        client.CreateTransaction(Arg.Any<TransactionOptions>(), Arg.Any<CancellationToken>()).Returns(new ValueTask<ITransaction>(transaction));
+        var client = Substitute.For<IPulsarClient, IExtendedPulsarClient>();
+        var extendedClient = (IExtendedPulsarClient) client;
+        extendedClient.CreateTransaction(Arg.Any<TransactionOptions>(), Arg.Any<CancellationToken>()).Returns(new ValueTask<ITransaction>(transaction));
         var uut = new TransactionBuilder(client);
 
         //Act
@@ -139,8 +145,9 @@ public sealed class TransactionBuilderTests
     {
         //Arrange
         var exception = new TransactionCoordinatorClientException("not available");
-        var client = Substitute.For<IPulsarClient>();
-        client.CreateTransaction(Arg.Any<TransactionOptions>(), Arg.Any<CancellationToken>()).Returns(_ => ValueTask.FromException<ITransaction>(exception));
+        var client = Substitute.For<IPulsarClient, IExtendedPulsarClient>();
+        var extendedClient = (IExtendedPulsarClient) client;
+        extendedClient.CreateTransaction(Arg.Any<TransactionOptions>(), Arg.Any<CancellationToken>()).Returns(_ => ValueTask.FromException<ITransaction>(exception));
         var uut = new TransactionBuilder(client);
 
         //Act
@@ -169,8 +176,9 @@ public sealed class TransactionBuilderTests
     public async Task NewTransaction_ShouldReturnBuilderThatCreatesTransactionsWithTheClient()
     {
         //Arrange
-        var client = Substitute.For<IPulsarClient>();
-        client.CreateTransaction(Arg.Any<TransactionOptions>(), Arg.Any<CancellationToken>()).Returns(new ValueTask<ITransaction>(Substitute.For<ITransaction>()));
+        var client = Substitute.For<IPulsarClient, IExtendedPulsarClient>();
+        var extendedClient = (IExtendedPulsarClient) client;
+        extendedClient.CreateTransaction(Arg.Any<TransactionOptions>(), Arg.Any<CancellationToken>()).Returns(new ValueTask<ITransaction>(Substitute.For<ITransaction>()));
 
         //Act
         var builder = client.NewTransaction();
@@ -178,6 +186,6 @@ public sealed class TransactionBuilderTests
 
         //Assert
         builder.ShouldBeOfType<TransactionBuilder>();
-        await client.Received(1).CreateTransaction(Arg.Is<TransactionOptions>(options => options.Timeout == TimeSpan.FromSeconds(30)), Current.CancellationToken);
+        await extendedClient.Received(1).CreateTransaction(Arg.Is<TransactionOptions>(options => options.Timeout == TimeSpan.FromSeconds(30)), Current.CancellationToken);
     }
 }

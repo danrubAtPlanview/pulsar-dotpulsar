@@ -15,6 +15,7 @@
 namespace DotPulsar.Tests.Internal;
 
 using DotPulsar.Abstractions;
+using DotPulsar.Extensions;
 using DotPulsar.Internal;
 using DotPulsar.Internal.Abstractions;
 using DotPulsar.Internal.Crypto;
@@ -210,7 +211,7 @@ public sealed class ConsumerChannelFactoryTests
 
         //Assert
         Encoding.UTF8.GetString(actual.Data.ToArray()).ShouldBe("Hello");
-        actual.EncryptionContext.ShouldNotBeNull().IsEncrypted.ShouldBeFalse();
+        actual.GetEncryptionContext().ShouldNotBeNull().IsEncrypted.ShouldBeFalse();
     }
 
     // Upstream: ConsumerImpl#handleCryptoFailure

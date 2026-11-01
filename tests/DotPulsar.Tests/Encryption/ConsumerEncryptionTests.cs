@@ -77,8 +77,8 @@ public sealed class ConsumerEncryptionTests : IDisposable
         //Assert
         var actual = await Receive(consumer, expected.Length);
         actual.Select(message => Encoding.UTF8.GetString(message.Data.ToArray())).ShouldBe(expected);
-        actual.ShouldAllBe(message => message.EncryptionContext != null && !message.EncryptionContext.IsEncrypted);
-        actual.Select(message => message.EncryptionContext!.Keys.Keys.Single()).Distinct().ShouldBe([RsaKeyName, RsaPkcs8KeyName], ignoreOrder: true);
+        actual.ShouldAllBe(message => message.GetEncryptionContext() != null && !message.GetEncryptionContext()!.IsEncrypted);
+        actual.Select(message => message.GetEncryptionContext()!.Keys.Keys.Single()).Distinct().ShouldBe([RsaKeyName, RsaPkcs8KeyName], ignoreOrder: true);
         (await TransactionFixture.ReceiveOrNull(consumerWithoutKeys, TimeSpan.FromSeconds(3), _cts.Token)).ShouldBeNull();
 
         // Acknowledge the consumption of all messages at once
@@ -113,8 +113,8 @@ public sealed class ConsumerEncryptionTests : IDisposable
 
         var actual = await Receive(cryptoConsumer, expected.Length);
         actual.Select(message => Encoding.UTF8.GetString(message.Data.ToArray())).ShouldBe(expected);
-        actual.ShouldAllBe(message => message.EncryptionContext != null && !message.EncryptionContext.IsEncrypted && message.EncryptionContext.CompressionType == DotPulsar.CompressionType.Lz4);
-        actual.ShouldAllBe(message => message.EncryptionContext!.Keys.ContainsKey(EcdsaKeyName));
+        actual.ShouldAllBe(message => message.GetEncryptionContext() != null && !message.GetEncryptionContext()!.IsEncrypted && message.GetEncryptionContext()!.CompressionType == DotPulsar.CompressionType.Lz4);
+        actual.ShouldAllBe(message => message.GetEncryptionContext()!.Keys.ContainsKey(EcdsaKeyName));
 
         // Acknowledge the consumption of all messages at once
         await cryptoConsumer.AcknowledgeCumulative(actual[^1], _cts.Token);
@@ -146,8 +146,8 @@ public sealed class ConsumerEncryptionTests : IDisposable
 
             //Assert
             message.Data.ToArray().ShouldBe(data);
-            message.EncryptionContext.ShouldNotBeNull().IsEncrypted.ShouldBeFalse();
-            message.EncryptionContext.Keys.Count.ShouldBe(1);
+            message.GetEncryptionContext().ShouldNotBeNull().IsEncrypted.ShouldBeFalse();
+            message.GetEncryptionContext()!.Keys.Count.ShouldBe(1);
             sentId.GetChunkMessageIds()!.Length.ShouldBe(6);
             message.MessageId.GetChunkMessageIds()!.Length.ShouldBe(6);
         }
@@ -218,7 +218,7 @@ public sealed class ConsumerEncryptionTests : IDisposable
             {
                 var actual = await Receive(consumer, numberOfMessages * 2);
                 actual.Select(message => Encoding.UTF8.GetString(message.Data.ToArray())).ShouldBe(messages[..(numberOfMessages * 2)]);
-                actual.ShouldAllBe(message => message.EncryptionContext != null && !message.EncryptionContext.IsEncrypted);
+                actual.ShouldAllBe(message => message.GetEncryptionContext() != null && !message.GetEncryptionContext()!.IsEncrypted);
 
                 // Acknowledge the consumption of all messages at once
                 await consumer.AcknowledgeCumulative(actual[^1], _cts.Token);
@@ -236,7 +236,7 @@ public sealed class ConsumerEncryptionTests : IDisposable
             {
                 var actual = await Receive(consumer, numberOfMessages * 4);
                 actual.Select(message => Encoding.UTF8.GetString(message.Data.ToArray())).ShouldBe(messages);
-                actual.ShouldAllBe(message => message.EncryptionContext != null && !message.EncryptionContext.IsEncrypted);
+                actual.ShouldAllBe(message => message.GetEncryptionContext() != null && !message.GetEncryptionContext()!.IsEncrypted);
 
                 // Acknowledge the consumption of all messages at once
                 await consumer.AcknowledgeCumulative(actual[^1], _cts.Token);
@@ -285,8 +285,8 @@ public sealed class ConsumerEncryptionTests : IDisposable
         {
             var actual = await Receive(consumer, messages.Length);
             actual.Select(message => Encoding.UTF8.GetString(message.Data.ToArray())).ShouldBe(messages);
-            actual.ShouldAllBe(message => message.EncryptionContext != null && !message.EncryptionContext.IsEncrypted);
-            actual.ShouldAllBe(message => message.EncryptionContext!.Keys.Count == 2 && message.EncryptionContext.Keys.ContainsKey(RsaKeyName) && message.EncryptionContext.Keys.ContainsKey(RsaPkcs8KeyName));
+            actual.ShouldAllBe(message => message.GetEncryptionContext() != null && !message.GetEncryptionContext()!.IsEncrypted);
+            actual.ShouldAllBe(message => message.GetEncryptionContext()!.Keys.Count == 2 && message.GetEncryptionContext()!.Keys.ContainsKey(RsaKeyName) && message.GetEncryptionContext()!.Keys.ContainsKey(RsaPkcs8KeyName));
         }
     }
 
@@ -331,7 +331,7 @@ public sealed class ConsumerEncryptionTests : IDisposable
         //Assert
         actual.Data.Length.ShouldBe("message-0".Length + 16);
         actual.Data.ToArray().ShouldNotBe(Encoding.UTF8.GetBytes("message-0"));
-        var context = actual.EncryptionContext.ShouldNotBeNull();
+        var context = actual.GetEncryptionContext().ShouldNotBeNull();
         context.IsEncrypted.ShouldBeTrue();
         context.Keys.Keys.ShouldBe([RsaKeyName]);
         context.Param.Length.ShouldBe(12);
@@ -388,7 +388,7 @@ public sealed class ConsumerEncryptionTests : IDisposable
         consumer = CreateConsumer(client, topic, subscription, consumeAction: ConsumerCryptoFailureAction.Consume);
         var encrypted = await Receive(consumer);
         Encoding.UTF8.GetString(encrypted.Data.ToArray()).ShouldNotBe("my-message-0");
-        encrypted.EncryptionContext.ShouldNotBeNull().IsEncrypted.ShouldBeTrue();
+        encrypted.GetEncryptionContext().ShouldNotBeNull().IsEncrypted.ShouldBeTrue();
         await consumer.AcknowledgeCumulative(encrypted, _cts.Token);
 
         // 5. A consumer with a key reader decrypts the messages
@@ -400,7 +400,7 @@ public sealed class ConsumerEncryptionTests : IDisposable
         {
             last = await Receive(consumer);
             Encoding.UTF8.GetString(last.Data.ToArray()).ShouldBe($"my-message-{i}");
-            last.EncryptionContext.ShouldNotBeNull().IsEncrypted.ShouldBeFalse();
+            last.GetEncryptionContext().ShouldNotBeNull().IsEncrypted.ShouldBeFalse();
         }
 
         await consumer.AcknowledgeCumulative(last!, _cts.Token);
@@ -463,7 +463,7 @@ public sealed class ConsumerEncryptionTests : IDisposable
 
         //Assert
         // Verify that decryption failed since no CryptoKeyReader is configured for the consumer
-        var context = actual.EncryptionContext.ShouldNotBeNull();
+        var context = actual.GetEncryptionContext().ShouldNotBeNull();
         context.IsEncrypted.ShouldBeTrue();
         context.Keys.Count.ShouldBe(1);
         context.Keys[RsaKeyName].Metadata["version"].ShouldBe(keyVersion);
@@ -494,9 +494,9 @@ public sealed class ConsumerEncryptionTests : IDisposable
             await consumer.Acknowledge(message, _cts.Token);
         }
 
-        actual.ShouldAllBe(message => message.EncryptionContext != null && message.EncryptionContext.IsEncrypted);
-        actual.ShouldAllBe(message => message.EncryptionContext!.CompressionType == DotPulsar.CompressionType.Lz4);
-        actual.Select(message => message.EncryptionContext!.UncompressedMessageSize).ShouldBe(expected.Select(message => (uint) message.Length));
+        actual.ShouldAllBe(message => message.GetEncryptionContext() != null && message.GetEncryptionContext()!.IsEncrypted);
+        actual.ShouldAllBe(message => message.GetEncryptionContext()!.CompressionType == DotPulsar.CompressionType.Lz4);
+        actual.Select(message => message.GetEncryptionContext()!.UncompressedMessageSize).ShouldBe(expected.Select(message => (uint) message.Length));
         actual.ShouldAllBe(message => message.Data.Length > MessageCrypto.TagLength);
         actual.Zip(expected, (message, text) => message.Data.ToArray().SequenceEqual(Encoding.UTF8.GetBytes(text))).ShouldAllBe(isPlainText => !isPlainText);
     }
@@ -526,11 +526,11 @@ public sealed class ConsumerEncryptionTests : IDisposable
         //Assert
         actual.Select(message => message.MessageId.BatchIndex).ShouldBe([0, 1, 2, 3, 4]);
         actual.Select(message => Encoding.UTF8.GetString(message.Data.ToArray())).ShouldBe(expected);
-        var context = actual[0].EncryptionContext.ShouldNotBeNull();
+        var context = actual[0].GetEncryptionContext().ShouldNotBeNull();
         context.IsEncrypted.ShouldBeFalse();
         context.BatchSize.ShouldBe(5);
         context.CompressionType.ShouldBe(DotPulsar.CompressionType.Lz4);
-        actual.ShouldAllBe(message => ReferenceEquals(message.EncryptionContext, context));
+        actual.ShouldAllBe(message => ReferenceEquals(message.GetEncryptionContext(), context));
     }
 
     // Upstream: SimpleProducerConsumerTest#testEncryptionFailureWithBatchPublish
@@ -585,7 +585,7 @@ public sealed class ConsumerEncryptionTests : IDisposable
 
         //Assert
         Encoding.UTF8.GetString(actual.Data.ToArray()).ShouldBe("not encrypted");
-        actual.EncryptionContext.ShouldBeNull();
+        actual.GetEncryptionContext().ShouldBeNull();
     }
 
     // Additional coverage
@@ -609,7 +609,7 @@ public sealed class ConsumerEncryptionTests : IDisposable
 
         //Assert
         actual.Select(message => Encoding.UTF8.GetString(message.Data.ToArray())).ShouldBe(expected);
-        actual.ShouldAllBe(message => message.EncryptionContext != null && !message.EncryptionContext.IsEncrypted);
+        actual.ShouldAllBe(message => message.GetEncryptionContext() != null && !message.GetEncryptionContext()!.IsEncrypted);
     }
 
     // Additional coverage
@@ -632,7 +632,7 @@ public sealed class ConsumerEncryptionTests : IDisposable
 
         //Assert
         actual.Data.Length.ShouldBe("message-0".Length + 16);
-        actual.EncryptionContext.ShouldNotBeNull().IsEncrypted.ShouldBeTrue();
+        actual.GetEncryptionContext().ShouldNotBeNull().IsEncrypted.ShouldBeTrue();
     }
 
     // Additional coverage
@@ -697,7 +697,7 @@ public sealed class ConsumerEncryptionTests : IDisposable
     // Decrypts and decompresses the payload with the keys, the IV and the key reader like a consumer does, using only what the encryption context has
     private static string DecryptAndDecompress(MessageCrypto messageCrypto, ICryptoKeyReader keyReader, IMessage<byte[]> message)
     {
-        var context = message.EncryptionContext!;
+        var context = message.GetEncryptionContext()!;
         var metadata = new MessageMetadata { EncryptionParam = Google.Protobuf.ByteString.CopyFrom(context.Param), UncompressedSize = context.UncompressedMessageSize };
 
         if (context.Algorithm is not null)

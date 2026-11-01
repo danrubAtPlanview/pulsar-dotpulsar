@@ -60,31 +60,6 @@ public interface IReaderBuilder<TMessage>
     IReaderBuilder<TMessage> Topic(string topic);
 
     /// <summary>
-    /// Set the max number of chunked messages that are being assembled at the same time. When it is exceeded, the oldest is dropped. 0 means no limit. The default is 10.
-    /// </summary>
-    IReaderBuilder<TMessage> MaxPendingChunkedMessage(uint maxPendingChunkedMessage);
-
-    /// <summary>
-    /// Whether to acknowledge (instead of redeliver) the chunks of the oldest pending chunked message when 'MaxPendingChunkedMessage' is exceeded. The default is 'false'.
-    /// </summary>
-    IReaderBuilder<TMessage> AutoAckOldestChunkedMessageOnQueueFull(bool autoAckOldestChunkedMessageOnQueueFull);
-
-    /// <summary>
-    /// Set the time after which an incomplete chunked message is dropped. TimeSpan.Zero disables expiry. The default is 1 minute.
-    /// </summary>
-    IReaderBuilder<TMessage> ExpireTimeOfIncompleteChunkedMessage(TimeSpan expireTimeOfIncompleteChunkedMessage);
-
-    /// <summary>
-    /// Set the crypto key reader used to read the private keys that decrypt the messages. This is optional.
-    /// </summary>
-    IReaderBuilder<TMessage> CryptoKeyReader(ICryptoKeyReader cryptoKeyReader);
-
-    /// <summary>
-    /// Set the action to take when a message cannot be decrypted. The default is 'Fail'.
-    /// </summary>
-    IReaderBuilder<TMessage> CryptoFailureAction(ConsumerCryptoFailureAction cryptoFailureAction);
-
-    /// <summary>
     /// Create the reader.
     /// </summary>
     IReader<TMessage> Create();

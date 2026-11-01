@@ -381,8 +381,8 @@ public sealed class TransactionTests : IDisposable
         receivedBeforeCommit.ShouldBeNull("the message of a transaction is not visible before the commit");
         actual.ShouldNotBeNull();
         actual.Data.ToArray().ShouldBe(payload);
-        actual.EncryptionContext.ShouldNotBeNull().IsEncrypted.ShouldBeFalse();
-        actual.EncryptionContext.Keys.Keys.ShouldBe(["my-app-key"]);
+        actual.GetEncryptionContext().ShouldNotBeNull().IsEncrypted.ShouldBeFalse();
+        actual.GetEncryptionContext()!.Keys.Keys.ShouldBe(["my-app-key"]);
     }
 
     // Upstream: TransactionTest#testTopicTransactionMetrics

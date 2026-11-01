@@ -16,7 +16,7 @@
 namespace DotPulsar.Internal.Extensions;
 
 // Task.WaitAsync(CancellationToken) was introduced in .NET 6
-public static class TaskExtensions
+internal static class TaskExtensions
 {
     public static async Task WaitAsync(this Task task, CancellationToken cancellationToken)
     {

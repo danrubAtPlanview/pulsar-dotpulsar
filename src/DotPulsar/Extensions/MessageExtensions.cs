@@ -16,12 +16,19 @@ namespace DotPulsar.Extensions;
 
 using DotPulsar.Abstractions;
 using DotPulsar.Internal;
+using DotPulsar.Internal.Abstractions;
 
 /// <summary>
 /// Extensions for IMessage.
 /// </summary>
 public static class MessageExtensions
 {
+    /// <summary>
+    /// The encryption context if the message was encrypted by the producer, otherwise null. It is also null for an IMessage that DotPulsar did not create.
+    /// </summary>
+    public static EncryptionContext? GetEncryptionContext(this IMessage message)
+        => message is IExtendedMessage extendedMessage ? extendedMessage.EncryptionContext : null;
+
     /// <summary>
     /// Get the conversation id.
     /// </summary>

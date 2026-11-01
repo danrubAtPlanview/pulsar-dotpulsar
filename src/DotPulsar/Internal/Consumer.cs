@@ -24,7 +24,7 @@ using DotPulsar.Internal.Crypto;
 using DotPulsar.Internal.PulsarApi;
 using System.Buffers;
 
-public sealed class Consumer<TMessage> : IConsumer<TMessage>
+public sealed class Consumer<TMessage> : IConsumer<TMessage>, IExtendedConsumer
 {
     private readonly IConnectionPool _connectionPool;
     private readonly ProcessManager _processManager;

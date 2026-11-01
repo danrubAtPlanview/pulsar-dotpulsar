@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 
 ### Added
 
+- The new calls of IPulsarClient, IPulsarClientBuilder, IConsumer, IConsumerBuilder, IProducer, IProducerBuilder, IReaderBuilder, IMessage and IMessageBuilder are extension methods in the namespace DotPulsar.Extensions, and the interfaces have no new members, so nothing that implements them breaks. The extension methods work with what DotPulsar creates. A call on an implementation of an interface that DotPulsar did not create throws a NotSupportedException (IMessage.GetEncryptionContext returns null)
 - Support for acknowledgment receipts using ConsumerOptions.AckReceiptEnabled and IConsumerBuilder.AckReceiptEnabled
 - Support for transactions using IPulsarClient.CreateTransaction and IPulsarClient.NewTransaction()
 - Support for sending messages in a transaction using IMessageBuilder.Transaction and MessageMetadata.Transaction
@@ -23,7 +24,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 - Support for decrypting end-to-end encrypted messages in consumers and readers using ConsumerOptions.CryptoKeyReader, ConsumerOptions.CryptoFailureAction, ReaderOptions.CryptoKeyReader, ReaderOptions.CryptoFailureAction and the matching methods of IConsumerBuilder and IReaderBuilder. RSA keys require .NET Standard 2.1 or later and EC keys require .NET 8 or later. On .NET Standard 2.0 a message cannot be decrypted, so the CryptoFailureAction is used
 - ICryptoKeyReader, EncryptionKeyInfo and DefaultCryptoKeyReader for reading keys, and the DefaultCryptoKeyReader extension methods of IConsumerBuilder and IReaderBuilder that read private keys from 'file:' and 'data:' URIs
 - ConsumerCryptoFailureAction, which selects what a consumer or a reader does with a message that it cannot decrypt. The messages can be failed (the default), discarded or consumed encrypted
-- IMessage.EncryptionContext, EncryptionContext and EncryptionKey, which describe how a message was encrypted
+- IMessage.GetEncryptionContext, EncryptionContext and EncryptionKey, which describe how a message was encrypted
 - Support for end-to-end encryption of the messages of a producer using ProducerOptions.CryptoKeyReader, ProducerOptions.EncryptionKeys, ProducerOptions.CryptoFailureAction and IProducerBuilder.CryptoKeyReader, IProducerBuilder.EncryptionKey and IProducerBuilder.CryptoFailureAction. A message, a batch and every chunk of a chunked message is encrypted after it has been compressed, and the chunks are made smaller by what the encryption adds to them. RSA keys require .NET Standard 2.1 or later and EC keys require .NET 8 or later. Encryption keys without a CryptoKeyReader are rejected with a ConfigurationException, where the Java client sends the messages unencrypted
 - ProducerCryptoFailureAction, which selects what a producer does when it cannot encrypt a message. The send can fail (the default) or the message can be sent unencrypted
 - The DefaultCryptoKeyReader extension methods of IProducerBuilder, which read public keys from 'file:' and 'data:' URIs
@@ -38,8 +39,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 ### Changed
 
 - Updated the protocol version from 14 to 19
-- IPulsarClient, IPulsarClientBuilder, IConsumer, IConsumerBuilder and IMessageBuilder have new members. This is a breaking change for custom implementations of these interfaces
-- IProducer and IProducerBuilder have new members. This is a breaking change for custom implementations of these interfaces
 - PulsarClientClosedException has a new constructor that takes a message
 - A send that the broker rejects with NotAllowedError now fails only that message with NotAllowedException instead of faulting the producer
 - IConsumer.RedeliverUnacknowledgedMessages with an empty list of message ids no longer redelivers all messages, it does nothing
@@ -47,8 +46,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 - IConsumer.RedeliverUnacknowledgedMessages sends the message ids without the batch index, and each entry only once, so all the messages of a batch are redelivered
 - IConsumer.RedeliverUnacknowledgedMessages drops the messages that the consumer has received from the broker but not yet delivered, and gives the message permits back to the broker. On Exclusive and Failover subscriptions the messages that are on their way are dropped using a consumer epoch, which is now sent when subscribing
 - IConsumer.Seek and IReader.Seek with the MessageId of a message in a batch now make the broker redeliver the batch from that message, so the messages of the batch before it are not redelivered. This needs the broker setting acknowledgmentAtBatchIndexLevelEnabled and the MessageId of a message that the consumer or reader received. Without the setting, or with the MessageId that a send returns or one that was parsed or created (they have no batch size), the whole batch is redelivered as before
-- IReaderBuilder has new members. This is a breaking change for custom implementations of this interface
-- IMessage has a new member. This is a breaking change for custom implementations of this interface
 - A consumer or a reader no longer delivers a message that is encrypted by the producer if it cannot decrypt it, because it has no CryptoKeyReader or the key is wrong. It used to deliver the encrypted payload. Set CryptoFailureAction to ConsumerCryptoFailureAction.Consume to keep doing that
 - A consumer or a reader that receives the chunks of a chunked message now delivers them as one message, where it used to deliver every chunk as a message. Acknowledging, negatively acknowledging or redelivering the message uses all its chunks, and a seek or a start of a reader at the message uses its first chunk
 

@@ -25,7 +25,7 @@ using DotPulsar.Internal.Transactions;
 /// <summary>
 /// Pulsar client for creating producers, consumers, readers and transactions.
 /// </summary>
-public sealed class PulsarClient : IPulsarClient
+public sealed class PulsarClient : IPulsarClient, IExtendedPulsarClient
 {
     private readonly object _lock = new();
     private readonly HashSet<IAsyncDisposable> _disposables;

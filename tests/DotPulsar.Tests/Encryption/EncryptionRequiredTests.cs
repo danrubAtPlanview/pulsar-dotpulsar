@@ -66,7 +66,7 @@ public sealed class EncryptionRequiredTests : IDisposable
         //Assert
         actual.ShouldNotBeNull();
         actual.Data.ToArray().ShouldBe(payload);
-        actual.EncryptionContext.ShouldNotBeNull().Keys.Keys.ShouldBe(["my-app-key"]);
+        actual.GetEncryptionContext().ShouldNotBeNull().Keys.Keys.ShouldBe(["my-app-key"]);
     }
 
     // Additional coverage

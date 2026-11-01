@@ -49,6 +49,8 @@ For a more in-depth tour of the API, please visit the [Wiki](https://github.com/
 
 A transaction makes a group of sends and acknowledgments atomic: either all of them take effect or none of them do. Transactions must be enabled on the client (the connection to the transaction coordinator is created when the first transaction is created), and the broker must have `transactionCoordinatorEnabled=true`.
 
+The calls of the new features, such as `EnableTransaction`, `CreateTransaction`, `NegativeAcknowledge`, `Flush` and the builder methods of the options, are extension methods in `DotPulsar.Extensions` (add `using DotPulsar.Extensions;` as in the example above). The public interfaces have no new members, so a class that implements one of them keeps compiling. An implementation that DotPulsar did not create does not support the new calls, and they throw a `NotSupportedException`.
+
 ```csharp
 await using var client = PulsarClient.Builder().EnableTransaction(true).Build();
 

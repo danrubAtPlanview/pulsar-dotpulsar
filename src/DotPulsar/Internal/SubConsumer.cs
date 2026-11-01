@@ -26,7 +26,7 @@ using DotPulsar.Internal.Transactions;
 using Microsoft.Extensions.ObjectPool;
 using System.Runtime.ExceptionServices;
 
-public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChannel
+public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IExtendedConsumer, IContainsChannel
 {
     // Upstream: ConsumerImpl#MAX_REDELIVER_UNACKNOWLEDGED
     private const int MaxRedeliverUnacknowledged = 1000;

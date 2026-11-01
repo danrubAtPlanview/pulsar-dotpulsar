@@ -15,6 +15,7 @@
 namespace DotPulsar.Extensions;
 
 using DotPulsar.Abstractions;
+using DotPulsar.Internal.Abstractions;
 using DotPulsar.Internal;
 
 /// <summary>
@@ -87,4 +88,11 @@ public static class ProducerExtensions
         var currentState = await producer.State.OnStateChangeFrom(state, delay, cancellationToken).ConfigureAwait(false);
         return new ProducerStateChanged(producer, currentState);
     }
+
+    /// <summary>
+    /// Send all batched messages immediately and wait for the broker to acknowledge the last message that was sent before this call.
+    /// </summary>
+    /// <exception cref="Exception">The exception of the last message that was sent before this call, if sending it failed.</exception>
+    public static ValueTask Flush(this IProducer producer, CancellationToken cancellationToken = default)
+        => ExtendedApi.Require<IExtendedProducer>(producer, nameof(producer), nameof(Flush)).Flush(cancellationToken);
 }

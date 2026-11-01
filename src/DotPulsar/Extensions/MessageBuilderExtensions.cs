@@ -15,6 +15,7 @@
 namespace DotPulsar.Extensions;
 
 using DotPulsar.Abstractions;
+using DotPulsar.Internal;
 using System.Buffers;
 
 /// <summary>
@@ -33,4 +34,10 @@ public static class MessageBuilderExtensions
     /// </summary>
     public static async ValueTask<MessageId> Send(this IMessageBuilder<ReadOnlySequence<byte>> builder, ReadOnlyMemory<byte> payload, CancellationToken cancellationToken = default)
         => await builder.Send(new ReadOnlySequence<byte>(payload), cancellationToken).ConfigureAwait(false);
+
+    /// <summary>
+    /// Set the transaction the message is produced as part of. This is optional.
+    /// </summary>
+    public static IMessageBuilder<TMessage> Transaction<TMessage>(this IMessageBuilder<TMessage> builder, ITransaction transaction)
+        => ExtendedApi.Require<MessageBuilder<TMessage>>(builder, nameof(builder), nameof(Transaction)).Transaction(transaction);
 }

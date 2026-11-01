@@ -15,9 +15,10 @@
 namespace DotPulsar.Internal;
 
 using DotPulsar.Abstractions;
+using DotPulsar.Internal.Abstractions;
 using System.Buffers;
 
-public sealed class Message<TValue> : IMessage<TValue>
+public sealed class Message<TValue> : IMessage<TValue>, IExtendedMessage
 {
     private readonly ISchema<TValue> _schema;
 

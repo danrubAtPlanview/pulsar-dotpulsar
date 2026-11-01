@@ -120,9 +120,4 @@ public interface IMessage
     /// The properties of the message.
     /// </summary>
     IReadOnlyDictionary<string, string> Properties { get; }
-
-    /// <summary>
-    /// The encryption context if the message was encrypted by the producer, otherwise null.
-    /// </summary>
-    EncryptionContext? EncryptionContext { get; }
 }
