@@ -6,6 +6,8 @@ Status: **open list for the maintainers and reviewers; nothing in it blocks the 
 
 State of the branch when this was written: `feature/transactions`, tip `fc04185d`, 161 commits over `master` (`e8f2ba2`); the first 158 (up to `f96b0a03`) were pushed to the fork `origin` (danrubAtPlanview/pulsar-dotpulsar) on 2026-11-01 at the request of the requester, the last 3 (the follow-up items 1-3 of the requester) are only local; no pull request opened. Unit tests: 2329 passed / 11 skipped (Debug), 2340 passed (Release, 3 of 3 runs); the stress under CPU load (4 parallel suites and 12 busy loops) passed 32 of 32 runs (8 rounds of 4) with all 2340 tests and none aborted. Integration tests on this tip, Debug and Release (`Category=Integration`): 569 tests, 555 passed, 14 skipped, 0 failed, none aborted, 45 and 40 minutes. The Transactions collection ran 30 iterations without a failure before WP11 and 5 more at `3e1c6055` (189 passed, 12 skipped, every time); it ran once more inside the two full runs above.
 
+**Later state (not part of this snapshot):** WP12 (`427df7dd`, pushed) and WP13 (`d462dae8`, local) came after it. On `d462dae8`: unit 2397 (Release) and 2386 + 11 skipped (Debug); integration Release 557 passed, 14 skipped, 0 failed; the Debug integration run was **not finished** (3 broker-side failures, not run again) and the stress is partial (19 of the 32 planned runs completed, all passed): [wp13](../implementation-notes/wp13-behaviour-change-switches.md), section 6.
+
 ## 1. The three gaps that the requester accepted or closed as external
 
 These are the only items that stand between "implemented" and "verified everywhere". Each was decided by the requester on 2026-11-01.

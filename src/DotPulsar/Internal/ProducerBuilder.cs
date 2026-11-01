@@ -38,6 +38,7 @@ public sealed class ProducerBuilder<TMessage> : IProducerBuilder<TMessage>
     private BatcherType _batcherType;
     private TimeSpan _sendTimeout;
     private bool _enableChunking;
+    private bool _failOnlyTheRejectedMessage;
     private int _chunkMaxMessageSize;
     private readonly SortedSet<string> _encryptionKeys;
     private ICryptoKeyReader? _cryptoKeyReader;
@@ -60,6 +61,7 @@ public sealed class ProducerBuilder<TMessage> : IProducerBuilder<TMessage>
         _batcherType = ProducerOptions<TMessage>.DefaultBatcherType;
         _sendTimeout = ProducerOptions<TMessage>.DefaultSendTimeout;
         _enableChunking = ProducerOptions<TMessage>.DefaultEnableChunking;
+        _failOnlyTheRejectedMessage = ProducerOptions<TMessage>.DefaultFailOnlyTheRejectedMessage;
         _chunkMaxMessageSize = ProducerOptions<TMessage>.DefaultChunkMaxMessageSize;
         _encryptionKeys = new SortedSet<string>(StringComparer.Ordinal);
         _cryptoFailureAction = ProducerOptions<TMessage>.DefaultCryptoFailureAction;
@@ -167,6 +169,12 @@ public sealed class ProducerBuilder<TMessage> : IProducerBuilder<TMessage>
         return this;
     }
 
+    public IProducerBuilder<TMessage> FailOnlyTheRejectedMessage(bool failOnlyTheRejectedMessage)
+    {
+        _failOnlyTheRejectedMessage = failOnlyTheRejectedMessage;
+        return this;
+    }
+
     public IProducerBuilder<TMessage> ChunkMaxMessageSize(int chunkMaxMessageSize)
     {
         _chunkMaxMessageSize = chunkMaxMessageSize;
@@ -230,6 +238,7 @@ public sealed class ProducerBuilder<TMessage> : IProducerBuilder<TMessage>
             BatcherType = _batcherType,
             SendTimeout = _sendTimeout,
             EnableChunking = _enableChunking,
+            FailOnlyTheRejectedMessage = _failOnlyTheRejectedMessage,
             ChunkMaxMessageSize = _chunkMaxMessageSize,
             EncryptionKeys = _encryptionKeys,
             CryptoKeyReader = _cryptoKeyReader,

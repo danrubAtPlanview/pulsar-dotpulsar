@@ -44,7 +44,18 @@ public sealed class ChunkedMessageAssembler : IDisposable
         TimeSpan expireTimeOfIncompleteChunkedMessage,
         Func<long> utcNowMs,
         Func<IReadOnlyList<MessageIdData>, ValueTask>? acknowledgeExpired)
+        : this(maxPendingChunkedMessage, autoAckOldestChunkedMessageOnQueueFull, expireTimeOfIncompleteChunkedMessage, utcNowMs, acknowledgeExpired, true) { }
+
+    // With enabled false (the option AssembleChunkedMessages of the consumer and the reader is false) the owner does not hand chunks to the assembler, and delivers every chunk as a message, as it did before
+    public ChunkedMessageAssembler(
+        uint maxPendingChunkedMessage,
+        bool autoAckOldestChunkedMessageOnQueueFull,
+        TimeSpan expireTimeOfIncompleteChunkedMessage,
+        Func<long> utcNowMs,
+        Func<IReadOnlyList<MessageIdData>, ValueTask>? acknowledgeExpired,
+        bool enabled)
     {
+        Enabled = enabled;
         _lock = new object();
         _maxPendingChunkedMessage = maxPendingChunkedMessage;
         _autoAckOldestChunkedMessageOnQueueFull = autoAckOldestChunkedMessageOnQueueFull;
@@ -59,6 +70,9 @@ public sealed class ChunkedMessageAssembler : IDisposable
         _isSweeping = 0;
         _isDisposed = 0;
     }
+
+    // Whether the chunks of a chunked message are assembled and delivered as one message
+    public bool Enabled { get; }
 
     // The number of incomplete chunked messages
     public int PendingCount

@@ -32,6 +32,7 @@ public sealed class SubReader<TMessage> : IContainsChannel, IReader<TMessage>
     private readonly IState<ReaderState> _state;
     private readonly IConsumerChannelFactory<TMessage> _factory;
     private readonly ChunkedMessageAssembler _chunkAssembler;
+    private readonly bool _seekToBatchIndex;
     private readonly MessageCrypto? _messageCrypto;
     private readonly TimeSpan _operationTimeout;
     private int _isDisposed;
@@ -52,7 +53,8 @@ public sealed class SubReader<TMessage> : IContainsChannel, IReader<TMessage>
         IConsumerChannelFactory<TMessage> factory,
         ChunkedMessageAssembler chunkAssembler,
         MessageCrypto? messageCrypto,
-        TimeSpan operationTimeout = default)
+        TimeSpan operationTimeout = default,
+        bool seekToBatchIndex = true)
     {
         _correlationId = correlationId;
         ServiceUrl = serviceUrl;
@@ -65,6 +67,7 @@ public sealed class SubReader<TMessage> : IContainsChannel, IReader<TMessage>
         _chunkAssembler = chunkAssembler;
         _messageCrypto = messageCrypto;
         _operationTimeout = operationTimeout;
+        _seekToBatchIndex = seekToBatchIndex;
         _isDisposed = 0;
 
         _eventRegister.Register(new ReaderCreated(_correlationId));
@@ -95,7 +98,7 @@ public sealed class SubReader<TMessage> : IContainsChannel, IReader<TMessage>
     // A chunked message is seeked to by its first chunk, because the broker redelivers entries, and a message in a batch by the entry with an ack set that has the messages before it acknowledged
     public async ValueTask Seek(MessageId messageId, CancellationToken cancellationToken)
     {
-        var seek = new CommandSeek { MessageId = messageId.ToSeekMessageIdData() };
+        var seek = new CommandSeek { MessageId = messageId.ToSeekMessageIdData(_seekToBatchIndex) };
         await _executor.Execute(() => InternalSeek(seek, cancellationToken), cancellationToken).ConfigureAwait(false);
     }
 

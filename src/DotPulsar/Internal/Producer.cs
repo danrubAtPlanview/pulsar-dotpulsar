@@ -223,7 +223,8 @@ public sealed class Producer<TMessage> : IProducer<TMessage>, IExtendedProducer,
             IsChunkingEnabled(topic),
             _options.ChunkMaxMessageSize,
             messageCrypto,
-            _operationTimeout);
+            _operationTimeout,
+            _options.FailOnlyTheRejectedMessage);
         var process = new ProducerProcess(correlationId, stateManager, producer);
         _processManager.Add(process);
         process.Start();

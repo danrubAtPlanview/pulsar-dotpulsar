@@ -117,6 +117,12 @@ public static class ProducerBuilderExtensions
         => ExtendedApi.Require<ProducerBuilder<TMessage>>(builder, nameof(builder), nameof(EnableChunking)).EnableChunking(enableChunking);
 
     /// <summary>
+    /// Whether a send that the broker rejects with 'NotAllowedError', and a message that is larger than the maximum message size of the broker, fail only that message. The default is 'true'. With 'false' the producer faults, as it did before DotPulsar had this option.
+    /// </summary>
+    public static IProducerBuilder<TMessage> FailOnlyTheRejectedMessage<TMessage>(this IProducerBuilder<TMessage> builder, bool failOnlyTheRejectedMessage)
+        => ExtendedApi.Require<ProducerBuilder<TMessage>>(builder, nameof(builder), nameof(FailOnlyTheRejectedMessage)).FailOnlyTheRejectedMessage(failOnlyTheRejectedMessage);
+
+    /// <summary>
     /// Set the maximum number of bytes in the payload of a chunk. 0 or less means that the maximum message size of the broker is used. The default is 0.
     /// </summary>
     public static IProducerBuilder<TMessage> ChunkMaxMessageSize<TMessage>(this IProducerBuilder<TMessage> builder, int chunkMaxMessageSize)

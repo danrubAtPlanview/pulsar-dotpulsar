@@ -255,8 +255,9 @@ Assumption: the other branch has the interface members, and its implementation c
    [0020](../followups/0020-public-api-compatibility.md), item 2.
 2. **Behaviour changes** (the CHANGELOG lists them under `Changed` and `Fixed`): the protocol version, `RedeliverUnacknowledgedMessages`, `Seek` to a
    message of a batch, undecryptable messages, chunked messages delivered as one message, the state of partitioned consumers and producers, the
-   bounded wait when disposing, producers without a name. They are not API breaks, but a user can observe them. Open question for the requester:
-   followup 0020, item 1.
+   bounded wait when disposing, producers without a name. They are not API breaks, but a user can observe them. **Decided afterwards: they become
+   opt-out** ([decision 0010](../decisions/0010-behaviour-changes-are-opt-out.md): the new behaviour stays the default, an option restores the previous
+   one where there is a legitimate previous behaviour; as built in [wp13](wp13-behaviour-change-switches.md)).
 
 ## 9. Verification
 
@@ -298,4 +299,4 @@ dotnet pack src/DotPulsar/DotPulsar.csproj -c Release --no-build --no-restore -o
 |---|---|
 | Unit, Release, 3 of 3 runs | 2377 passed, 0 failed (2340 before + the 37 new cases) |
 | Unit, Debug | 2366 passed, 11 skipped (the allocation tests, which are measured in an optimised build only), 0 failed |
-| Integration (`Category=Integration`, Release and Debug), and the stress of the unit suite (8 rounds of 4 processes under CPU load) | **not finished when this note was written** (they were running on `427df7dd`). The numbers are added here by the next checkpoint of this folder. The last full integration run, on `fc04185d` before this change, was 569 tests, 555 passed, 14 skipped, 0 failed in Debug and in Release; this change adds no integration test and moves calls to extension methods only. |
+| Integration (`Category=Integration`, Release and Debug), and the stress of the unit suite (8 rounds of 4 processes under CPU load) | **not finished on `427df7dd`** (the run was replaced by the one of the tip `d462dae8`, which has WP12 inside). On `d462dae8`: Release 571 tests, 557 passed, 14 skipped, 0 failed; the Debug run was **not finished** (3 failures that the broker returned, not run again) and the stress is **partial** (19 of the 32 planned runs completed, all passed); see [wp13](wp13-behaviour-change-switches.md), section 6. The last complete integration run of both configurations was on `fc04185d` before this change: 569 tests, 555 passed, 14 skipped, 0 failed in Debug and in Release. |

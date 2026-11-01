@@ -27,6 +27,16 @@ public sealed class ReaderOptions<TMessage>
     public static readonly bool DefaultAutoAckOldestChunkedMessageOnQueueFull = false;
 
     /// <summary>
+    /// The default of whether a seek to the MessageId of a message in a batch makes the broker redeliver the batch from that message.
+    /// </summary>
+    public static readonly bool DefaultSeekToBatchIndex = true;
+
+    /// <summary>
+    /// The default of whether the chunks of a chunked message are delivered as one message.
+    /// </summary>
+    public static readonly bool DefaultAssembleChunkedMessages = true;
+
+    /// <summary>
     /// The default crypto failure action.
     /// </summary>
     public static readonly ConsumerCryptoFailureAction DefaultCryptoFailureAction = ConsumerCryptoFailureAction.Fail;
@@ -62,6 +72,8 @@ public sealed class ReaderOptions<TMessage>
     public ReaderOptions(MessageId startMessageId, string topic, ISchema<TMessage> schema)
     {
         AutoAckOldestChunkedMessageOnQueueFull = DefaultAutoAckOldestChunkedMessageOnQueueFull;
+        SeekToBatchIndex = DefaultSeekToBatchIndex;
+        AssembleChunkedMessages = DefaultAssembleChunkedMessages;
         CryptoFailureAction = DefaultCryptoFailureAction;
         ExpireTimeOfIncompleteChunkedMessage = DefaultExpireTimeOfIncompleteChunkedMessage;
         MaxPendingChunkedMessage = DefaultMaxPendingChunkedMessage;
@@ -127,6 +139,16 @@ public sealed class ReaderOptions<TMessage>
     /// Whether to acknowledge (instead of redeliver) the chunks of the oldest pending chunked message when 'MaxPendingChunkedMessage' is exceeded. The default is 'false'.
     /// </summary>
     public bool AutoAckOldestChunkedMessageOnQueueFull { get; set; }
+
+    /// <summary>
+    /// Whether a seek to the MessageId of a message in a batch makes the broker redeliver the batch from that message, so the messages of the batch before it are not redelivered. This needs the broker setting 'acknowledgmentAtBatchIndexLevelEnabled'. The default is 'true'. With 'false' the seek ignores the position in the batch, and the broker redelivers the whole batch, as it did before DotPulsar had this option.
+    /// </summary>
+    public bool SeekToBatchIndex { get; set; }
+
+    /// <summary>
+    /// Whether the chunks of a chunked message are delivered as one message. The default is 'true'. With 'false' every chunk is delivered as a message, as it was before DotPulsar had this option, and 'MaxPendingChunkedMessage', 'AutoAckOldestChunkedMessageOnQueueFull' and 'ExpireTimeOfIncompleteChunkedMessage' have no effect.
+    /// </summary>
+    public bool AssembleChunkedMessages { get; set; }
 
     /// <summary>
     /// The time after which an incomplete chunked message is dropped. TimeSpan.Zero disables expiry. The default is 1 minute.

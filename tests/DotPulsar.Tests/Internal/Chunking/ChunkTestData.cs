@@ -28,8 +28,9 @@ public static class ChunkTestData
         bool autoAckOldestChunkedMessageOnQueueFull = false,
         TimeSpan? expireTimeOfIncompleteChunkedMessage = null,
         Func<long>? utcNowMs = null,
-        Func<IReadOnlyList<MessageIdData>, ValueTask>? acknowledgeExpired = null)
-        => new(maxPendingChunkedMessage, autoAckOldestChunkedMessageOnQueueFull, expireTimeOfIncompleteChunkedMessage ?? TimeSpan.FromMinutes(1), utcNowMs ?? (() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()), acknowledgeExpired);
+        Func<IReadOnlyList<MessageIdData>, ValueTask>? acknowledgeExpired = null,
+        bool enabled = true)
+        => new(maxPendingChunkedMessage, autoAckOldestChunkedMessageOnQueueFull, expireTimeOfIncompleteChunkedMessage ?? TimeSpan.FromMinutes(1), utcNowMs ?? (() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()), acknowledgeExpired, enabled);
 
     public static MessageMetadata CreateMetadata(string producerName = "producer", ulong sequenceId = 7)
         => new()

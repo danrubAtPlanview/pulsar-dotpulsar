@@ -27,6 +27,10 @@ public static class MessageIdDataExtensions
     // Like upstream, this does not depend on the batch index acknowledgment of the consumer, but the broker only uses the ack set when it has 'acknowledgmentAtBatchIndexLevelEnabled'.
     // Without it the broker ignores the ack set, and redelivers the batch from its first message.
     public static MessageIdData ToSeekMessageIdData(this MessageId messageId)
+        => messageId.ToSeekMessageIdData(true);
+
+    // Without seekToBatchIndex (the option SeekToBatchIndex of the consumer and the reader is false) the ack set is not written, so the broker redelivers the whole batch, as it did before.
+    public static MessageIdData ToSeekMessageIdData(this MessageId messageId, bool seekToBatchIndex)
     {
         var firstChunkMessageId = messageId.FirstChunkMessageId;
 
@@ -36,7 +40,7 @@ public static class MessageIdDataExtensions
         var messageIdData = messageId.ToMessageIdData();
 
         // The messages [0, batchIndex) are acknowledged, and the ones from the message to the end of the batch are not
-        if (messageId.BatchIndex >= 0 && messageId.BatchSize > 0)
+        if (seekToBatchIndex && messageId.BatchIndex >= 0 && messageId.BatchSize > 0)
             AckSetWriter.WriteCumulative(messageIdData.AckSet, messageId.BatchSize, messageId.BatchIndex - 1);
 
         return messageIdData;

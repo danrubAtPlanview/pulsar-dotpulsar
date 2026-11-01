@@ -46,6 +46,8 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IExtendedConsum
     private readonly DeadLetterHandler<TMessage>? _deadLetterHandler;
     private readonly ChunkedMessageAssembler _chunkAssembler;
     private readonly MessageCrypto? _messageCrypto;
+    private readonly bool _seekToBatchIndex;
+    private readonly bool _redeliverNothingForNoMessageIds;
     private int _isDisposed;
     private Exception? _faultException;
 
@@ -76,7 +78,9 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IExtendedConsum
         NegativeAcknowledgeTracker negativeAcknowledgeTracker,
         DeadLetterHandler<TMessage>? deadLetterHandler,
         ChunkedMessageAssembler chunkAssembler,
-        MessageCrypto? messageCrypto)
+        MessageCrypto? messageCrypto,
+        bool seekToBatchIndex = true,
+        bool redeliverNothingForNoMessageIds = true)
     {
         _correlationId = correlationId;
         ServiceUrl = serviceUrl;
@@ -96,6 +100,8 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IExtendedConsum
         _deadLetterHandler = deadLetterHandler;
         _chunkAssembler = chunkAssembler;
         _messageCrypto = messageCrypto;
+        _seekToBatchIndex = seekToBatchIndex;
+        _redeliverNothingForNoMessageIds = redeliverNothingForNoMessageIds;
         _commandAckPool = new DefaultObjectPool<CommandAck>(new DefaultPooledObjectPolicy<CommandAck>());
         _isDisposed = 0;
 
@@ -210,7 +216,13 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IExtendedConsum
         var entries = ToEntryLevel(messageIds);
 
         if (entries.Count == 0)
+        {
+            // Without RedeliverNothingForNoMessageIds an empty list redelivers everything, as it did before
+            if (!_redeliverNothingForNoMessageIds)
+                await RedeliverUnacknowledgedMessages(cancellationToken).ConfigureAwait(false);
+
             return;
+        }
 
         if (SubscriptionType is not (SubscriptionType.Shared or SubscriptionType.KeyShared))
         {
@@ -293,7 +305,7 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IExtendedConsum
     // A chunked message is seeked to by its first chunk, because the broker redelivers entries, and a message in a batch by the entry with an ack set that has the messages before it acknowledged
     public async ValueTask Seek(MessageId messageId, CancellationToken cancellationToken)
     {
-        var seek = new CommandSeek { MessageId = messageId.ToSeekMessageIdData() };
+        var seek = new CommandSeek { MessageId = messageId.ToSeekMessageIdData(_seekToBatchIndex) };
         await _executor.Execute(() => InternalSeek(seek, cancellationToken), cancellationToken).ConfigureAwait(false);
     }
 

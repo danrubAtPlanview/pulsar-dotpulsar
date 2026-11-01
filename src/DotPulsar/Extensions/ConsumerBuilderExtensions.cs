@@ -146,6 +146,24 @@ public static class ConsumerBuilderExtensions
         => ExtendedApi.Require<ConsumerBuilder<TMessage>>(builder, nameof(builder), nameof(AutoAckOldestChunkedMessageOnQueueFull)).AutoAckOldestChunkedMessageOnQueueFull(autoAckOldestChunkedMessageOnQueueFull);
 
     /// <summary>
+    /// Whether 'IConsumer.RedeliverUnacknowledgedMessages' with an empty list of message ids does nothing. The default is 'true'. With 'false' an empty list redelivers all unacknowledged messages of a consumer of one topic, as it did before DotPulsar had this option.
+    /// </summary>
+    public static IConsumerBuilder<TMessage> RedeliverNothingForNoMessageIds<TMessage>(this IConsumerBuilder<TMessage> builder, bool redeliverNothingForNoMessageIds)
+        => ExtendedApi.Require<ConsumerBuilder<TMessage>>(builder, nameof(builder), nameof(RedeliverNothingForNoMessageIds)).RedeliverNothingForNoMessageIds(redeliverNothingForNoMessageIds);
+
+    /// <summary>
+    /// Whether a seek to the MessageId of a message in a batch makes the broker redeliver the batch from that message, so the messages of the batch before it are not redelivered. This needs the broker setting 'acknowledgmentAtBatchIndexLevelEnabled'. The default is 'true'. With 'false' the seek ignores the position in the batch, and the broker redelivers the whole batch, as it did before DotPulsar had this option.
+    /// </summary>
+    public static IConsumerBuilder<TMessage> SeekToBatchIndex<TMessage>(this IConsumerBuilder<TMessage> builder, bool seekToBatchIndex)
+        => ExtendedApi.Require<ConsumerBuilder<TMessage>>(builder, nameof(builder), nameof(SeekToBatchIndex)).SeekToBatchIndex(seekToBatchIndex);
+
+    /// <summary>
+    /// Whether the chunks of a chunked message are delivered as one message. The default is 'true'. With 'false' every chunk is delivered as a message, as it was before DotPulsar had this option, and 'MaxPendingChunkedMessage', 'AutoAckOldestChunkedMessageOnQueueFull' and 'ExpireTimeOfIncompleteChunkedMessage' have no effect.
+    /// </summary>
+    public static IConsumerBuilder<TMessage> AssembleChunkedMessages<TMessage>(this IConsumerBuilder<TMessage> builder, bool assembleChunkedMessages)
+        => ExtendedApi.Require<ConsumerBuilder<TMessage>>(builder, nameof(builder), nameof(AssembleChunkedMessages)).AssembleChunkedMessages(assembleChunkedMessages);
+
+    /// <summary>
     /// Set the time after which an incomplete chunked message is dropped and its chunks are acknowledged. TimeSpan.Zero disables expiry. The default is 1 minute.
     /// </summary>
     public static IConsumerBuilder<TMessage> ExpireTimeOfIncompleteChunkedMessage<TMessage>(this IConsumerBuilder<TMessage> builder, TimeSpan expireTimeOfIncompleteChunkedMessage)

@@ -192,4 +192,48 @@ public sealed class ReaderBuilderTests
 
         return (builder, () => captured ?? throw new InvalidOperationException("The reader was not created"));
     }
+
+    // Additional coverage (decision 0010: the behaviour changes are opt-out, so the new behaviour is the default)
+    [Fact]
+    public void Create_GivenNoSwitches_ShouldKeepTheNewBehaviour()
+    {
+        //Arrange
+        var (uut, options) = CreateBuilder();
+
+        //Act
+        uut.Create();
+
+        //Assert
+        options().SeekToBatchIndex.ShouldBeTrue();
+        options().AssembleChunkedMessages.ShouldBeTrue();
+        ReaderOptions<string>.DefaultSeekToBatchIndex.ShouldBeTrue();
+        ReaderOptions<string>.DefaultAssembleChunkedMessages.ShouldBeTrue();
+    }
+
+    // Additional coverage (decision 0010)
+    [Fact]
+    public void Create_GivenSwitchesOff_ShouldPassThemOnInTheOptions()
+    {
+        //Arrange
+        var (uut, options) = CreateBuilder();
+
+        //Act
+        uut.SeekToBatchIndex(false).AssembleChunkedMessages(false).Create();
+
+        //Assert
+        options().SeekToBatchIndex.ShouldBeFalse();
+        options().AssembleChunkedMessages.ShouldBeFalse();
+    }
+
+    // Additional coverage (decision 0010)
+    [Fact]
+    public void Builder_GivenSwitches_ShouldReturnTheBuilder()
+    {
+        //Arrange
+        var (uut, _) = CreateBuilder();
+
+        //Act & Assert
+        uut.SeekToBatchIndex(false).ShouldBeSameAs(uut);
+        uut.AssembleChunkedMessages(false).ShouldBeSameAs(uut);
+    }
 }

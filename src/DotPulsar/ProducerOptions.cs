@@ -72,6 +72,11 @@ public sealed class ProducerOptions<TMessage>
     public static readonly bool DefaultEnableChunking = false;
 
     /// <summary>
+    /// The default of whether a send that the broker rejects fails only that message, instead of faulting the producer.
+    /// </summary>
+    public static readonly bool DefaultFailOnlyTheRejectedMessage = true;
+
+    /// <summary>
     /// The default maximum size of the payload of a chunk.
     /// </summary>
     public static readonly int DefaultChunkMaxMessageSize = 0;
@@ -103,6 +108,7 @@ public sealed class ProducerOptions<TMessage>
         EnableBatching = DefaultEnableBatching;
         SendTimeout = DefaultSendTimeout;
         EnableChunking = DefaultEnableChunking;
+        FailOnlyTheRejectedMessage = DefaultFailOnlyTheRejectedMessage;
         ChunkMaxMessageSize = DefaultChunkMaxMessageSize;
         CryptoFailureAction = DefaultCryptoFailureAction;
         _encryptionKeys = new SortedSet<string>(StringComparer.Ordinal);
@@ -200,6 +206,11 @@ public sealed class ProducerOptions<TMessage>
     /// Whether to split messages that are larger than the maximum message size of the broker into chunks. It only applies to persistent topics, and it can not be combined with batching. The default is 'false'.
     /// </summary>
     public bool EnableChunking { get; set; }
+
+    /// <summary>
+    /// Whether a send that the broker rejects with 'NotAllowedError', and a message that is larger than the maximum message size of the broker, fail only that message. The default is 'true'. With 'false' the producer faults, as it did before DotPulsar had this option.
+    /// </summary>
+    public bool FailOnlyTheRejectedMessage { get; set; }
 
     /// <summary>
     /// Set the maximum number of bytes in the payload of a chunk. 0 or less means that the maximum message size of the broker is used. The default is 0.

@@ -595,7 +595,8 @@ public sealed class Consumer<TMessage> : IConsumer<TMessage>, IExtendedConsumer
             _consumerOptions.AutoAckOldestChunkedMessageOnQueueFull,
             _consumerOptions.ExpireTimeOfIncompleteChunkedMessage,
             static () => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-            chunkMessageIds => subConsumer!.AcknowledgeChunks(chunkMessageIds));
+            chunkMessageIds => subConsumer!.AcknowledgeChunks(chunkMessageIds),
+            _consumerOptions.AssembleChunkedMessages);
 
         // Upstream: ConsumerImpl#ConsumerImpl (msgCrypto)
         var messageCrypto = _consumerOptions.CryptoKeyReader is not null ? new MessageCrypto(false) : null;
@@ -605,7 +606,7 @@ public sealed class Consumer<TMessage> : IConsumer<TMessage>, IExtendedConsumer
         var stateManager = CreateStateManager();
         var initialChannel = new NotReadyChannel<TMessage>();
         var executor = new Executor(correlationId, _processManager, _exceptionHandler);
-        subConsumer = new SubConsumer<TMessage>(correlationId, ServiceUrl, _consumerOptions.SubscriptionName, _consumerOptions.SubscriptionType, topic, _processManager, initialChannel, executor, stateManager, consumerChannelFactory, _consumerOptions.AckReceiptEnabled, _operationTimeout, consumerEpoch, unAckedMessageTracker, negativeAcknowledgeTracker, deadLetterHandler, chunkAssembler, messageCrypto);
+        subConsumer = new SubConsumer<TMessage>(correlationId, ServiceUrl, _consumerOptions.SubscriptionName, _consumerOptions.SubscriptionType, topic, _processManager, initialChannel, executor, stateManager, consumerChannelFactory, _consumerOptions.AckReceiptEnabled, _operationTimeout, consumerEpoch, unAckedMessageTracker, negativeAcknowledgeTracker, deadLetterHandler, chunkAssembler, messageCrypto, _consumerOptions.SeekToBatchIndex, _consumerOptions.RedeliverNothingForNoMessageIds);
         var process = new ConsumerProcess(correlationId, stateManager, subConsumer, _consumerOptions.SubscriptionType == SubscriptionType.Failover);
         _processManager.Add(process);
         process.Start();

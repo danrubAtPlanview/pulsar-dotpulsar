@@ -163,7 +163,7 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
                                 // The payload is delivered as it is, so it is neither decompressed nor unpacked if it is a batch. A chunk is not delivered, because the chunks of a
                                 // message can not be assembled as long as they are encrypted. Each has its own IV, and its size is 16 bytes more than the size that total_chunk_msg_size
                                 // has for it. Upstream fails to assemble them (the buffer of the message overflows), so a chunk is handled as if the action was 'Fail'.
-                                case ConsumerCryptoFailureAction.Consume when !metadata.IsChunkedMessage():
+                                case ConsumerCryptoFailureAction.Consume when !(_chunkAssembler.Enabled && metadata.IsChunkedMessage()):
                                     isUndecryptable = true;
                                     break;
                                 case ConsumerCryptoFailureAction.Discard:
@@ -179,7 +179,7 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
 
                     // Upstream: ConsumerImpl#messageReceived (chunk branch)
                     // The chunks are assembled before the message is decompressed. The metadata of the last chunk is the metadata of the message.
-                    if (metadata.IsChunkedMessage())
+                    if (_chunkAssembler.Enabled && metadata.IsChunkedMessage())
                     {
                         var assembled = ProcessChunk(messageId, metadata, data, messagePackage.RedeliveryCount);
 

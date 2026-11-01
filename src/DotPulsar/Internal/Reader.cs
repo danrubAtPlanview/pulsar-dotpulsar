@@ -300,7 +300,8 @@ public sealed class Reader<TMessage> : IReader<TMessage>
             _readerOptions.AutoAckOldestChunkedMessageOnQueueFull,
             _readerOptions.ExpireTimeOfIncompleteChunkedMessage,
             static () => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-            static _ => default);
+            static _ => default,
+            _readerOptions.AssembleChunkedMessages);
 
         // Upstream: ConsumerImpl#ConsumerImpl (msgCrypto)
         var messageCrypto = _readerOptions.CryptoKeyReader is not null ? new MessageCrypto(false) : null;
@@ -309,7 +310,7 @@ public sealed class Reader<TMessage> : IReader<TMessage>
         var stateManager = new StateManager<ReaderState>(ReaderState.Disconnected, ReaderState.Closed, ReaderState.ReachedEndOfTopic, ReaderState.Faulted);
         var initialChannel = new NotReadyChannel<TMessage>();
         var executor = new Executor(correlationId, _processManager, _exceptionHandler);
-        var subReader = new SubReader<TMessage>(correlationId, ServiceUrl, topic, _processManager, initialChannel, executor, stateManager, factory, chunkAssembler, messageCrypto, _operationTimeout);
+        var subReader = new SubReader<TMessage>(correlationId, ServiceUrl, topic, _processManager, initialChannel, executor, stateManager, factory, chunkAssembler, messageCrypto, _operationTimeout, _readerOptions.SeekToBatchIndex);
         var process = new ReaderProcess(correlationId, stateManager, subReader);
         _processManager.Add(process);
         process.Start();
