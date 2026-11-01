@@ -1014,6 +1014,58 @@ public sealed class SubConsumerTests
         uut.UnAckedMessageCount.ShouldBe(0);
     }
 
+    // Upstream: ConsumerImpl#trackMessage (the redelivery count of the message is the one that the tracker uses for the backoff)
+    [Fact]
+    public async Task Track_GivenMessageWithRedeliveryCount_ShouldPassTheCountToTheTracker()
+    {
+        //Arrange
+        var tracker = Substitute.For<IUnAckedMessageTracker>();
+        await using var uut = CreateSubConsumer(false, tracker: tracker);
+        var messageId = new MessageId(1, 2, 0, 3, _messageId.Topic);
+
+        //Act
+        uut.Track(CreateMessage(messageId, 4));
+
+        //Assert
+        tracker.Received(1).Add(messageId, 4u);
+    }
+
+    // Additional coverage
+    [Fact]
+    public async Task GetLocalRedeliveryCount_GivenTrackerWithoutBackoff_ShouldBeZero()
+    {
+        //Arrange
+        using var tracker = CreateTracker();
+        await using var uut = CreateSubConsumer(false, tracker: tracker);
+        uut.Track(CreateMessage(_messageId));
+
+        //Act
+        var actual = uut.GetLocalRedeliveryCount(_messageId);
+
+        //Assert
+        actual.ShouldBe(0u);
+    }
+
+    // Additional coverage
+    [Fact]
+    public async Task GetLocalRedeliveryCount_GivenTrackerWithBackoffThatCountsRedeliveries_ShouldReturnTheNumberOfExpiries()
+    {
+        //Arrange
+        var clock = new FakeMonotonicClock();
+        using var tracker = new UnAckedMessageRedeliveryTracker(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1), new MultiplierRedeliveryBackoff(TimeSpan.FromSeconds(10), TimeSpan.FromMinutes(1)), true, (_, _) => default, () => clock.Now);
+        await using var uut = CreateSubConsumer(false, tracker: tracker);
+        uut.Track(CreateMessage(_messageId));
+
+        //Act
+        _ = tracker.Tick();
+        _ = tracker.Tick();
+        var actual = uut.GetLocalRedeliveryCount(_messageId);
+
+        //Assert
+        actual.ShouldBe(1u);
+        uut.UnAckedMessageCount.ShouldBe(1);
+    }
+
     // Upstream: ConsumerImpl#doTransactionAcknowledgeForResponse
     // The entry is removed when the acknowledgment is sent, before the receipt, and also when the transaction is aborted
     [Fact]
@@ -1406,8 +1458,8 @@ public sealed class SubConsumerTests
         return (handler, producer);
     }
 
-    private static IMessage<byte[]> CreateMessage(MessageId messageId)
-        => new MessageFactory<byte[]>(DotPulsar.Schema.ByteArray).Create(messageId, 0, new ReadOnlySequence<byte>([1, 2, 3]), new DotPulsar.Internal.PulsarApi.MessageMetadata { ProducerName = "producer", SequenceId = 1, PublishTime = 1 });
+    private static IMessage<byte[]> CreateMessage(MessageId messageId, uint redeliveryCount = 0)
+        => new MessageFactory<byte[]>(DotPulsar.Schema.ByteArray).Create(messageId, redeliveryCount, new ReadOnlySequence<byte>([1, 2, 3]), new DotPulsar.Internal.PulsarApi.MessageMetadata { ProducerName = "producer", SequenceId = 1, PublishTime = 1 });
 
     private static async Task WaitUntil(Func<bool> condition)
     {
@@ -1454,7 +1506,7 @@ public sealed class SubConsumerTests
         return connection;
     }
 
-    private SubConsumer<byte[]> CreateSubConsumer(bool ackReceiptEnabled, TimeSpan? operationTimeout = null, IConsumerChannel<byte[]>? channel = null, SubscriptionType subscriptionType = SubscriptionType.Exclusive, ConsumerEpoch? consumerEpoch = null, UnAckedMessageTracker? tracker = null, NegativeAcknowledgeTracker? negativeAcknowledgeTracker = null, DeadLetterHandler<byte[]>? deadLetterHandler = null, Func<Func<MessageId[], CancellationToken, ValueTask>, NegativeAcknowledgeTracker>? negativeAcknowledgeTrackerFactory = null, ChunkedMessageAssembler? chunkAssembler = null)
+    private SubConsumer<byte[]> CreateSubConsumer(bool ackReceiptEnabled, TimeSpan? operationTimeout = null, IConsumerChannel<byte[]>? channel = null, SubscriptionType subscriptionType = SubscriptionType.Exclusive, ConsumerEpoch? consumerEpoch = null, IUnAckedMessageTracker? tracker = null, NegativeAcknowledgeTracker? negativeAcknowledgeTracker = null, DeadLetterHandler<byte[]>? deadLetterHandler = null, Func<Func<MessageId[], CancellationToken, ValueTask>, NegativeAcknowledgeTracker>? negativeAcknowledgeTrackerFactory = null, ChunkedMessageAssembler? chunkAssembler = null)
     {
         var correlationId = Guid.NewGuid();
         var executor = new Executor(correlationId, _eventRegister, new DefaultExceptionHandler());

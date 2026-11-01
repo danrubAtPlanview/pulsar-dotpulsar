@@ -41,7 +41,7 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
     private readonly bool _ackReceiptEnabled;
     private readonly TimeSpan _operationTimeout;
     private readonly ConsumerEpoch _consumerEpoch;
-    private readonly UnAckedMessageTracker? _unAckedMessageTracker;
+    private readonly IUnAckedMessageTracker? _unAckedMessageTracker;
     private readonly NegativeAcknowledgeTracker _negativeAcknowledgeTracker;
     private readonly DeadLetterHandler<TMessage>? _deadLetterHandler;
     private readonly ChunkedMessageAssembler _chunkAssembler;
@@ -72,7 +72,7 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
         bool ackReceiptEnabled,
         TimeSpan operationTimeout,
         ConsumerEpoch consumerEpoch,
-        UnAckedMessageTracker? unAckedMessageTracker,
+        IUnAckedMessageTracker? unAckedMessageTracker,
         NegativeAcknowledgeTracker negativeAcknowledgeTracker,
         DeadLetterHandler<TMessage>? deadLetterHandler,
         ChunkedMessageAssembler chunkAssembler,
@@ -134,7 +134,12 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
     // Upstream: ConsumerBase#trackUnAckedMsgIfNoListener
     // The message is tracked when it is handed to the application, and not when it is received from the broker
     public void Track(IMessage<TMessage> message)
-        => _unAckedMessageTracker?.Add(message.MessageId);
+        => _unAckedMessageTracker?.Add(message.MessageId, message.RedeliveryCount);
+
+    // How many times the ack timeout has redelivered the message, as counted by the consumer. Only a subscription that is not Shared or KeyShared is counted by the consumer, because
+    // the broker counts the redeliveries of the others. It is 0 unless the ack timeout redelivery backoff is used.
+    public uint GetLocalRedeliveryCount(MessageId messageId)
+        => (_unAckedMessageTracker as UnAckedMessageRedeliveryTracker)?.GetLocalRedeliveryCount(messageId.LedgerId, messageId.EntryId) ?? 0;
 
     public async ValueTask Acknowledge(MessageId messageId, CancellationToken cancellationToken)
         => await InternalAcknowledge(messageId, CommandAck.Types.AckType.Individual, cancellationToken).ConfigureAwait(false);
@@ -281,10 +286,10 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
     }
 
     // Upstream: ConsumerImpl#seekAsync(MessageId)
-    // A chunked message is seeked to by its first chunk, because the broker redelivers entries
+    // A chunked message is seeked to by its first chunk, because the broker redelivers entries, and a message in a batch by the entry with an ack set that has the messages before it acknowledged
     public async ValueTask Seek(MessageId messageId, CancellationToken cancellationToken)
     {
-        var seek = new CommandSeek { MessageId = (messageId.FirstChunkMessageId ?? messageId).ToMessageIdData() };
+        var seek = new CommandSeek { MessageId = messageId.ToSeekMessageIdData() };
         await _executor.Execute(() => InternalSeek(seek, cancellationToken), cancellationToken).ConfigureAwait(false);
     }
 

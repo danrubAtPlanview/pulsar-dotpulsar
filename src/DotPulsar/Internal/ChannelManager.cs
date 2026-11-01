@@ -25,7 +25,7 @@ public sealed class ChannelManager : IStateHolder<ChannelManagerState>, IDisposa
     private readonly StateManager<ChannelManagerState> _stateManager;
     private readonly RequestResponseHandler _requestResponseHandler;
     private readonly IdLookup<IChannel> _consumerChannels;
-    private readonly IdLookup<IChannel> _producerChannels;
+    private readonly SparseIdLookup<IChannel> _producerChannels;
     private readonly IdLookup<ITransactionMetaStoreHandler> _transactionMetaStoreHandlers;
     private readonly EnumLookup<BaseCommand.Types.Type, Action<BaseCommand>> _incoming;
 
@@ -36,7 +36,7 @@ public sealed class ChannelManager : IStateHolder<ChannelManagerState>, IDisposa
         _stateManager = new StateManager<ChannelManagerState>(ChannelManagerState.Inactive, ChannelManagerState.Closed);
         _requestResponseHandler = new RequestResponseHandler();
         _consumerChannels = new IdLookup<IChannel>();
-        _producerChannels = new IdLookup<IChannel>();
+        _producerChannels = new SparseIdLookup<IChannel>();
         _transactionMetaStoreHandlers = new IdLookup<ITransactionMetaStoreHandler>();
         _incoming = new EnumLookup<BaseCommand.Types.Type, Action<BaseCommand>>(cmd => _requestResponseHandler.Incoming(cmd));
         _incoming.Set(BaseCommand.Types.Type.CloseConsumer, cmd => Incoming(cmd.CloseConsumer));
@@ -47,7 +47,10 @@ public sealed class ChannelManager : IStateHolder<ChannelManagerState>, IDisposa
 
     public Task<ProducerResponse> Outgoing(CommandProducer command, IChannel channel)
     {
-        var producerId = AddProducerChannel(channel);
+        // Upstream: ProducerImpl#connectionOpened
+        // A producer has the same id on every connection, so the id is the one of the command. The channel of an earlier connection attempt of the same producer, which can be left on this connection, is replaced.
+        // A command without an id gets the lowest id that is not used.
+        var producerId = command.HasProducerId ? AddProducerChannel(command.ProducerId, channel) : AddProducerChannel(channel);
         command.ProducerId = producerId;
         var response = _requestResponseHandler.Outgoing(command);
 
@@ -55,7 +58,7 @@ public sealed class ChannelManager : IStateHolder<ChannelManagerState>, IDisposa
         {
             if (result.Result.Type == BaseCommand.Types.Type.Error)
             {
-                _ = RemoveProducerChannel(producerId);
+                RemoveProducerChannel(producerId, channel);
                 result.Result.Error.Throw();
             }
 
@@ -66,7 +69,7 @@ public sealed class ChannelManager : IStateHolder<ChannelManagerState>, IDisposa
             else
             {
                 channel.WaitingForExclusive();
-                HandleAdditionalProducerSuccess(command, channel.Connected);
+                HandleAdditionalProducerSuccess(command, channel);
             }
 
             return new ProducerResponse(producerId, response.Result.ProducerSuccess.ProducerName, response.Result.ProducerSuccess.TopicEpoch);
@@ -118,16 +121,18 @@ public sealed class ChannelManager : IStateHolder<ChannelManagerState>, IDisposa
         var producerId = command.ProducerId;
 
         Task<BaseCommand> response;
+        IChannel channel;
 
-        using (TakeProducerSenderLock(producerId))
+        using (TakeProducerSenderLock(producerId, out channel))
         {
             response = _requestResponseHandler.Outgoing(command);
         }
 
+        // The producer can have connected again by the time the broker answers, and then the id belongs to the channel of the new connection
         _ = response.ContinueWith(result =>
         {
             if (result.Result.Type == BaseCommand.Types.Type.Success)
-                _ = RemoveProducerChannel(producerId);
+                RemoveProducerChannel(producerId, channel);
         }, TaskContinuationOptions.OnlyOnRanToCompletion);
 
         return response;
@@ -291,33 +296,51 @@ public sealed class ChannelManager : IStateHolder<ChannelManagerState>, IDisposa
     }
 
     private IDisposable TakeProducerSenderLock(ulong producerId)
+        => TakeProducerSenderLock(producerId, out _);
+
+    private IDisposable TakeProducerSenderLock(ulong producerId, out IChannel channel)
     {
-        var channel = _producerChannels[producerId];
-        if (channel is null)
+        var current = _producerChannels[producerId];
+        if (current is null)
             throw new OperationCanceledException();
 
-        return channel.SenderLock();
+        channel = current;
+        return current.SenderLock();
     }
 
-    private void HandleAdditionalProducerSuccess(CommandProducer command, Action successAction)
+    private void HandleAdditionalProducerSuccess(CommandProducer command, IChannel channel)
     {
         _ = _requestResponseHandler.ExpectAdditionalResponse(command).ContinueWith(response =>
         {
             if (response.IsCanceled || response.IsFaulted || response.Result.Type == BaseCommand.Types.Type.Error)
             {
-                _producerChannels[command.ProducerId]?.Disconnected();
+                // The channel of the same producer on a newer connection attempt has the id by now, and it must not be disconnected by what happened to this one
+                if (ReferenceEquals(_producerChannels[command.ProducerId], channel))
+                    channel.Disconnected();
                 return;
             }
             if (!response.Result.ProducerSuccess.ProducerReady)
             {
-                HandleAdditionalProducerSuccess(command, successAction);
+                HandleAdditionalProducerSuccess(command, channel);
                 return;
             }
-            successAction.Invoke();
+            channel.Connected();
         });
     }
 
-    private ulong AddProducerChannel(IChannel channel) => AddChannel(_producerChannels, channel);
+    private ulong AddProducerChannel(IChannel channel)
+    {
+        var id = _producerChannels.Add(channel);
+        _stateManager.SetState(ChannelManagerState.Active);
+        return id;
+    }
+
+    private ulong AddProducerChannel(ulong id, IChannel channel)
+    {
+        _ = _producerChannels.Set(id, channel);
+        _stateManager.SetState(ChannelManagerState.Active);
+        return id;
+    }
 
     private ulong AddConsumerChannel(IChannel channel) => AddChannel(_consumerChannels, channel);
 
@@ -328,7 +351,18 @@ public sealed class ChannelManager : IStateHolder<ChannelManagerState>, IDisposa
         return id;
     }
 
-    private IChannel? RemoveProducerChannel(ulong producerId) => RemoveChannel(_producerChannels, producerId);
+    private IChannel? RemoveProducerChannel(ulong producerId)
+    {
+        var channel = _producerChannels.Remove(producerId);
+        ChannelRemoved();
+        return channel;
+    }
+
+    private void RemoveProducerChannel(ulong producerId, IChannel channel)
+    {
+        _ = _producerChannels.Remove(producerId, channel);
+        ChannelRemoved();
+    }
 
     private IChannel? RemoveConsumerChannel(ulong consumerId) => RemoveChannel(_consumerChannels, consumerId);
 

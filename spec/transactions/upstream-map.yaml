@@ -1382,10 +1382,29 @@ tests:
     spec: 06-prerequisites/ack-timeout.md
     note: "weakened: tracks one id instead of the 5 chunk ids (1,i,-1), and does not assert the redelivery expansion; chunking has landed, so the comment 'chunk ids are not part of the id yet' is stale"
     done: true
-  - upstream: UnAckedTopicMessageRedeliveryTrackerTest
+  - upstream: UnAckedTopicMessageRedeliveryTrackerTest#testLocalRedeliveryCountForExclusiveSubscription
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/UnAckedTopicMessageRedeliveryTrackerTest.java
+    csharp: "tests/DotPulsar.Tests/Internal/UnAckedMessageRedeliveryTrackerTests.cs#GetLocalRedeliveryCount_GivenSubscriptionThatIsNotShared_ShouldCountExpiriesAndKeepCountsUntilTheEntryIsRemoved"
+    status: "Port-partial (the tracker of one sub consumer instead of the multi-topic tracker)"
+    spec: 06-prerequisites/ack-timeout.md
+    done: true
+  - upstream: UnAckedTopicMessageRedeliveryTrackerTest#testNoLocalRedeliveryCountForSharedSubscription
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/UnAckedTopicMessageRedeliveryTrackerTest.java
+    csharp: "tests/DotPulsar.Tests/Internal/UnAckedMessageRedeliveryTrackerTests.cs#GetLocalRedeliveryCount_GivenSharedSubscription_ShouldNotCountExpiries"
+    status: "Port"
+    spec: 06-prerequisites/ack-timeout.md
+    done: true
+  - upstream: UnAckedTopicMessageRedeliveryTrackerTest#testRemoveTopicMessages
     path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/UnAckedTopicMessageRedeliveryTrackerTest.java
     csharp: null
-    status: "Excluded: not portable (RedeliveryBackoff, OD-1)"
+    status: "Excluded: there is no multi-topic tracker (one tracker per sub consumer, which is disposed with its partition)"
+    note: "decided in WP11-B: the multi-topic tracker of Java only needs removeTopicMessages when a topic goes away; here the tracker of a partition goes away with its sub consumer"
+    spec: 06-prerequisites/ack-timeout.md
+  - upstream: UnAckedTopicMessageRedeliveryTrackerTest#testRemoveTopicMessagesDoesNotMatchPrefixTopic
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/UnAckedTopicMessageRedeliveryTrackerTest.java
+    csharp: null
+    status: "Excluded: there is no multi-topic tracker (one tracker per sub consumer, which is disposed with its partition)"
+    note: "decided in WP11-B, see testRemoveTopicMessages"
     spec: 06-prerequisites/ack-timeout.md
   - upstream: UnAcknowledgedMessagesTimeoutTest#testAckTimeoutMinValue
     path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/UnAcknowledgedMessagesTimeoutTest.java
@@ -1402,6 +1421,7 @@ tests:
     status: "Port"
     spec: 06-prerequisites/ack-timeout.md
     done: true
+    note: "WP11-B: a theory over useRedeliveryBackoff since the backoff exists, so the {true} row is ported as well (the same for the three rows below that use the backoff upstream)"
   - upstream: UnAcknowledgedMessagesTimeoutTest#testExclusiveCumulativeAckedNormalTopic
     path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/UnAcknowledgedMessagesTimeoutTest.java
     lines: "122-175"
@@ -1435,16 +1455,25 @@ tests:
   - upstream: UnAcknowledgedMessagesTimeoutTest#testCheckUnAcknowledgedMessageRedeliveryTimer
     path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/UnAcknowledgedMessagesTimeoutTest.java
     lines: "463-530"
-    csharp: null
-    status: "Excluded: not portable (redelivery backoff, OD-1)"
+    csharp: "tests/DotPulsar.Tests/Internal/AckTimeoutTests.cs#Receive_GivenAckTimeoutRedeliveryBackoff_ShouldRedeliverWhenTheAckTimeoutAndTheDelayHavePassed"
+    status: "Port-partial (4 rows; the lower bound of the timing has a tolerance of 100 ms)"
     spec: 06-prerequisites/ack-timeout.md
+    done: true
+  - upstream: MultiplierRedeliveryBackoffTest#testNext
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/MultiplierRedeliveryBackoffTest.java
+    csharp: "tests/DotPulsar.Tests/MultiplierRedeliveryBackoffTests.cs#Next_GivenMinDelayMaxDelayAndDefaultMultiplier_ShouldDoubleTheDelayUntilMaxDelay"
+    status: "Port-partial (no next(-1): the redelivery count is unsigned)"
+    spec: 06-prerequisites/ack-timeout.md
+    done: true
+    note: "WP11-B: also MultiplierRedeliveryBackoffTests#Next_GivenMultiplierOfFive_ShouldMultiplyTheDelayByFiveForEveryRedelivery; the invalid arguments of the constructor (multiplier 0 of testAckTimeoutMinValue) are Constructor_GivenInvalidArgument_ShouldThrowArgumentOutOfRangeException"
   - upstream: UnAcknowledgedMessagesTimeoutTest#testSingleMessageBatch
     path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/UnAcknowledgedMessagesTimeoutTest.java
     lines: "532-558"
     csharp: "tests/DotPulsar.Tests/Internal/AckTimeoutTests.cs#Acknowledge_GivenSingleMessageBatch_ShouldUntrackEntry"
-    status: "Port-partial"
+    status: "Port"
     spec: 06-prerequisites/ack-timeout.md
     done: true
+    note: "WP11-B: the test is a theory over useRedeliveryBackoff, so both halves of the upstream test (without and with the backoff) are ported"
   - upstream: PerMessageUnAcknowledgedRedeliveryTest#testSharedAckedNormalTopic
     path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/PerMessageUnAcknowledgedRedeliveryTest.java
     lines: "39-135"
@@ -1599,9 +1628,11 @@ tests:
   - upstream: ConsumerSeekBatchIndexAckTest#testSeekReplaysBatchAfterSuccessWhileDisconnected
     path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/ConsumerSeekBatchIndexAckTest.java
     lines: "47-"
-    csharp: null
-    status: "Excluded: deferred, needs seek with ack_set (OD 3)"
+    csharp: "tests/DotPulsar.Tests/Prerequisites/ConsumerSeekBatchIndexAckTests.cs#Seek_GivenBatchWithFirstMessageAcknowledgedOrNot_ShouldReplayAllMessagesOfTheBatch"
+    status: "Port-partial (the upstream test pauses the consumer and delays its reconnect; the port checks the replay only)"
     spec: 06-prerequisites/batch-index-ack.md
+    done: true
+    note: "WP11-C: 2 rows at the pin and on master; unit test SeekBatchIndexTests#ChannelSend_GivenSeekAfterPartialBatchAck_ShouldTrackTheReplayedBatchFromItsFirstMessage"
   - upstream: BatchMessageWithBatchIndexLevelTest#testBatchMessageAck
     path: pulsar-broker/src/test/java/org/apache/pulsar/broker/service/BatchMessageWithBatchIndexLevelTest.java
     lines: "85-"
@@ -2252,7 +2283,8 @@ tests:
     path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/NegativeAcksTest.java
     lines: "205"
     csharp: null
-    status: "Excluded: RedeliveryBackoff is not built (OD-3)"
+    status: "Excluded: the negative-ack redelivery backoff is not built (OD-3)"
+    note: "WP11-B added IRedeliveryBackoff and MultiplierRedeliveryBackoff for the ack timeout; a negative-ack option and the use of the policy in the negative-ack tracker are still missing (followup 0019)"
     spec: 06-prerequisites/dead-letter-policy.md
   - upstream: NegativeAcksTest#testNegativeAcksWithBatch
     path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/NegativeAcksTest.java

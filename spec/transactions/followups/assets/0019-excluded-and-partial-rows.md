@@ -2,9 +2,9 @@
 
 Generated from `upstream-map.yaml` on 2026-11-01 (the end of WP10). The map is the source of truth; this file is a reading aid for the reviewer. `Excluded` rows have no C# test; `Port-partial` rows have a C# test that checks less than the Java test, or checks it by another route (the part in brackets of the status says how); `Port-unit` rows are covered by client unit tests because the Java test needs a mocked or in-process broker.
 
-Counts: 331 rows, 82 excluded, 84 port-partial, 46 port-unit.
+Counts: 335 rows, 81 excluded, 87 port-partial, 46 port-unit.
 
-## Excluded rows (82), by Java test class
+## Excluded rows (81), by Java test class
 
 | Java class | Rows |
 |---|---|
@@ -20,18 +20,16 @@ Counts: 331 rows, 82 excluded, 84 port-partial, 46 port-unit.
 | `ProducerImplTest` | 2 |
 | `TransactionCoordinatorClientTest` | 2 |
 | `TransactionMetaStoreAssignmentTest` | 2 |
+| `UnAckedTopicMessageRedeliveryTrackerTest` | 2 |
 | `AcknowledgementsGroupingTrackerTest` | 1 |
 | `BatchMessageWithBatchIndexLevelTest` | 1 |
 | `ChunkMessageIdImplTest` | 1 |
 | `ConsumerRedeliveryTest` | 1 |
-| `ConsumerSeekBatchIndexAckTest` | 1 |
 | `SimpleProducerConsumerTest` | 1 |
 | `TransactionAndSchemaAuthZTest` | 1 |
 | `TransactionConsumeTest` | 1 |
 | `TransactionEndToEndTest` | 1 |
 | `TransactionProduceTest` | 1 |
-| `UnAckedTopicMessageRedeliveryTrackerTest` | 1 |
-| `UnAcknowledgedMessagesTimeoutTest` | 1 |
 | `WatchTcAssignmentsDiscoveryTest` | 1 |
 | `cpp:EncryptionTest.cc` | 1 |
 | `cpp:MessageChunkingTest.cc` | 1 |
@@ -52,7 +50,6 @@ Counts: 331 rows, 82 excluded, 84 port-partial, 46 port-unit.
 | `BatchMessageWithBatchIndexLevelTest#testUnAckMessagesWhenConcurrentDeliveryAndAck` | it replaces the broker's service Consumer in the dispatcher with a Mockito spy that holds back sendMessages until a signal, and then deletes a position with an ack set from the ManagedCursor directly; the race between the delivery of the replayed entries and an in-flight acknowledgment inside the... |
 | `ChunkMessageIdImplTest#serializeAndDeserializeTest` | Excluded: MessageId has no ToByteArray/FromByteArray |
 | `ConsumerRedeliveryTest#testZeroCountSelectiveRedeliveryPreservesBackpressure ×2` | Excluded: pauses the broker `PendingAckHandleImpl` pinned executor; asserts broker `Consumer` internals |
-| `ConsumerSeekBatchIndexAckTest#testSeekReplaysBatchAfterSuccessWhileDisconnected` | Excluded: deferred, needs seek with ack_set (OD 3) |
 | `DeadLetterTopicTest#testAutoConsumeSchemaDeadLetter` | Excluded: AUTO_PRODUCE_BYTES and AUTO_CONSUME are not built |
 | `DeadLetterTopicTest#testDeadLetterTopicWithMultiTopic` | Excluded: @Test(enabled = false) upstream (issue #2647) |
 | `DeadLetterTopicTest#testDeadLetterTopicWithProducerBuilder` | Excluded: enableRetry, reconsumeLater and the producer customizer are not built (OD-1, OD-2) |
@@ -63,7 +60,7 @@ Counts: 331 rows, 82 excluded, 84 port-partial, 46 port-unit.
 | `MessageChunkingTest#testPublishWithFailure` | stale exclusion: the send timeout it waited for exists now (SendTimeout option and tests) |
 | `MessageChunkingTest#testNonPersistentMessageOverLimitOnlyWithMetadataIsRejectedLocally` | stale exclusion: an equivalent test exists (MessageChunkingSmallMessageSizeTests), its Upstream comment names another Java method |
 | `MessageChunkingTest#testChunksEnqueueFailed` | Excluded: memory limit controller and ProducerQueueIsFullError are not built |
-| `NegativeAcksTest#testNegativeAcksWithBackoff` | Excluded: RedeliveryBackoff is not built (OD-3) |
+| `NegativeAcksTest#testNegativeAcksWithBackoff` | WP11-B added IRedeliveryBackoff and MultiplierRedeliveryBackoff for the ack timeout; a negative-ack option and the use of the policy in the negative-ack tracker are still missing (followup 0019) |
 | `NegativeAcksTest#testFailoverConsumerBatchCumulateAck` | stale exclusion: the spec defers it to ack-timeout/batching specs that do not list it; no owner and no C# test |
 | `NegativeAcksTest#testMultiTopicConsumerConcurrentRedeliverAndReceive` | stale exclusion: the spec defers it to ack-timeout/batching specs that do not list it; no owner and no C# test |
 | `NegativeAcksTest#testConfigureNegativeAckPrecisionBitCnt` | Excluded: the precision is not configurable (OD-3) |
@@ -117,13 +114,13 @@ Counts: 331 rows, 82 excluded, 84 port-partial, 46 port-unit.
 | `TransactionTest#testPendingAckReplayChangeStateError` | Excluded: all broker objects mocked |
 | `TransactionTest#testTBRecoverChangeStateError` | Excluded: all broker objects mocked |
 | `TransactionTest#testTBSnapshotWriter` | Excluded: injects failed writer futures into `SystemTopicTxnBufferSnapshotService` |
-| `UnAckedTopicMessageRedeliveryTrackerTest#` | Excluded: not portable (RedeliveryBackoff, OD-1) |
-| `UnAcknowledgedMessagesTimeoutTest#testCheckUnAcknowledgedMessageRedeliveryTimer` | Excluded: not portable (redelivery backoff, OD-1) |
+| `UnAckedTopicMessageRedeliveryTrackerTest#testRemoveTopicMessages` | decided in WP11-B: the multi-topic tracker of Java only needs removeTopicMessages when a topic goes away; here the tracker of a partition goes away with its sub consumer |
+| `UnAckedTopicMessageRedeliveryTrackerTest#testRemoveTopicMessagesDoesNotMatchPrefixTopic` | decided in WP11-B, see testRemoveTopicMessages |
 | `WatchTcAssignmentsDiscoveryTest#testUnsupportedBrokerFailsWithoutRetrying` | Excluded: v5 metadata-store discovery (WatchTcAssignments); DotPulsar has no such type |
 | `cpp:EncryptionTest.cc#testDecryptionSuccess/Failure` | Excluded: C++-only; covered by the CLI interop tests EncryptionInteropTests#Receive_GivenJavaProduced* |
 | `cpp:MessageChunkingTest.cc#ChunkMessageIdTest.testSetChunkMessageId` | Excluded: C++ serialization API |
 
-## Port-partial rows (84)
+## Port-partial rows (87)
 
 | Upstream test | How it is ported (status) | C# test |
 |---|---|---|
@@ -177,11 +174,14 @@ Counts: 331 rows, 82 excluded, 84 port-partial, 46 port-unit.
 | `TopicTransactionBufferRecoverTest#recoverTest` | Port-partial | `Receive_GivenTopicUnloadedWithOpenTransactions_ShouldRecoverTransactionBuffer` |
 | `AckReceiptOnTopicUnloadTest#testDelayedAckReceipt` | Port-partial | `Acknowledge_GivenDelayedAckReceipt_ShouldCompleteOrFailWithConsumerNotFound` |
 | `UnAckedMessageTrackerTest#testTrackChunkedMessageId` | Port-partial | `Tick_GivenChunkedMessageIdExpired_ShouldRedeliverAllChunks` |
+| `UnAckedTopicMessageRedeliveryTrackerTest#testLocalRedeliveryCountForExclusiveSubscription` | the tracker of one sub consumer instead of the multi-topic tracker | `GetLocalRedeliveryCount_GivenSubscriptionThatIsNotShared_ShouldCountExpiriesAndKeepCountsUntilTheEntryIsRemoved` |
 | `UnAcknowledgedMessagesTimeoutTest#testAckTimeoutMinValue` | Port-partial | `CreateConsumer_GivenAckTimeoutBelowOneSecond_ShouldThrowConfigurationException` |
-| `UnAcknowledgedMessagesTimeoutTest#testSingleMessageBatch` | Port-partial | `Acknowledge_GivenSingleMessageBatch_ShouldUntrackEntry` |
+| `UnAcknowledgedMessagesTimeoutTest#testCheckUnAcknowledgedMessageRedeliveryTimer` | 4 rows; the lower bound of the timing has a tolerance of 100 ms | `Receive_GivenAckTimeoutRedeliveryBackoff_ShouldRedeliverWhenTheAckTimeoutAndTheDelayHavePassed` |
+| `MultiplierRedeliveryBackoffTest#testNext` | no next(-1): the redelivery count is unsigned | `Next_GivenMinDelayMaxDelayAndDefaultMultiplier_ShouldDoubleTheDelayUntilMaxDelay` |
 | `PerMessageUnAcknowledgedRedeliveryTest#testUnAckedMessageTrackerSize` | Port-partial | `Receive_GivenAckTimeoutDisabled_ShouldNotTrackMessages` |
 | `ConsumerRedeliveryTest#testUnAckMessageRedeliveryWithReceiveAsync` | Port-partial | `Receive_GivenUnacknowledgedBatchedMessages_ShouldRedeliverAfterAckTimeout` |
 | `ConsumerRedeliveryTest#testMessageRedeliveryWhenTimeoutInListener` | Port-partial | `Receive_GivenSlowProcessingBeyondAckTimeout_ShouldRedeliverOnlyThatMessage` |
+| `ConsumerSeekBatchIndexAckTest#testSeekReplaysBatchAfterSuccessWhileDisconnected` | the upstream test pauses the consumer and delays its reconnect; the port checks the replay only | `Seek_GivenBatchWithFirstMessageAcknowledgedOrNot_ShouldReplayAllMessagesOfTheBatch` |
 | `ProducerBuilderImplTest#testProducerBuilderImplWhenBatchingMaxPublishDelayPropertyIsNegative` | Port-partial | `Create_GivenBatchingMaxPublishDelayBelowOneMillisecond_ShouldThrowConfigurationException` |
 | `ProducerBuilderImplTest#testProducerBuilderImplWhenSendTimeoutIsNegative` | Port-partial | `Create_GivenNegativeSendTimeout_ShouldThrowConfigurationException` |
 | `ProducerBuilderImplTest#testProducerBuilderImplWhenSendTimeoutPropertyIsNegative` | Port-partial | `Create_GivenNegativeSendTimeout_ShouldThrowConfigurationException` |

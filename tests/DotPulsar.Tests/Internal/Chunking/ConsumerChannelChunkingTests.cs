@@ -178,6 +178,23 @@ public sealed class ConsumerChannelChunkingTests
 
     // Additional coverage
     [Fact(Timeout = 30_000)]
+    public async Task Receive_GivenChunkWithRedeliveryCountAndAckTimeout_ShouldTrackTheChunkWithTheRedeliveryCount()
+    {
+        //Arrange
+        var tracker = Substitute.For<IUnAckedMessageTracker>();
+        var uut = CreateUut(tracker: tracker);
+        uut.Enqueue(ChunkTestData.CreateChunkPackage("a", 1, 2, 5, publishTime: Now, redeliveryCount: 2));
+        uut.Enqueue(BatchTestData.CreateSinglePackage(BatchTestData.CreateEntryId(Ledger, 6)));
+
+        //Act
+        _ = await uut.Channel.Receive(Current.CancellationToken);
+
+        //Assert
+        tracker.Received(1).Add(Arg.Is<MessageId>(id => id.LedgerId == Ledger && id.EntryId == 5), 2u);
+    }
+
+    // Additional coverage
+    [Fact(Timeout = 30_000)]
     public async Task Receive_GivenChunkWithoutItsFirstChunkThatIsOlderThanTheExpireTime_ShouldAcknowledgeTheChunkAndNotTrackIt()
     {
         //Arrange
@@ -452,7 +469,7 @@ public sealed class ConsumerChannelChunkingTests
     private static Context CreateUut(
         uint maxPendingChunkedMessage = 10,
         bool autoAckOldestChunkedMessageOnQueueFull = false,
-        UnAckedMessageTracker? tracker = null,
+        IUnAckedMessageTracker? tracker = null,
         DeadLetterHandler<byte[]>? deadLetterHandler = null,
         IDecompressorFactory? decompressor = null,
         uint prefetchCount = 100)

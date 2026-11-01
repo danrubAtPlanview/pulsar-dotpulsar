@@ -154,6 +154,17 @@ public sealed class PulsarClientConsumerOptionsTests
         uut.NegativeAcknowledgeRedeliveryDelay.ShouldBe(TimeSpan.FromMinutes(1));
     }
 
+    // Additional coverage
+    [Fact]
+    public void ConsumerOptions_GivenNoChanges_ShouldHaveNoAckTimeoutRedeliveryBackoff()
+    {
+        //Act
+        var uut = CreateOptions();
+
+        //Assert
+        uut.AckTimeoutRedeliveryBackoff.ShouldBeNull();
+    }
+
     private static ConsumerOptions<string> CreateOptions()
         => new("subscription", "persistent://public/default/test", Schema.String);
 }

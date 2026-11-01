@@ -1,6 +1,6 @@
 # 0009 - Flaky unit tests under CPU load
 
-Status: **fixed**. The flake-hunting agent fixed three production races (16 commits, merged), and the smaller hazard that it left open (receipt vs write) is fixed in WP10 (section "Receipt vs write"), together with three more test flakes that the WP10 sign-off stress found.
+Status: **fixed**. The flake-hunting agent fixed three production races (16 commits, merged), and the smaller hazard that it left open (receipt vs write) is fixed in WP10 (section "Receipt vs write"), together with three more test flakes that the WP10 sign-off stress found. The stress of the sign-off of WP11 found one more, a hang in a test helper that WP11 added (section "WP11 sign-off stress"), fixed as well.
 Found on the merged tip (after WP6, WP7, WP8 consumer and the ack allocation fixes) by running the Debug unit suite alone (1 failure in about 5 runs) and in 4 parallel `dotnet test` processes (about 1 failure per process).
 
 ## Stress procedure (repeat it for WP10 sign-off)
@@ -60,6 +60,19 @@ Procedure as above, 4 parallel processes per round and 12 busy loops. Findings a
 | 15 rounds (60 runs), with those fixes | 1 failure: `ProducerSendTimeoutTests.Send_GivenBatchingAndNoReceiptWithinSendTimeout_ShouldFailEveryMessageOfTheBatch` (the batch had not been written when the send timeout of 300 ms removed it) | the same cause as the one of the sub producer test above, which confirms it; the two tests of that class that assert what was written before the timeout use a send timeout of 2 s (commit `Give two send timeout tests a longer timeout`) |
 
 The remaining rate under this load is about one failed run in 60, and each failure so far was a different test that depends on a short real-time window (a fixed sleep, a timeout of 100 to 300 ms, or a non-atomic record in a test double), never a library defect except the guard of item 1. Every pass of the stress finds at most one more test of this kind, so the list is not finished: the unit suite has many tests with short windows, and the load (4 full suites and 12 busy loops on 22 cores, so more busy threads than cores) is far beyond what a CI agent shows. The load is far above what a CI agent shows (4 full suites and 12 busy loops on 22 cores). If new failures appear, look first for `Task.Delay` followed by an immediate assertion and for test doubles that update two collections in separate locks.
+
+## WP11 sign-off stress (Release)
+
+Same procedure (4 parallel processes per round, 12 busy loops, `Category=Unit`, hang timeout 120 s). One more thing to check: when the test host is killed by the hang detector, `dotnet test` still prints `Passed!` with the number of the tests that had finished, and also `Test Run Aborted`. A run is only good if it has the full total (2290) and no `Test Run Aborted`. The script `stress2.sh` (same folder as `stress.sh`) counts the aborted runs.
+
+| Run | Result | Cause and fix |
+|---|---|---|
+| 13 rounds and a part of the 14th (56 runs started; I stopped it) | 21 of the 56 runs aborted, all in the same test, `LossyRelayTests.DropClientConnections_GivenConnection_ShouldCloseTheSideOfTheClientAndKeepTheSideOfTheBrokerOpen` (2244 tests had finished, 46 had not started). No test failed. | A race in the test helper `LossyRelay` (added in WP11-A): `Accept` connected to the broker and only then added the client socket to the lists that `DropClientConnections` closes. The test waits until the broker has accepted, and then drops: under load that can be before the registration, the drop closes nothing and the client read waits for ever. Not a library defect. |
+| `LossyRelayTests` alone, 8 rounds (32 runs), before the fix | 10 of 32 aborted | reproduces the cause |
+| `LossyRelayTests` alone, 16 rounds (64 runs), with the fix (commit `Register the relay client before the broker`) | 0 of 64 aborted | the client is added first; if `DropConnections` runs before the broker is connected, the broker socket is closed |
+| 15 rounds (60 runs) of the whole unit suite, with the fix | 60 of 60 runs: 2290 passed, none aborted | |
+
+The two integration classes that use the relay (`ProducerReconnectTests`, `BatchMessageTests`) ran again with the fix: 45 passed. As in the earlier passes this does not prove that no other test of this kind is left; it is the same list that is still not finished.
 
 ## Side effects of the fixes
 

@@ -109,6 +109,7 @@ public sealed class ConsumerOptions<TMessage>
         AckReceiptEnabled = DefaultAckReceiptEnabled;
         AckTimeout = DefaultAckTimeout;
         AckTimeoutTickTime = DefaultAckTimeoutTickTime;
+        AckTimeoutRedeliveryBackoff = null;
         AutoAckOldestChunkedMessageOnQueueFull = DefaultAutoAckOldestChunkedMessageOnQueueFull;
         BatchIndexAckEnabled = DefaultBatchIndexAckEnabled;
         CryptoFailureAction = DefaultCryptoFailureAction;
@@ -274,6 +275,18 @@ public sealed class ConsumerOptions<TMessage>
     /// A higher tick time reduces the memory overhead of tracking messages when the ack timeout is large (e.g. 1 hour).
     /// </remarks>
     public TimeSpan AckTimeoutTickTime { get; set; }
+
+    /// <summary>
+    /// Set the backoff that delays the redelivery of the messages that are not acknowledged within the 'AckTimeout'. This is optional.
+    /// </summary>
+    /// <remarks>
+    /// Without a backoff a message is redelivered when the ack timeout has passed. With a backoff it is redelivered when the ack timeout has passed and the delay of the backoff has passed after that.
+    /// The delay is the one that 'Next' returns for the number of times the message has been redelivered. The broker counts the redeliveries of a message on 'Shared' and 'KeyShared' subscriptions
+    /// ('IMessage.RedeliveryCount'). On the other subscription types the consumer counts the redeliveries that the ack timeout has caused, and the count is lost when the message is acknowledged
+    /// or negatively acknowledged. A message that is acknowledged during the delay is not redelivered. The delay is a minimum, because a redelivery is only done when the tracker ticks ('AckTimeoutTickTime').
+    /// It has no effect when the 'AckTimeout' is 'TimeSpan.Zero' (disabled) and on non-persistent topics. The backoff is used by every consumer that a partitioned, multi-topic or regex consumer creates.
+    /// </remarks>
+    public IRedeliveryBackoff? AckTimeoutRedeliveryBackoff { get; set; }
 
     /// <summary>
     /// Set the dead letter policy. This is optional.

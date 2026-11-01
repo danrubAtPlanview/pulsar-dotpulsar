@@ -17,7 +17,7 @@ namespace DotPulsar.Internal;
 using DotPulsar.Internal.Abstractions;
 
 // Upstream: apache/pulsar@f3846f4 pulsar-client/src/main/java/org/apache/pulsar/client/impl/UnAckedMessageTracker.java, apache/pulsar-client-cpp@f71d7e9 lib/UnAckedMessageTrackerEnabled.cc
-public sealed class UnAckedMessageTracker : IDisposable
+public sealed class UnAckedMessageTracker : IUnAckedMessageTracker
 {
     private readonly object _lock;
     private readonly Dictionary<(ulong LedgerId, ulong EntryId), int> _index;
@@ -115,6 +115,10 @@ public sealed class UnAckedMessageTracker : IDisposable
             return true;
         }
     }
+
+    // The redelivery count is not used, like the 'add(MessageId, int)' of the upstream tracker
+    public bool Add(MessageId messageId, uint redeliveryCount)
+        => Add(messageId);
 
     public bool Remove(MessageId messageId)
         => Remove(messageId.LedgerId, messageId.EntryId);

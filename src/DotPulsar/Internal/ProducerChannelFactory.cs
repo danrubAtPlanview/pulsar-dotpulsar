@@ -29,6 +29,9 @@ public sealed class ProducerChannelFactory : IProducerChannelFactory
     private readonly Schema? _schema;
     private readonly MessageCrypto? _messageCrypto;
     private readonly ProducerCryptoFailureAction _cryptoFailureAction;
+    private readonly bool _hasGeneratedName;
+    private string? _generatedName;
+    private ulong _epoch;
     private ulong? _topicEpoch;
 
     public ProducerChannelFactory(
@@ -51,14 +54,26 @@ public sealed class ProducerChannelFactory : IProducerChannelFactory
         _connectionPool = connectionPool;
         _schema = schemaInfo.PulsarSchema;
 
+        // Upstream: ProducerImpl#ProducerImpl (producerId = client.newProducerId())
+        // The producer has the same id on every connection, because a broker only replaces the registration of a producer on a connection by a later one if the id is the same (Producer#isSuccessorTo).
         _commandProducer = new CommandProducer
         {
             ProducerAccessMode = producerAccessMode,
+            ProducerId = ProducerIds.Next(),
             Topic = topic
         };
 
+        // Upstream: ProducerImpl#ProducerImpl (userProvidedProducerName), Commands#newProducer
+        // A producer without a name gets one from the broker, and sends it again when it connects again, so the broker sees the same producer and deduplicates what is sent again.
+        // It says that the name is not the user's, also the first time, because older brokers (for example 3.1.0) only replace a registration if neither name is the user's (AbstractTopic#tryOverwriteOldProducer).
+        // A name that the user gave is sent as it always was.
         if (producerName is not null)
             _commandProducer.ProducerName = producerName;
+        else
+        {
+            _commandProducer.UserProvidedProducerName = false;
+            _hasGeneratedName = true;
+        }
 
         if (_schema.Type != Schema.Types.Type.None)
             _commandProducer.Schema = _schema;
@@ -94,10 +109,25 @@ public sealed class ProducerChannelFactory : IProducerChannelFactory
         else
             _commandProducer.ClearTopicEpoch();
 
+        // Upstream: ConnectionHandler#switchClientCnx
+        // The epoch grows with every attempt to connect, so the broker can tell a later registration of the producer from an earlier one.
+        if (_hasGeneratedName)
+        {
+            _commandProducer.Epoch = _epoch++;
+
+            if (_generatedName is not null)
+                _commandProducer.ProducerName = _generatedName;
+        }
+
         var connection = await _connectionPool.FindConnectionForTopic(_commandProducer.Topic, cancellationToken).ConfigureAwait(false);
         var channel = new Channel(_correlationId, _eventRegister, new AsyncQueue<MessagePackage>());
         var response = await connection.Send(_commandProducer, channel, cancellationToken).ConfigureAwait(false);
         _topicEpoch = response.TopicEpoch;
+
+        // Upstream: ProducerImpl#connectionOpened (if (this.producerName == null) this.producerName = producerName)
+        if (_hasGeneratedName)
+            _generatedName ??= response.ProducerName;
+
         var schemaVersion = await GetSchemaVersion(connection, cancellationToken).ConfigureAwait(false);
         return new ProducerChannel(response.ProducerId, response.ProducerName, connection, _compressorFactory, schemaVersion, _messageCrypto, _cryptoFailureAction);
     }

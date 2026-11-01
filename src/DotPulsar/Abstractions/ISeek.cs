@@ -22,6 +22,11 @@ public interface ISeek
     /// <summary>
     /// Reset the cursor associated with the consumer or reader to a specific MessageId.
     /// </summary>
+    /// <remarks>
+    /// The MessageId of a message in a batch makes the broker redeliver the batch from that message, so the messages of the batch that come before it are not redelivered.
+    /// This requires the broker setting 'acknowledgmentAtBatchIndexLevelEnabled', and the batch size of the message, which only the MessageId of a message that the consumer or reader received has.
+    /// If the broker does not have that setting, or the batch size is not known (the MessageId that a send returns, or one that was parsed or created by the application), the whole batch is redelivered.
+    /// </remarks>
     ValueTask Seek(MessageId messageId, CancellationToken cancellationToken = default);
 
     /// <summary>

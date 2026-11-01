@@ -1,6 +1,6 @@
 # 0012 - Findings from the WP10 test ports
 
-Status: item 4 done in WP10; item 1 open (medium); items 2 and 3 are documented differences.
+Status: item 4 done in WP10; **item 1 fixed in WP11-A** (the requester asked for it on 2026-11-01, after it had been accepted as a deviation); items 2 and 3 are documented differences.
 
 ## 1. A generated producer name is not reused after a reconnect (no deduplication for unnamed producers)
 
@@ -24,4 +24,4 @@ See the WP10 tail in `10-implementation-plan.md`.
 
 Item 4 is done: `testSimpleBatchSyncProducerWithFixedBatchSize` was ported by the WP10 tail (see `upstream-map.yaml`). Item 2 matters again for tests that wait for the permits of a consumer (followup 0015: the test of two Shared consumers waits for the permits of both at the broker before it sends). Item 1 (a generated producer name is not reused after a reconnect, so unnamed producers are not deduplicated) is open with medium severity; items 2 and 3 are documented differences.
 
-Decision for item 1: **accepted as a deviation** (listed in `implementation-notes/deviations-summary.md`). Deduplication after a reconnect works for producers with a name (`ProducerName`), which is also what Java users have to rely on for deduplication across restarts; a producer without a name does not get it, because the generated name is not sent again. The tests that need it name their producer. A fix is a change of the producer reconnect (the producer id and the epoch have to stay consistent, or a reconnect while the broker still holds the old producer loops on `ProducerBusy`), pre-existing on master for every kind of send, and not part of the transaction work.
+Decision for item 1 (WP10): accepted as a deviation. **Reversed on 2026-11-01 by the requester: fixed in WP11-A**, see `../implementation-notes/wp11-deferred-features.md`. A producer has an id that is the same on every connection (a process-wide allocator, honoured by `ChannelManager`), a growing epoch, and a producer without a name sends `UserProvidedProducerName = false` and, from the second connect, the name that the broker generated; deduplication then holds for plain, batched and chunked sends. The broker rules are not what this followup assumed: a registration from a different connection is not a successor of the old producer, the broker pings the old connection and replaces the producer after `connectionLivenessCheckTimeoutMillis` (5 s), so a reconnect while the broker still holds the old producer is registered 8 s after the cut on 4.0.9 (3 s client retry + 5 s), named or not; a broker without the liveness check (for example 3.1.0) waits for its keep-alive, as with Java.

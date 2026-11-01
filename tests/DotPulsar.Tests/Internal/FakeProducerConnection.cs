@@ -26,6 +26,8 @@ public sealed class FakeProducerConnection
     private readonly object _lock = new();
     private readonly ConcurrentQueue<SentMessage> _sent;
     private readonly ConcurrentQueue<CommandProducer> _commandProducers;
+    private readonly ConcurrentQueue<IChannel> _channels;
+    private readonly ConcurrentDictionary<string, string> _generatedNames;
     private readonly Queue<(SentMessage Message, TaskCompletionSource<BaseCommand> Response)> _heldResponses;
     private readonly uint _numberOfPartitions;
     private ulong _nextProducerId;
@@ -36,6 +38,8 @@ public sealed class FakeProducerConnection
     {
         _sent = new ConcurrentQueue<SentMessage>();
         _commandProducers = new ConcurrentQueue<CommandProducer>();
+        _channels = new ConcurrentQueue<IChannel>();
+        _generatedNames = new ConcurrentDictionary<string, string>();
         _heldResponses = new Queue<(SentMessage, TaskCompletionSource<BaseCommand>)>();
         _numberOfPartitions = numberOfPartitions;
         _nextProducerId = 0;
@@ -62,6 +66,12 @@ public sealed class FakeProducerConnection
 
     public IReadOnlyList<SentMessage> Sent => _sent.ToArray();
     public IReadOnlyList<CommandProducer> CommandProducers => _commandProducers.ToArray();
+
+    // The channels that were given to the connection with the commands of CommandProducers, in the same order, so a test can disconnect one of them like a connection that is lost does
+    public IReadOnlyList<IChannel> Channels => _channels.ToArray();
+
+    // The names that the connection generated for the producers that did not send one, by topic (the first one of a topic)
+    public IReadOnlyDictionary<string, string> GeneratedNames => _generatedNames;
 
     // The responses of the messages written from now on are not delivered until ReleaseResponses is called.
     public void HoldResponses()
@@ -120,11 +130,23 @@ public sealed class FakeProducerConnection
         return _numberOfPartitions;
     }
 
+    // Like a broker, it generates a name for a producer that does not send one, and answers with the name and the id that the command has
     private Task<ProducerResponse> CreateProducer(CommandProducer command, IChannel channel)
     {
-        _commandProducers.Enqueue(command.Clone());
+        lock (_lock)
+        {
+            _commandProducers.Enqueue(command.Clone());
+            _channels.Enqueue(channel);
+        }
+
         channel.Connected();
-        return Task.FromResult(new ProducerResponse(Interlocked.Increment(ref _nextProducerId), $"producer-{_nextProducerId}", 0));
+        var number = Interlocked.Increment(ref _nextProducerId);
+        var name = command.HasProducerName ? command.ProducerName : $"producer-{number}";
+
+        if (!command.HasProducerName)
+            _ = _generatedNames.TryAdd(command.Topic, name);
+
+        return Task.FromResult(new ProducerResponse(command.HasProducerId ? command.ProducerId : number, name, 0));
     }
 
     private Task Write(SendPackage package, TaskCompletionSource<BaseCommand> response)

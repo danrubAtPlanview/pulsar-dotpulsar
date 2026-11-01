@@ -41,6 +41,7 @@ public sealed class ConsumerBuilder<TMessage> : IConsumerBuilder<TMessage>
     private bool _batchIndexAckEnabled;
     private TimeSpan _ackTimeout;
     private TimeSpan _ackTimeoutTickTime;
+    private IRedeliveryBackoff? _ackTimeoutRedeliveryBackoff;
     private DeadLetterPolicy? _deadLetterPolicy;
     private TimeSpan _negativeAcknowledgeRedeliveryDelay;
     private uint _maxPendingChunkedMessage;
@@ -194,6 +195,12 @@ public sealed class ConsumerBuilder<TMessage> : IConsumerBuilder<TMessage>
         return this;
     }
 
+    public IConsumerBuilder<TMessage> AckTimeoutRedeliveryBackoff(IRedeliveryBackoff redeliveryBackoff)
+    {
+        _ackTimeoutRedeliveryBackoff = redeliveryBackoff;
+        return this;
+    }
+
     public IConsumerBuilder<TMessage> DeadLetterPolicy(DeadLetterPolicy deadLetterPolicy)
     {
         _deadLetterPolicy = deadLetterPolicy;
@@ -266,6 +273,7 @@ public sealed class ConsumerBuilder<TMessage> : IConsumerBuilder<TMessage>
             BatchIndexAckEnabled = _batchIndexAckEnabled,
             AckTimeout = _ackTimeout,
             AckTimeoutTickTime = _ackTimeoutTickTime,
+            AckTimeoutRedeliveryBackoff = _ackTimeoutRedeliveryBackoff,
             DeadLetterPolicy = _deadLetterPolicy,
             NegativeAcknowledgeRedeliveryDelay = _negativeAcknowledgeRedeliveryDelay,
             MaxPendingChunkedMessage = _maxPendingChunkedMessage,

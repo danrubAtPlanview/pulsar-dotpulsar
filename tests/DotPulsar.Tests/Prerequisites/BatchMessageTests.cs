@@ -784,10 +784,12 @@ public sealed class BatchMessageTests : IDisposable
     // The first 50 messages are acknowledged by the broker. Then the receipts of the broker are lost, so the producer sends the other messages, and the broker stores them, but the producer never gets
     // the receipts. When the connection is closed, the producer reconnects and sends the batches that it has no receipt for again, with the same sequence ids. The broker deduplicates them, so the topic
     // contains each message once and in order.
-    // The broker deduplicates by the name of the producer. The Java producer sends the name that the broker generated when it reconnects, and DotPulsar does not, so the broker would take
-    // the producer for a new one and store the messages again. The producer of the test has a name, and the report of this work package has the finding.
-    [Fact]
-    public async Task Send_GivenBatchingAndLostReceipts_ShouldResendWithoutDuplicates()
+    // The broker deduplicates by the name of the producer. A producer without a name sends the name that the broker generated when it reconnects, like the Java producer does, so the broker takes it for
+    // the producer that it had. The test runs for a producer with a name and for one without.
+    [Theory]
+    [InlineData(null)]
+    [InlineData("deduplication-producer")]
+    public async Task Send_GivenBatchingAndLostReceipts_ShouldResendWithoutDuplicates(string? producerName)
     {
         //Arrange
         const int numberOfMessages = 500;
@@ -800,15 +802,18 @@ public sealed class BatchMessageTests : IDisposable
             .ExceptionHandler(_testOutputHelper.Log)
             .ServiceUrl(relay.ServiceUrl)
             .Build();
-        await using var producer = producerClient.NewProducer(Schema.String)
+        var producerBuilder = producerClient.NewProducer(Schema.String)
             .BatchingMaxMessages(10)
             .BatchingMaxPublishDelay(TimeSpan.FromMilliseconds(50))
             .EnableBatching(true)
             .MaxPendingMessages(numberOfMessages * 2)
-            .ProducerName("deduplication-producer")
             .StateChangedHandler(_testOutputHelper.Log)
-            .Topic(topic)
-            .Create();
+            .Topic(topic);
+
+        if (producerName is not null)
+            producerBuilder = producerBuilder.ProducerName(producerName);
+
+        await using var producer = producerBuilder.Create();
         await producer.StateChangedTo(ProducerState.Connected, _cts.Token);
         var receipts = new List<Task<MessageId>>();
 
