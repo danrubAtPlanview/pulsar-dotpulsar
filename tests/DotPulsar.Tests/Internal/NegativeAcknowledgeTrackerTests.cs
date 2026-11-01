@@ -14,6 +14,7 @@
 
 namespace DotPulsar.Tests.Internal;
 
+using DotPulsar.Abstractions;
 using DotPulsar.Internal;
 using System.Collections.Concurrent;
 
@@ -609,10 +610,164 @@ public sealed class NegativeAcknowledgeTrackerTests
         uut.Count.ShouldBe(0);
     }
 
+    // Upstream: NegativeAcksTracker#add (backoffMs)
+    [Fact]
+    public void Add_GivenRedeliveryBackoff_ShouldScheduleTimerForTheDelayOfTheBackoffInsteadOfTheDelayAndWithoutTheMinimum()
+    {
+        //Arrange
+        var backoff = new FakeRedeliveryBackoff(count => TimeSpan.FromMilliseconds(10 * (count + 1)));
+        using var uut = CreateTracker(TimeSpan.FromMinutes(1), backoff);
+
+        //Act
+        _ = uut.Add(new MessageId(1, 1, -1, -1), 2);
+
+        //Assert
+        _timers.Timer.Scheduled.ShouldBe([TimeSpan.FromMilliseconds(30)]);
+        backoff.Counts.ShouldBe([2u]);
+    }
+
+    // Additional coverage
+    [Fact]
+    public void Add_GivenRedeliveryCountAndNoBackoff_ShouldScheduleTimerForTheDelay()
+    {
+        //Arrange
+        using var uut = CreateTracker(TimeSpan.FromSeconds(1));
+
+        //Act
+        _ = uut.Add(new MessageId(1, 1, -1, -1), 5);
+
+        //Assert
+        _timers.Timer.Scheduled.ShouldBe([TimeSpan.FromSeconds(1)]);
+    }
+
+    // Additional coverage
+    [Fact]
+    public void Add_GivenMessageIdWithoutRedeliveryCountAndBackoff_ShouldAskTheBackoffForZeroRedeliveries()
+    {
+        //Arrange
+        var backoff = new FakeRedeliveryBackoff(_ => TimeSpan.FromSeconds(1));
+        using var uut = CreateTracker(TimeSpan.FromMinutes(1), backoff);
+
+        //Act
+        _ = uut.Add(new MessageId(1, 1, -1, -1));
+
+        //Assert
+        backoff.Counts.ShouldBe([0u]);
+    }
+
+    // Upstream: NegativeAcksTest#testNegativeAcksWithBackoff (the delay of every redelivery grows, and a message is not redelivered before its delay has passed)
+    [Fact]
+    public void Fire_GivenRedeliveryBackoff_ShouldRedeliverAfterTheDelayThatTheBackoffReturnsForTheRedeliveryCount()
+    {
+        //Arrange
+        var backoff = new FakeRedeliveryBackoff(count => TimeSpan.FromSeconds(1 << (int) count));
+        using var uut = CreateTracker(TimeSpan.FromMinutes(1), backoff);
+        var first = new MessageId(1, 1, 0, -1);
+        var second = new MessageId(1, 2, 0, -1);
+        _ = uut.Add(first, 0);
+        _ = uut.Add(second, 2);
+
+        //Act
+        _clock.Advance(TimeSpan.FromMilliseconds(1500));
+        _timers.Timer.Fire();
+        var afterFirstDelay = _redelivered.ToArray();
+        _clock.Advance(TimeSpan.FromMilliseconds(2600));
+        _timers.Timer.Fire();
+
+        //Assert
+        afterFirstDelay.Length.ShouldBe(1);
+        afterFirstDelay[0].Single().ShouldBeSameAs(first);
+        _redelivered.Count.ShouldBe(2);
+        _redelivered.Last().Single().ShouldBeSameAs(second);
+        uut.Count.ShouldBe(0);
+    }
+
+    // Additional coverage
+    [Fact]
+    public void Add_GivenEntryThatIsDueBeforeTheOneTheTimerWaitsFor_ShouldBringTheTimerForward()
+    {
+        //Arrange
+        var backoff = new FakeRedeliveryBackoff(count => TimeSpan.FromSeconds(1 + 3 * count));
+        using var uut = CreateTracker(TimeSpan.FromMinutes(1), backoff);
+        var late = new MessageId(1, 1, 0, -1);
+        var early = new MessageId(1, 2, 0, -1);
+        _ = uut.Add(late, 2);
+
+        //Act
+        _ = uut.Add(early, 0);
+
+        //Assert
+        _timers.Timer.Scheduled.ShouldBe([TimeSpan.FromSeconds(7), TimeSpan.FromSeconds(1)]);
+        _clock.Advance(TimeSpan.FromSeconds(1));
+        _timers.Timer.Fire();
+        _redelivered.Single().Single().ShouldBeSameAs(early);
+        var pending = _timers.Timer.Pending;
+        pending.ShouldNotBeNull();
+        pending.Value.ShouldBeInRange(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(6));
+    }
+
+    // Additional coverage
+    [Fact]
+    public void Add_GivenEntryThatIsDueAfterTheOneTheTimerWaitsFor_ShouldNotScheduleTheTimerAgain()
+    {
+        //Arrange
+        var backoff = new FakeRedeliveryBackoff(count => TimeSpan.FromSeconds(1 + 3 * count));
+        using var uut = CreateTracker(TimeSpan.FromMinutes(1), backoff);
+        _ = uut.Add(new MessageId(1, 1, 0, -1), 0);
+
+        //Act
+        _ = uut.Add(new MessageId(1, 2, 0, -1), 2);
+
+        //Assert
+        _timers.Timer.Scheduled.ShouldBe([TimeSpan.FromSeconds(1)]);
+    }
+
+    // Additional coverage
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1000)]
+    public void Add_GivenBackoffThatReturnsNoDelay_ShouldRedeliverAtTheNextFire(int delayMs)
+    {
+        //Arrange
+        var backoff = new FakeRedeliveryBackoff(_ => TimeSpan.FromMilliseconds(delayMs));
+        using var uut = CreateTracker(TimeSpan.FromMinutes(1), backoff);
+        var messageId = new MessageId(1, 1, 0, -1);
+
+        //Act
+        _ = uut.Add(messageId);
+        _timers.Timer.Fire();
+
+        //Assert
+        _timers.Timer.Scheduled.ShouldBe([TimeSpan.Zero]);
+        _redelivered.Single().Single().ShouldBeSameAs(messageId);
+    }
+
+    // Additional coverage
+    [Fact]
+    public void Add_GivenBackoffThatThrows_ShouldThrowAndNotTrackTheEntry()
+    {
+        //Arrange
+        var fail = true;
+        var backoff = new FakeRedeliveryBackoff(_ => fail ? throw new InvalidOperationException("Backoff failed") : TimeSpan.FromSeconds(1));
+        using var uut = CreateTracker(TimeSpan.FromMinutes(1), backoff);
+        var messageId = new MessageId(1, 1, 0, -1);
+
+        //Act
+        var exception = Record.Exception(() => uut.Add(messageId));
+
+        //Assert
+        exception.ShouldBeOfType<InvalidOperationException>();
+        uut.Count.ShouldBe(0);
+        _timers.Created.ShouldBe(0);
+        fail = false;
+        uut.Add(messageId).ShouldBeTrue();
+        uut.Count.ShouldBe(1);
+    }
+
     private static Task Run(Action action)
         => Task.Run(action, Current.CancellationToken);
 
-    private NegativeAcknowledgeTracker CreateTracker(TimeSpan delay)
+    private NegativeAcknowledgeTracker CreateTracker(TimeSpan delay, IRedeliveryBackoff? redeliveryBackoff = null)
         => new(
             delay,
             (messageIds, _) =>
@@ -621,5 +776,6 @@ public sealed class NegativeAcknowledgeTrackerTests
                 return default;
             },
             () => _clock.Now,
-            _timers.Create);
+            _timers.Create,
+            redeliveryBackoff);
 }
