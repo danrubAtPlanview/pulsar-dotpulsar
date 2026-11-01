@@ -1,6 +1,6 @@
-<!-- Draft of the pull request description of the branch feature/transactions. Nothing has been pushed or opened. Replace the issue number before it is used. -->
+<!-- Draft of the pull request description of the branch feature/transactions. Nothing has been pushed or opened. The issue is apache/pulsar-dotpulsar#246 ("Add support for the Pulsar Transactions API", open, found on 2026-11-01); check that it is the one to close before it is used. -->
 
-Fixes #{issue number}
+Fixes #246
 
 # Description
 

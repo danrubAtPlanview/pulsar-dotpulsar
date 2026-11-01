@@ -99,7 +99,7 @@ Under extreme CPU load (4 parallel suites and 12 busy loops; the script was kept
 
 ## 6. Process items (not code)
 
-- **No pull request has been opened** and nothing was pushed. The draft description is [`../PULL-REQUEST.md`](../PULL-REQUEST.md); its issue number is a placeholder (`Fixes #{issue number}`) that the owner of the issue must fill in.
+- **No pull request has been opened** and nothing was pushed. The draft description is [`../PULL-REQUEST.md`](../PULL-REQUEST.md); it says `Fixes #246`, the open issue "Add support for the Pulsar Transactions API" of apache/pulsar-dotpulsar, which was found by searching on 2026-11-01; whoever opens the pull request has to confirm that this is the issue to close.
 - The `spec/` folder is **not** part of the branch (it is in `.git/info/exclude`) and `.claude/` is not either. The spec and these followups are kept on the local branch `spec/transactions-docs`, a checkpoint made on 2026-11-01 without switching branches. They are not meant for the PR; the maintainers may want to keep some of them (for example `upstream-map.yaml` and `11-upstream-sync.md`) as maintenance documents.
 - The **Pulsar client feature matrix** on the Pulsar website (transaction, batching, chunking, encryption, DLQ rows for the .NET client) has to be updated by the maintainers after the release; it is not in this repository.
 - Several production fixes were made in their own commits so they can be sent as separate pull requests if the maintainers prefer a smaller first change (see `PULL-REQUEST.md`, "Production bugs on master that the work found and fixed").
