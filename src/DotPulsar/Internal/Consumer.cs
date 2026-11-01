@@ -56,6 +56,11 @@ public sealed class Consumer<TMessage> : IConsumer<TMessage>
     // The number of entries that the ack timeout waits for, which is 0 if the ack timeout is not enabled
     public int UnAckedMessageCount => _subConsumers.Values.Sum(subConsumer => subConsumer.UnAckedMessageCount);
 
+    // How many times the ack timeout has redelivered the message, as counted by the consumer of the topic of the message id. It is 0 unless the ack timeout redelivery backoff is used,
+    // and the subscription is not Shared or KeyShared (the broker counts the redeliveries of those, and a message has them in its RedeliveryCount).
+    public uint GetLocalRedeliveryCount(MessageId messageId)
+        => _subConsumers.TryGetValue(messageId.Topic, out var subConsumer) ? subConsumer.GetLocalRedeliveryCount(messageId) : 0;
+
     public Consumer(
         Uri serviceUrl,
         ConsumerOptions<TMessage> consumerOptions,
@@ -556,9 +561,21 @@ public sealed class Consumer<TMessage> : IConsumer<TMessage>
         SubConsumer<TMessage>? subConsumer = null;
 
         // Upstream: ConsumerImpl#isAckTimeoutTrackingEnabled
-        UnAckedMessageTracker? unAckedMessageTracker = null;
+        IUnAckedMessageTracker? unAckedMessageTracker = null;
         if (_consumerOptions.AckTimeout > TimeSpan.Zero && !topic.StartsWith("non-persistent://", StringComparison.Ordinal))
-            unAckedMessageTracker = new UnAckedMessageTracker(_consumerOptions.AckTimeout, _consumerOptions.AckTimeoutTickTime, (ids, ct) => subConsumer!.RedeliverUnacknowledgedMessages(ids, ct));
+        {
+            // Upstream: ConsumerBase#ConsumerBase (the tracker is chosen by ackTimeoutRedeliveryBackoff)
+            // The broker only counts the redeliveries of the messages of a Shared and a KeyShared subscription, so the tracker counts them itself for the other subscription types.
+            if (_consumerOptions.AckTimeoutRedeliveryBackoff is { } backoff)
+            {
+                var countRedeliveriesLocally = _consumerOptions.SubscriptionType is not (SubscriptionType.Shared or SubscriptionType.KeyShared);
+                unAckedMessageTracker = new UnAckedMessageRedeliveryTracker(_consumerOptions.AckTimeout, _consumerOptions.AckTimeoutTickTime, backoff, countRedeliveriesLocally, (ids, ct) => subConsumer!.RedeliverUnacknowledgedMessages(ids, ct));
+            }
+            else
+            {
+                unAckedMessageTracker = new UnAckedMessageTracker(_consumerOptions.AckTimeout, _consumerOptions.AckTimeoutTickTime, (ids, ct) => subConsumer!.RedeliverUnacknowledgedMessages(ids, ct));
+            }
+        }
 
         var negativeAcknowledgeTracker = new NegativeAcknowledgeTracker(_consumerOptions.NegativeAcknowledgeRedeliveryDelay, (ids, ct) => subConsumer!.RedeliverUnacknowledgedMessages(ids, ct));
 

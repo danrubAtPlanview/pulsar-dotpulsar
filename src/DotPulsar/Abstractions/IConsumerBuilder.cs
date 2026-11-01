@@ -117,6 +117,11 @@ public interface IConsumerBuilder<TMessage>
     IConsumerBuilder<TMessage> AckTimeoutTickTime(TimeSpan tickTime);
 
     /// <summary>
+    /// Set the backoff that delays the redelivery of the messages that are not acknowledged within the ack timeout. This is optional, and it has no effect without an ack timeout.
+    /// </summary>
+    IConsumerBuilder<TMessage> AckTimeoutRedeliveryBackoff(IRedeliveryBackoff redeliveryBackoff);
+
+    /// <summary>
     /// Set the dead letter policy. This is optional.
     /// </summary>
     IConsumerBuilder<TMessage> DeadLetterPolicy(DeadLetterPolicy deadLetterPolicy);
