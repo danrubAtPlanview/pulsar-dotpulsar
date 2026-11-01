@@ -126,14 +126,26 @@ public sealed class LossyRelay : IAsyncDisposable
                 return;
             }
 
+            // The client is known before the broker is connected, so that a drop that follows the accept of the broker cannot miss it
+            lock (_sockets)
+            {
+                _sockets.Add(client);
+                _clientSockets.Add(client);
+            }
+
             var broker = new TcpClient();
             await broker.ConnectAsync(_brokerServiceUrl.Host, _brokerServiceUrl.Port, cancellationToken);
 
             lock (_sockets)
             {
-                _sockets.Add(client);
+                if (!_sockets.Contains(client))
+                {
+                    // DropConnections ran in between
+                    broker.Dispose();
+                    continue;
+                }
+
                 _sockets.Add(broker);
-                _clientSockets.Add(client);
                 _tasks.Add(Pump(client, broker, false, cancellationToken));
                 _tasks.Add(Pump(broker, client, true, cancellationToken));
             }
