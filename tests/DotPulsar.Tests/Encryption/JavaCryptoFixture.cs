@@ -127,7 +127,7 @@ public sealed class JavaCryptoFixture : IAsyncLifetime
     {
         _cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
 
-        var builder = new ContainerBuilder("apachepulsar/pulsar:4.0.9")
+        var builder = new ContainerBuilder(BrokerImage.Name)
             .WithEntrypoint("tail", "-f", "/dev/null")
             .WithResourceMapping(Encoding.UTF8.GetBytes(Interop), "/work/Interop.java");
 

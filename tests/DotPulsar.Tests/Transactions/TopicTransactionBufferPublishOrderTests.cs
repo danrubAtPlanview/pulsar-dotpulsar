@@ -34,10 +34,14 @@ public sealed class TopicTransactionBufferPublishOrderTests : IDisposable
 
     // Upstream: TopicTransactionBufferPublishOrderTest#testPlainMessageSentAfterTransactionalMessageIsStoredAfterIt
     [Theory]
-    [InlineData(false, Skip = "Requires the broker fix apache/pulsar#27082, which is not in apachepulsar/pulsar:4.0.9. Without it the broker stores the plain message before the transactional message, while the transaction buffer takes its first snapshot")]
+    [InlineData(false)]
     [InlineData(true)]
     public async Task Send_GivenPlainMessageAfterTransactionalMessage_ShouldStoreInSendOrder(bool recovering)
     {
+        // Without the fix the broker stores the plain message before the transactional message, while the transaction buffer takes its first snapshot (the image of the tests has the fix only if BrokerImage says so)
+        if (!recovering)
+            BrokerImage.SkipUnlessItHasFix(BrokerImage.PlainPublishBehindTransactionalPublish, "the plain message is kept behind the transactional messages");
+
         //Arrange
         var ns = $"{TransactionFixture.Tenant}/testPlainMessageSentAfterTransactionalMessageIsStoredAfterIt-{Guid.NewGuid():N}";
         await _fixture.CreateNamespace(ns, 1, _cts.Token);
