@@ -34,7 +34,7 @@ public sealed class ConsumerChannelFactory<TMessage> : IConsumerChannelFactory<T
     private readonly bool _ackReceiptEnabled;
     private readonly bool _batchIndexAckEnabled;
     private readonly ConsumerEpoch? _consumerEpoch;
-    private readonly UnAckedMessageTracker? _unAckedMessageTracker;
+    private readonly IUnAckedMessageTracker? _unAckedMessageTracker;
     private readonly DeadLetterHandler<TMessage>? _deadLetterHandler;
     private readonly ChunkedMessageAssembler _chunkAssembler;
     private readonly MessageCrypto? _messageCrypto;
@@ -54,7 +54,7 @@ public sealed class ConsumerChannelFactory<TMessage> : IConsumerChannelFactory<T
         bool ackReceiptEnabled,
         bool batchIndexAckEnabled,
         ConsumerEpoch? consumerEpoch,
-        UnAckedMessageTracker? unAckedMessageTracker,
+        IUnAckedMessageTracker? unAckedMessageTracker,
         DeadLetterHandler<TMessage>? deadLetterHandler,
         ChunkedMessageAssembler chunkAssembler,
         MessageCrypto? messageCrypto,

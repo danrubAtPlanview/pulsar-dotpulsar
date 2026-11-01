@@ -38,7 +38,7 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
     private readonly bool _ackReceiptEnabled;
     private readonly bool _batchIndexAckEnabled;
     private readonly ConsumerEpoch? _consumerEpoch;
-    private readonly UnAckedMessageTracker? _unAckedMessageTracker;
+    private readonly IUnAckedMessageTracker? _unAckedMessageTracker;
     private readonly DeadLetterHandler<TMessage>? _deadLetterHandler;
     private readonly ChunkedMessageAssembler _chunkAssembler;
     private readonly MessageCrypto? _messageCrypto;
@@ -61,7 +61,7 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
         bool ackReceiptEnabled,
         bool batchIndexAckEnabled,
         ConsumerEpoch? consumerEpoch,
-        UnAckedMessageTracker? unAckedMessageTracker,
+        IUnAckedMessageTracker? unAckedMessageTracker,
         DeadLetterHandler<TMessage>? deadLetterHandler,
         ChunkedMessageAssembler chunkAssembler,
         MessageCrypto? messageCrypto,
@@ -171,7 +171,7 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
                                     continue;
                                 default:
                                     // Neither acknowledged nor delivered. The ack timeout redelivers it, or the broker does when the consumer reconnects.
-                                    _unAckedMessageTracker?.Add(messageId.ToMessageId(_topic));
+                                    _unAckedMessageTracker?.Add(messageId.ToMessageId(_topic), messagePackage.RedeliveryCount);
                                     continue;
                             }
                         }
@@ -181,7 +181,7 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
                     // The chunks are assembled before the message is decompressed. The metadata of the last chunk is the metadata of the message.
                     if (metadata.IsChunkedMessage())
                     {
-                        var assembled = ProcessChunk(messageId, metadata, data);
+                        var assembled = ProcessChunk(messageId, metadata, data, messagePackage.RedeliveryCount);
 
                         if (assembled is null)
                             continue;
@@ -642,7 +642,7 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
     // The assembler asks for acknowledgments of the chunks that will never be part of a delivered message, and it hands back the chunks that are tracked by
     // the ack timeout (they are redelivered if the ack timeout is enabled). Returns the message if the chunk completed it.
     // Nothing is awaited, because every local variable of Receive that is used after an await is kept in its state machine, which is allocated for every message.
-    private AssembledChunkedMessage? ProcessChunk(MessageIdData messageId, MessageMetadata metadata, ReadOnlySequence<byte> data)
+    private AssembledChunkedMessage? ProcessChunk(MessageIdData messageId, MessageMetadata metadata, ReadOnlySequence<byte> data, uint redeliveryCount)
     {
         _chunkAcks.Clear();
         _chunkTrack.Clear();
@@ -653,7 +653,7 @@ public sealed class ConsumerChannel<TMessage> : IConsumerChannel<TMessage>
         {
             foreach (var chunkId in _chunkTrack)
             {
-                _unAckedMessageTracker.Add(chunkId.ToMessageId(_topic));
+                _unAckedMessageTracker.Add(chunkId.ToMessageId(_topic), redeliveryCount);
             }
         }
 

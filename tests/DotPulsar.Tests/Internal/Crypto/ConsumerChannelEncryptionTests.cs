@@ -281,6 +281,24 @@ public sealed class ConsumerChannelEncryptionTests
         tracker.Remove(Ledger, 5).ShouldBeTrue();
     }
 
+    // Upstream: ConsumerImpl#handleCryptoFailure (FAIL, the redelivery count that the message is tracked with)
+    [Fact(Timeout = 30_000)]
+    public async Task Receive_GivenUndecryptableMessageWithRedeliveryCountAndFail_ShouldTrackItWithTheRedeliveryCount()
+    {
+        //Arrange
+        using var producer = CreateProducerCrypto();
+        var tracker = Substitute.For<IUnAckedMessageTracker>();
+        await using var uut = CreateUut(CreateUndecryptableKeyReader(Cause.NoCryptoKeyReader), ConsumerCryptoFailureAction.Fail, tracker);
+        uut.Enqueue(CreateEncryptedPackage(producer, CreateMetadata(), 5, "Hello", 3));
+        uut.Enqueue(BatchTestData.CreateSinglePackage(BatchTestData.CreateEntryId(Ledger, 6)));
+
+        //Act
+        _ = await uut.Channel.Receive(Current.CancellationToken);
+
+        //Assert
+        tracker.Received(1).Add(Arg.Is<MessageId>(id => id.LedgerId == Ledger && id.EntryId == 5), 3u);
+    }
+
     // Additional coverage
     [Fact(Timeout = 30_000)]
     public async Task Receive_GivenUndecryptableMessageAndFailWithoutAckTimeout_ShouldNeitherAcknowledgeNorDeliverIt()
@@ -527,13 +545,13 @@ public sealed class ConsumerChannelEncryptionTests
     private static MessageMetadata CreateMetadata()
         => new() { ProducerName = "producer", SequenceId = 1, PublishTime = 1 };
 
-    private static MessagePackage CreateEncryptedPackage(MessageCrypto producer, MessageMetadata metadata, ulong entryId, string text)
-        => CreateEncryptedPackage(producer, metadata, entryId, Encoding.UTF8.GetBytes(text));
+    private static MessagePackage CreateEncryptedPackage(MessageCrypto producer, MessageMetadata metadata, ulong entryId, string text, uint redeliveryCount = 0)
+        => CreateEncryptedPackage(producer, metadata, entryId, Encoding.UTF8.GetBytes(text), redeliveryCount);
 
-    private static MessagePackage CreateEncryptedPackage(MessageCrypto producer, MessageMetadata metadata, ulong entryId, byte[] payload)
+    private static MessagePackage CreateEncryptedPackage(MessageCrypto producer, MessageMetadata metadata, ulong entryId, byte[] payload, uint redeliveryCount = 0)
     {
         var encrypted = producer.Encrypt(metadata, new ReadOnlySequence<byte>(payload));
-        return BatchTestData.CreatePackage(BatchTestData.CreateEntryId(Ledger, entryId), metadata, encrypted.ToArray());
+        return BatchTestData.CreatePackage(BatchTestData.CreateEntryId(Ledger, entryId), metadata, encrypted.ToArray(), redeliveryCount: redeliveryCount);
     }
 
     private static MessagePackage CreateEncryptedBatchPackage(MessageCrypto producer, ulong entryId, int numberOfMessages)
@@ -565,7 +583,7 @@ public sealed class ConsumerChannelEncryptionTests
     private static Context CreateUut(
         ICryptoKeyReader? cryptoKeyReader,
         ConsumerCryptoFailureAction cryptoFailureAction = ConsumerCryptoFailureAction.Fail,
-        UnAckedMessageTracker? tracker = null,
+        IUnAckedMessageTracker? tracker = null,
         IDecompressorFactory? decompressor = null,
         uint prefetchCount = 100,
         MessageCrypto? messageCrypto = null)
