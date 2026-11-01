@@ -16,6 +16,7 @@ namespace DotPulsar.Tests.Extensions;
 
 using DotPulsar.Abstractions;
 using DotPulsar.Extensions;
+using DotPulsar.Internal.Abstractions;
 
 [Trait("Category", "Unit")]
 public sealed class ConsumerExtensionsNegativeAcknowledgeTests
@@ -25,7 +26,7 @@ public sealed class ConsumerExtensionsNegativeAcknowledgeTests
     public async Task NegativeAcknowledge_GivenMessage_ShouldPassTheRedeliveryCountOfTheMessage()
     {
         //Arrange
-        var consumer = Substitute.For<IConsumer>();
+        var consumer = Substitute.For<IConsumer, IExtendedConsumer>();
         var messageId = new MessageId(1, 2, 0, -1);
         var message = Substitute.For<IMessage>();
         message.MessageId.Returns(messageId);
@@ -35,6 +36,6 @@ public sealed class ConsumerExtensionsNegativeAcknowledgeTests
         await consumer.NegativeAcknowledge(message, Current.CancellationToken);
 
         //Assert
-        await consumer.Received(1).NegativeAcknowledge(messageId, 3u, Current.CancellationToken);
+        await ((IExtendedConsumer) consumer).Received(1).NegativeAcknowledge(messageId, 3u, Current.CancellationToken);
     }
 }

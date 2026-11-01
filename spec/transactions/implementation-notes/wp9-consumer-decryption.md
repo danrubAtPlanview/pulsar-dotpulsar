@@ -11,7 +11,7 @@ The core already had `ICryptoKeyReader`, `EncryptionKeyInfo`, `DefaultCryptoKeyR
 
 - `ConsumerOptions` / `ReaderOptions`: `CryptoKeyReader`, `CryptoFailureAction` (default `Fail`), static `DefaultCryptoFailureAction`.
 - `IConsumerBuilder` / `IReaderBuilder`: `CryptoKeyReader(...)`, `CryptoFailureAction(...)`; extension methods `DefaultCryptoKeyReader(string privateKey)` and `DefaultCryptoKeyReader(IReadOnlyDictionary<string, string> privateKeys)` for both builders.
-- `IMessage.EncryptionContext` (breaking for custom `IMessage` implementations).
+- `IMessage.EncryptionContext` (breaking for custom `IMessage` implementations). **Superseded by decision 0009 / WP12:** it is the extension method `GetEncryptionContext()` now, and `IMessage` is unchanged.
 - `PulsarClient.CreateConsumer` / `CreateReader` throw `ConfigurationException` for an undefined `CryptoFailureAction` (Java has no check).
 
 ## Wiring

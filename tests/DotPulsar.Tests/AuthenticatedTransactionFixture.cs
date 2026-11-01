@@ -15,6 +15,7 @@
 namespace DotPulsar.Tests;
 
 using DotPulsar.Abstractions;
+using DotPulsar.Extensions;
 using System.Net;
 using System.Text;
 using System.Text.Json;

@@ -6,6 +6,7 @@ The specification files (`03`, `05-components/`, `06-prerequisites/`, `08-tests/
 
 | Area | Spec says | As built | Note |
 |---|---|---|---|
+| Shape of the new public calls | members of `IPulsarClient`, `IConsumer`, `IProducer`, `IMessage` and the builders (decision 0003, breaking for implementers) | **no public interface changed**; the 40 members are extension methods in `DotPulsar.Extensions` that call `IExtendedConsumer`, `IExtendedProducer`, `IExtendedPulsarClient`, `IExtendedMessage` or the builder class; `IMessage.EncryptionContext` is `GetEncryptionContext()` | wp12, decision 0009 |
 | Send timeout exception | `SendTimeoutException` | `OperationTimeoutException` (sequence id in the message); `SendTimeout` default zero (off) | wp6 |
 | Batching default | Java default `true` | `EnableBatching` is `false` by default (wire and `BatchIndex == -1` unchanged for existing users) | wp6, ADR in `docs/decisions` |
 | Batching with chunking | - | `ConfigurationException("Batching and chunking of messages can't be enabled together")` (the Java text); chunking is switched off for `non-persistent://` topics | wp8-producer |

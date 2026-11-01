@@ -84,4 +84,82 @@ public static class ConsumerBuilderExtensions
         this IConsumerBuilder<TMessage> builder,
         IReadOnlyDictionary<string, string> privateKeys)
         => builder.CryptoKeyReader(new DefaultCryptoKeyReader(null, null, null, privateKeys));
+
+    /// <summary>
+    /// Whether acknowledgments wait for a receipt from the broker. The default is 'false'.
+    /// </summary>
+    public static IConsumerBuilder<TMessage> AckReceiptEnabled<TMessage>(this IConsumerBuilder<TMessage> builder, bool ackReceiptEnabled)
+        => ExtendedApi.Require<ConsumerBuilder<TMessage>>(builder, nameof(builder), nameof(AckReceiptEnabled)).AckReceiptEnabled(ackReceiptEnabled);
+
+    /// <summary>
+    /// Whether partial acknowledgments of batched messages are sent to the broker using batch index acknowledgment. The default is 'false'.
+    /// </summary>
+    public static IConsumerBuilder<TMessage> BatchIndexAckEnabled<TMessage>(this IConsumerBuilder<TMessage> builder, bool batchIndexAckEnabled)
+        => ExtendedApi.Require<ConsumerBuilder<TMessage>>(builder, nameof(builder), nameof(BatchIndexAckEnabled)).BatchIndexAckEnabled(batchIndexAckEnabled);
+
+    /// <summary>
+    /// Set the timeout for unacknowledged messages. Must be zero (disabled) or at least 1 second. The default is 'TimeSpan.Zero' (disabled).
+    /// </summary>
+    public static IConsumerBuilder<TMessage> AckTimeout<TMessage>(this IConsumerBuilder<TMessage> builder, TimeSpan ackTimeout)
+        => ExtendedApi.Require<ConsumerBuilder<TMessage>>(builder, nameof(builder), nameof(AckTimeout)).AckTimeout(ackTimeout);
+
+    /// <summary>
+    /// Set the granularity of the ack timeout redelivery. Must be at least 100 milliseconds. The default is 1 second.
+    /// </summary>
+    public static IConsumerBuilder<TMessage> AckTimeoutTickTime<TMessage>(this IConsumerBuilder<TMessage> builder, TimeSpan tickTime)
+        => ExtendedApi.Require<ConsumerBuilder<TMessage>>(builder, nameof(builder), nameof(AckTimeoutTickTime)).AckTimeoutTickTime(tickTime);
+
+    /// <summary>
+    /// Set the backoff that delays the redelivery of the messages that are not acknowledged within the ack timeout. This is optional, and it has no effect without an ack timeout.
+    /// </summary>
+    public static IConsumerBuilder<TMessage> AckTimeoutRedeliveryBackoff<TMessage>(this IConsumerBuilder<TMessage> builder, IRedeliveryBackoff redeliveryBackoff)
+        => ExtendedApi.Require<ConsumerBuilder<TMessage>>(builder, nameof(builder), nameof(AckTimeoutRedeliveryBackoff)).AckTimeoutRedeliveryBackoff(redeliveryBackoff);
+
+    /// <summary>
+    /// Set the dead letter policy. This is optional.
+    /// </summary>
+    public static IConsumerBuilder<TMessage> DeadLetterPolicy<TMessage>(this IConsumerBuilder<TMessage> builder, DeadLetterPolicy deadLetterPolicy)
+        => ExtendedApi.Require<ConsumerBuilder<TMessage>>(builder, nameof(builder), nameof(DeadLetterPolicy)).DeadLetterPolicy(deadLetterPolicy);
+
+    /// <summary>
+    /// Set the delay before negatively acknowledged messages are redelivered. A delay below 100 milliseconds is raised to 100 milliseconds. The default is 1 minute.
+    /// </summary>
+    public static IConsumerBuilder<TMessage> NegativeAcknowledgeRedeliveryDelay<TMessage>(this IConsumerBuilder<TMessage> builder, TimeSpan delay)
+        => ExtendedApi.Require<ConsumerBuilder<TMessage>>(builder, nameof(builder), nameof(NegativeAcknowledgeRedeliveryDelay)).NegativeAcknowledgeRedeliveryDelay(delay);
+
+    /// <summary>
+    /// Set the backoff that decides how long to wait before a negatively acknowledged message is redelivered, instead of the redelivery delay. This is optional.
+    /// </summary>
+    public static IConsumerBuilder<TMessage> NegativeAcknowledgeRedeliveryBackoff<TMessage>(this IConsumerBuilder<TMessage> builder, IRedeliveryBackoff redeliveryBackoff)
+        => ExtendedApi.Require<ConsumerBuilder<TMessage>>(builder, nameof(builder), nameof(NegativeAcknowledgeRedeliveryBackoff)).NegativeAcknowledgeRedeliveryBackoff(redeliveryBackoff);
+
+    /// <summary>
+    /// Set the max number of chunked messages that are being assembled at the same time. When it is exceeded, the oldest is dropped. 0 means no limit. The default is 10.
+    /// </summary>
+    public static IConsumerBuilder<TMessage> MaxPendingChunkedMessage<TMessage>(this IConsumerBuilder<TMessage> builder, uint maxPendingChunkedMessage)
+        => ExtendedApi.Require<ConsumerBuilder<TMessage>>(builder, nameof(builder), nameof(MaxPendingChunkedMessage)).MaxPendingChunkedMessage(maxPendingChunkedMessage);
+
+    /// <summary>
+    /// Whether to acknowledge (instead of redeliver) the chunks of the oldest pending chunked message when 'MaxPendingChunkedMessage' is exceeded. The default is 'false'.
+    /// </summary>
+    public static IConsumerBuilder<TMessage> AutoAckOldestChunkedMessageOnQueueFull<TMessage>(this IConsumerBuilder<TMessage> builder, bool autoAckOldestChunkedMessageOnQueueFull)
+        => ExtendedApi.Require<ConsumerBuilder<TMessage>>(builder, nameof(builder), nameof(AutoAckOldestChunkedMessageOnQueueFull)).AutoAckOldestChunkedMessageOnQueueFull(autoAckOldestChunkedMessageOnQueueFull);
+
+    /// <summary>
+    /// Set the time after which an incomplete chunked message is dropped and its chunks are acknowledged. TimeSpan.Zero disables expiry. The default is 1 minute.
+    /// </summary>
+    public static IConsumerBuilder<TMessage> ExpireTimeOfIncompleteChunkedMessage<TMessage>(this IConsumerBuilder<TMessage> builder, TimeSpan expireTimeOfIncompleteChunkedMessage)
+        => ExtendedApi.Require<ConsumerBuilder<TMessage>>(builder, nameof(builder), nameof(ExpireTimeOfIncompleteChunkedMessage)).ExpireTimeOfIncompleteChunkedMessage(expireTimeOfIncompleteChunkedMessage);
+
+    /// <summary>
+    /// Set the crypto key reader used to read the private keys that decrypt the messages. This is optional.
+    /// </summary>
+    public static IConsumerBuilder<TMessage> CryptoKeyReader<TMessage>(this IConsumerBuilder<TMessage> builder, ICryptoKeyReader cryptoKeyReader)
+        => ExtendedApi.Require<ConsumerBuilder<TMessage>>(builder, nameof(builder), nameof(CryptoKeyReader)).CryptoKeyReader(cryptoKeyReader);
+
+    /// <summary>
+    /// Set the action to take when a message cannot be decrypted. The default is 'Fail'.
+    /// </summary>
+    public static IConsumerBuilder<TMessage> CryptoFailureAction<TMessage>(this IConsumerBuilder<TMessage> builder, ConsumerCryptoFailureAction cryptoFailureAction)
+        => ExtendedApi.Require<ConsumerBuilder<TMessage>>(builder, nameof(builder), nameof(CryptoFailureAction)).CryptoFailureAction(cryptoFailureAction);
 }

@@ -1,5 +1,7 @@
 # Expose transactions through interface members
 
+Status: **superseded by [0009](0009-no-breaking-public-api.md) on 2026-11-01.** The requester ruled out every breaking change of the public API, so the members that this decision put on the interfaces are extension methods. The text below is the original decision.
+
 ## Context and Problem Statement
 
 Java exposes transactions as `PulsarClient.newTransaction()`, `Producer.newMessage(txn)` and

@@ -23,4 +23,5 @@ what the code does; fix the spec afterwards (WP10).
 | [wp9-producer-encryption.md](wp9-producer-encryption.md) | WP9 (producer) | WP10 |
 | [wp10-parity-audit.md](wp10-parity-audit.md) | WP10 audit of every row of the parity matrix | WP10 |
 | [wp10-parity-completion.md](wp10-parity-completion.md) | WP10 (rows that the audit found missing or weakened) | final report |
+| [wp12-non-breaking-public-api.md](wp12-non-breaking-public-api.md) | WP12 (the public interfaces are put back to what `master` has; the 40 members are extension methods; recipe for another branch) | every later change of the API |
 | [deviations-summary.md](deviations-summary.md) | all | reviewers: the deviations from the spec in one place |

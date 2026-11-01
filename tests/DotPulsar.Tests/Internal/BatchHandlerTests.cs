@@ -14,6 +14,7 @@
 
 namespace DotPulsar.Tests.Internal;
 
+using DotPulsar.Extensions;
 using DotPulsar.Internal;
 using DotPulsar.Internal.Crypto;
 using DotPulsar.Internal.PulsarApi;
@@ -52,9 +53,9 @@ public sealed class BatchHandlerTests
         var first = uut.Add(BatchTestData.CreateEntryId(1, 2), null, 0, BatchTestData.CreateMetadata(3), data, out _, encryptionContext);
 
         //Assert
-        first.ShouldNotBeNull().EncryptionContext.ShouldBeSameAs(encryptionContext);
-        uut.GetNext()!.EncryptionContext.ShouldBeSameAs(encryptionContext);
-        uut.GetNext()!.EncryptionContext.ShouldBeSameAs(encryptionContext);
+        first.ShouldNotBeNull().GetEncryptionContext().ShouldBeSameAs(encryptionContext);
+        uut.GetNext()!.GetEncryptionContext().ShouldBeSameAs(encryptionContext);
+        uut.GetNext()!.GetEncryptionContext().ShouldBeSameAs(encryptionContext);
         uut.GetNext().ShouldBeNull();
     }
 
@@ -69,7 +70,7 @@ public sealed class BatchHandlerTests
         var messages = BatchTestData.AddBatch(uut, 1, 2, 3);
 
         //Assert
-        messages.ShouldAllBe(message => message.EncryptionContext == null);
+        messages.ShouldAllBe(message => message.GetEncryptionContext() == null);
     }
 
     // Additional coverage

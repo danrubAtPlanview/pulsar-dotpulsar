@@ -229,7 +229,13 @@ The implementation is `src/DotPulsar/Internal/TransactionBuilder.cs`, mirroring 
 
 ## 3. Changed public interfaces and classes
 
+> **Superseded on 2026-11-01 by [decision 0009](decisions/0009-no-breaking-public-api.md).** The public interfaces get no members; this is an extension method that calls a capability interface or the builder class of DotPulsar ([wp12](implementation-notes/wp12-non-breaking-public-api.md)). The text below is the original design.
+
+**What is built instead of every "add member" in 3.1, 3.3, 3.4 and 3.6, and of `IMessage.EncryptionContext`:** the same name, parameters and documentation as an extension method in `DotPulsar.Extensions` (`IMessage.EncryptionContext` is `GetEncryptionContext()`); the complete list is in [wp12 section 3](implementation-notes/wp12-non-breaking-public-api.md#3-the-40-members-that-moved).
+
 ### 3.1 `IPulsarClient` — add member (breaking for external implementers)
+
+> **Superseded (decision 0009):** `CreateTransaction` is an extension method of `IPulsarClient` that calls `IExtendedPulsarClient`.
 
 ```csharp
 /// <summary>
@@ -252,6 +258,8 @@ public static ITransactionBuilder NewTransaction(this IPulsarClient pulsarClient
 
 ### 3.3 `IPulsarClientBuilder` — append
 
+> **Superseded (decision 0009):** `EnableTransaction` and `OperationTimeout` are extension methods of `IPulsarClientBuilder`; `IPulsarClientBuilder` has no new members.
+
 ```csharp
 /// <summary>
 /// Enable transactions. The default is 'false'.
@@ -268,6 +276,8 @@ Validation in `Build()`: `OperationTimeout` must be greater than `TimeSpan.Zero`
 `ConfigurationException("OperationTimeout must be greater than zero")`.
 
 ### 3.4 `IConsumer` — add members (breaking for external implementers)
+
+> **Superseded (decision 0009):** the three overloads are extension methods of `IConsumer` that call `IExtendedConsumer`.
 
 ```csharp
 /// <summary>
@@ -318,6 +328,8 @@ not exist for non-transactional acks today, so add the plain `Acknowledge(this I
 as well, for symmetry.
 
 ### 3.6 `IMessageBuilder<TMessage>` — add (after `SequenceId`, before `Send`)
+
+> **Superseded (decision 0009):** `Transaction` is an extension method of `IMessageBuilder<TMessage>`.
 
 ```csharp
 /// <summary>
@@ -441,7 +453,7 @@ text, except where upstream asserts text; [08](08-test-parity.md) flags those ca
 ### Changed
 
 - Updated the protocol version from 14 to 19
-- IPulsarClient and IConsumer have new members. This is a breaking change for custom implementations of these interfaces
+- (superseded by decision 0009: the CHANGELOG has no breaking change; the new calls are extension methods)
 ```
 
 Prerequisite features add their own entries (see each [06](06-prerequisites/) file).

@@ -15,6 +15,7 @@
 namespace DotPulsar.Tests.Internal.Crypto;
 
 using DotPulsar.Abstractions;
+using DotPulsar.Extensions;
 using DotPulsar.Internal;
 using DotPulsar.Internal.Abstractions;
 using DotPulsar.Internal.Chunking;
@@ -45,7 +46,7 @@ public sealed class ConsumerChannelEncryptionTests
 
         //Assert
         Text(actual).ShouldBe("Hello");
-        var context = actual.EncryptionContext.ShouldNotBeNull();
+        var context = actual.GetEncryptionContext().ShouldNotBeNull();
         context.IsEncrypted.ShouldBeFalse();
         context.Keys.Keys.ShouldBe([KeyName]);
         context.Keys[KeyName].KeyValue.Length.ShouldBe(256);
@@ -70,7 +71,7 @@ public sealed class ConsumerChannelEncryptionTests
         var actual = await uut.Channel.Receive(Current.CancellationToken);
 
         //Assert
-        actual.EncryptionContext.ShouldBeNull();
+        actual.GetEncryptionContext().ShouldBeNull();
         keyReader.ReceivedCalls().ShouldBeEmpty();
     }
 
@@ -86,7 +87,7 @@ public sealed class ConsumerChannelEncryptionTests
         var actual = await uut.Channel.Receive(Current.CancellationToken);
 
         //Assert
-        actual.EncryptionContext.ShouldBeNull();
+        actual.GetEncryptionContext().ShouldBeNull();
         uut.Acks.ShouldBeEmpty();
     }
 
@@ -110,8 +111,8 @@ public sealed class ConsumerChannelEncryptionTests
 
         //Assert
         Text(actual).ShouldBe("decompressed");
-        actual.EncryptionContext!.CompressionType.ShouldBe(DotPulsar.CompressionType.Lz4);
-        actual.EncryptionContext.UncompressedMessageSize.ShouldBe(12U);
+        actual.GetEncryptionContext()!.CompressionType.ShouldBe(DotPulsar.CompressionType.Lz4);
+        actual.GetEncryptionContext()!.UncompressedMessageSize.ShouldBe(12U);
         uut.Acks.ShouldBeEmpty();
     }
 
@@ -134,10 +135,10 @@ public sealed class ConsumerChannelEncryptionTests
         second.Data.ToArray().ShouldBe(new byte[] { 1 });
         third.Data.ToArray().ShouldBe(new byte[] { 2 });
         second.MessageId.BatchIndex.ShouldBe(1);
-        first.EncryptionContext.ShouldNotBeNull().IsEncrypted.ShouldBeFalse();
-        first.EncryptionContext.BatchSize.ShouldBe(3);
-        second.EncryptionContext.ShouldBeSameAs(first.EncryptionContext);
-        third.EncryptionContext.ShouldBeSameAs(first.EncryptionContext);
+        first.GetEncryptionContext().ShouldNotBeNull().IsEncrypted.ShouldBeFalse();
+        first.GetEncryptionContext()!.BatchSize.ShouldBe(3);
+        second.GetEncryptionContext().ShouldBeSameAs(first.GetEncryptionContext());
+        third.GetEncryptionContext().ShouldBeSameAs(first.GetEncryptionContext());
     }
 
     // Additional coverage
@@ -181,7 +182,7 @@ public sealed class ConsumerChannelEncryptionTests
         //Assert
         actual.Data.Length.ShouldBe("Hello".Length + 16);
         actual.Data.ToArray().ShouldBe(GetPayload(package));
-        var context = actual.EncryptionContext.ShouldNotBeNull();
+        var context = actual.GetEncryptionContext().ShouldNotBeNull();
         context.IsEncrypted.ShouldBeTrue();
         context.Keys.Keys.ShouldBe([KeyName]);
         context.Param.ShouldBe(metadata.EncryptionParam.ToByteArray());
@@ -206,9 +207,9 @@ public sealed class ConsumerChannelEncryptionTests
 
         //Assert
         actual.Data.Length.ShouldBe(3 + 16);
-        actual.EncryptionContext!.IsEncrypted.ShouldBeTrue();
-        actual.EncryptionContext.CompressionType.ShouldBe(DotPulsar.CompressionType.Lz4);
-        actual.EncryptionContext.UncompressedMessageSize.ShouldBe(99U);
+        actual.GetEncryptionContext()!.IsEncrypted.ShouldBeTrue();
+        actual.GetEncryptionContext()!.CompressionType.ShouldBe(DotPulsar.CompressionType.Lz4);
+        actual.GetEncryptionContext()!.UncompressedMessageSize.ShouldBe(99U);
     }
 
     // Upstream: ConsumerImpl#messageReceived (isMessageUndecryptable, the batch is not unpacked)
@@ -229,8 +230,8 @@ public sealed class ConsumerChannelEncryptionTests
         //Assert
         batch.Data.ToArray().ShouldBe(GetPayload(package));
         batch.MessageId.BatchIndex.ShouldBe(-1);
-        batch.EncryptionContext!.IsEncrypted.ShouldBeTrue();
-        batch.EncryptionContext.BatchSize.ShouldBe(3);
+        batch.GetEncryptionContext()!.IsEncrypted.ShouldBeTrue();
+        batch.GetEncryptionContext()!.BatchSize.ShouldBe(3);
         next.MessageId.EntryId.ShouldBe(2UL);
     }
 
@@ -436,7 +437,7 @@ public sealed class ConsumerChannelEncryptionTests
         //Assert
         Text(actual).ShouldBe("chunk-a-0|chunk-a-1|chunk-a-2|");
         actual.MessageId.GetChunkMessageIds()!.Select(id => id.EntryId).ShouldBeSequence(10UL, 11UL, 12UL);
-        var context = actual.EncryptionContext.ShouldNotBeNull();
+        var context = actual.GetEncryptionContext().ShouldNotBeNull();
         context.IsEncrypted.ShouldBeFalse();
         context.Param.ShouldBe(lastMetadata.EncryptionParam.ToByteArray());
         uut.Acks.ShouldBeEmpty();
@@ -460,7 +461,7 @@ public sealed class ConsumerChannelEncryptionTests
 
         //Assert
         actual.MessageId.EntryId.ShouldBe(20UL);
-        actual.EncryptionContext.ShouldBeNull();
+        actual.GetEncryptionContext().ShouldBeNull();
         uut.Acks.ShouldBeEmpty();
         tracker.Count.ShouldBe(3);
         uut.Assembler.PendingCount.ShouldBe(0);

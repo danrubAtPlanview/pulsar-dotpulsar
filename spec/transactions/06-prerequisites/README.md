@@ -1,5 +1,7 @@
 # 06 — Prerequisite features
 
+> **Read this first (2026-11-01, [decision 0009](../decisions/0009-no-breaking-public-api.md)).** Wherever a file of this specification says that a member is added to a public interface (`IConsumer`, `IProducer`, `IPulsarClient`, `IMessage`, `IConsumerBuilder`, `IProducerBuilder`, `IReaderBuilder`, `IPulsarClientBuilder`, `IMessageBuilder`), the code has an **extension method** with the same name and parameters instead, and the interface is unchanged: a public API break is a breaking change and the requester ruled it out. The mapping of all 40 members, the rule for new work and the recipe for a branch that still has the members are in [implementation-notes/wp12-non-breaking-public-api.md](../implementation-notes/wp12-non-breaking-public-api.md).
+
 These client features are missing from DotPulsar, and the upstream transaction tests depend on them
 ([ADR 0005](../decisions/0005-port-prerequisite-features.md)). Each file below is a self-contained work-package spec.
 Every spec contains:

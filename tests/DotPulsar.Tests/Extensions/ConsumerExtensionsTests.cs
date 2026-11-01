@@ -16,6 +16,7 @@ namespace DotPulsar.Tests.Extensions;
 
 using DotPulsar.Abstractions;
 using DotPulsar.Extensions;
+using DotPulsar.Internal.Abstractions;
 
 [Trait("Category", "Unit")]
 public sealed class ConsumerExtensionsTests
@@ -28,14 +29,14 @@ public sealed class ConsumerExtensionsTests
     public async Task Acknowledge_GivenMessageAndTransaction_ShouldAcknowledgeTheMessageIdAsPartOfTheTransaction()
     {
         //Arrange
-        var consumer = Substitute.For<IConsumer>();
+        var consumer = Substitute.For<IConsumer, IExtendedConsumer>();
         var transaction = Substitute.For<ITransaction>();
 
         //Act
         await consumer.Acknowledge(CreateMessage(_firstId), transaction, Current.CancellationToken);
 
         //Assert
-        await consumer.Received(1).Acknowledge(_firstId, transaction, Current.CancellationToken);
+        await ((IExtendedConsumer) consumer).Received(1).Acknowledge(_firstId, transaction, Current.CancellationToken);
     }
 
     // Additional coverage
@@ -43,7 +44,7 @@ public sealed class ConsumerExtensionsTests
     public async Task Acknowledge_GivenMessagesAndTransaction_ShouldAcknowledgeTheMessageIdsAsPartOfTheTransaction()
     {
         //Arrange
-        var consumer = Substitute.For<IConsumer>();
+        var consumer = Substitute.For<IConsumer, IExtendedConsumer>();
         var transaction = Substitute.For<ITransaction>();
         var messages = new[] { CreateMessage(_firstId), CreateMessage(_secondId) };
 
@@ -51,7 +52,7 @@ public sealed class ConsumerExtensionsTests
         await consumer.Acknowledge(messages, transaction, Current.CancellationToken);
 
         //Assert
-        await consumer.Received(1).Acknowledge(Arg.Is<IEnumerable<MessageId>>(messageIds => messageIds.SequenceEqual(new[] { _firstId, _secondId })), transaction, Current.CancellationToken);
+        await ((IExtendedConsumer) consumer).Received(1).Acknowledge(Arg.Is<IEnumerable<MessageId>>(messageIds => messageIds.SequenceEqual(new[] { _firstId, _secondId })), transaction, Current.CancellationToken);
     }
 
     // Additional coverage
@@ -59,14 +60,14 @@ public sealed class ConsumerExtensionsTests
     public async Task AcknowledgeCumulative_GivenMessageAndTransaction_ShouldAcknowledgeTheMessageIdCumulativelyAsPartOfTheTransaction()
     {
         //Arrange
-        var consumer = Substitute.For<IConsumer>();
+        var consumer = Substitute.For<IConsumer, IExtendedConsumer>();
         var transaction = Substitute.For<ITransaction>();
 
         //Act
         await consumer.AcknowledgeCumulative(CreateMessage(_firstId), transaction, Current.CancellationToken);
 
         //Assert
-        await consumer.Received(1).AcknowledgeCumulative(_firstId, transaction, Current.CancellationToken);
+        await ((IExtendedConsumer) consumer).Received(1).AcknowledgeCumulative(_firstId, transaction, Current.CancellationToken);
     }
 
     // Additional coverage
@@ -74,7 +75,7 @@ public sealed class ConsumerExtensionsTests
     public async Task Acknowledge_GivenMessages_ShouldAcknowledgeTheMessageIds()
     {
         //Arrange
-        var consumer = Substitute.For<IConsumer>();
+        var consumer = Substitute.For<IConsumer, IExtendedConsumer>();
         var messages = new[] { CreateMessage(_firstId), CreateMessage(_secondId) };
 
         //Act
@@ -89,7 +90,7 @@ public sealed class ConsumerExtensionsTests
     public async Task Acknowledge_GivenMessage_ShouldAcknowledgeTheMessageIdWithoutTransaction()
     {
         //Arrange
-        var consumer = Substitute.For<IConsumer>();
+        var consumer = Substitute.For<IConsumer, IExtendedConsumer>();
 
         //Act
         await consumer.Acknowledge(CreateMessage(_firstId), Current.CancellationToken);

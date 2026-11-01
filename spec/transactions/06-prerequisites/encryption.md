@@ -311,6 +311,8 @@ Constructors are `internal`, matching the existing `Message<T>` precedent. `Algo
 
 ### 4.5 `IMessage` (breaking for custom implementations; consistent with the decision that interfaces gain members)
 
+> **Superseded on 2026-11-01 by [decision 0009](../decisions/0009-no-breaking-public-api.md):** `IMessage` is unchanged; `EncryptionContext` is the extension method `GetEncryptionContext(this IMessage)`, which reads `IExtendedMessage` and returns null for a message that DotPulsar did not create.
+
 ```csharp
 /// <summary>
 /// The encryption context if the message was encrypted by the producer, otherwise null.

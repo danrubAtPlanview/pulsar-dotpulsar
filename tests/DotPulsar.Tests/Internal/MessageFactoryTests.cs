@@ -14,6 +14,7 @@
 
 namespace DotPulsar.Tests.Internal;
 
+using DotPulsar.Extensions;
 using DotPulsar.Internal;
 using DotPulsar.Internal.Crypto;
 using DotPulsar.Internal.PulsarApi;
@@ -85,7 +86,7 @@ public sealed class MessageFactoryTests
         var actual = _uut.Create(new MessageId(1, 2, 0, -1), 0, ReadOnlySequence<byte>.Empty, metadata);
 
         //Assert
-        actual.EncryptionContext.ShouldBeNull();
+        actual.GetEncryptionContext().ShouldBeNull();
     }
 
     // Additional coverage
@@ -100,7 +101,7 @@ public sealed class MessageFactoryTests
         var actual = _uut.Create(new MessageId(1, 2, 0, -1), 0, ReadOnlySequence<byte>.Empty, metadata, null, encryptionContext);
 
         //Assert
-        actual.EncryptionContext.ShouldBeSameAs(encryptionContext);
+        actual.GetEncryptionContext().ShouldBeSameAs(encryptionContext);
     }
 
     // Additional coverage
@@ -116,7 +117,7 @@ public sealed class MessageFactoryTests
         var actual = _uut.Create(new MessageId(1, 2, 0, 0), 0, ReadOnlySequence<byte>.Empty, metadata, singleMetadata, encryptionContext);
 
         //Assert
-        actual.EncryptionContext.ShouldBeSameAs(encryptionContext);
+        actual.GetEncryptionContext().ShouldBeSameAs(encryptionContext);
     }
 
     private static EncryptionContext CreateEncryptionContext()

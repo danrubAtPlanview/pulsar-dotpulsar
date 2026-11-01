@@ -41,4 +41,16 @@ public static class PulsarClientBuilderExtensions
     /// </summary>
     public static IPulsarClientBuilder RemoteCertificateValidation(this IPulsarClientBuilder builder, Func<object, X509Certificate?, X509Chain?, SslPolicyErrors, bool> validator)
         => builder.RemoteCertificateValidation(new FuncRemoteCertificateValidator(validator));
+
+    /// <summary>
+    /// The time to wait for the broker to respond to a request, such as a transaction coordinator request or an acknowledgment receipt. The default is 30 seconds.
+    /// </summary>
+    public static IPulsarClientBuilder OperationTimeout(this IPulsarClientBuilder builder, TimeSpan operationTimeout)
+        => ExtendedApi.Require<PulsarClientBuilder>(builder, nameof(builder), nameof(OperationTimeout)).OperationTimeout(operationTimeout);
+
+    /// <summary>
+    /// Enable transactions. The default is 'false'.
+    /// </summary>
+    public static IPulsarClientBuilder EnableTransaction(this IPulsarClientBuilder builder, bool enableTransaction)
+        => ExtendedApi.Require<PulsarClientBuilder>(builder, nameof(builder), nameof(EnableTransaction)).EnableTransaction(enableTransaction);
 }

@@ -15,6 +15,7 @@
 namespace DotPulsar.Extensions;
 
 using DotPulsar.Abstractions;
+using DotPulsar.Internal.Abstractions;
 using DotPulsar.Internal;
 
 /// <summary>
@@ -146,4 +147,38 @@ public static class ConsumerExtensions
         var currentState = await consumer.State.OnStateChangeFrom(state, delay, cancellationToken).ConfigureAwait(false);
         return new ConsumerStateChanged(consumer, currentState);
     }
+
+    /// <summary>
+    /// Acknowledge the consumption of a single message using the MessageId as part of a transaction.
+    /// </summary>
+    public static ValueTask Acknowledge(this IConsumer consumer, MessageId messageId, ITransaction transaction, CancellationToken cancellationToken = default)
+        => ExtendedApi.Require<IExtendedConsumer>(consumer, nameof(consumer), nameof(Acknowledge)).Acknowledge(messageId, transaction, cancellationToken);
+
+    /// <summary>
+    /// Acknowledge the consumption of multiple messages using the MessageIds as part of a transaction.
+    /// </summary>
+    public static ValueTask Acknowledge(this IConsumer consumer, IEnumerable<MessageId> messageIds, ITransaction transaction, CancellationToken cancellationToken = default)
+        => ExtendedApi.Require<IExtendedConsumer>(consumer, nameof(consumer), nameof(Acknowledge)).Acknowledge(messageIds, transaction, cancellationToken);
+
+    /// <summary>
+    /// Acknowledge the consumption of all the messages in the topic up to and including the provided MessageId as part of a transaction.
+    /// </summary>
+    /// <remarks>
+    /// Cumulative acknowledgment is not allowed for subscriptions of type 'Shared' and 'KeyShared'.
+    /// </remarks>
+    public static ValueTask AcknowledgeCumulative(this IConsumer consumer, MessageId messageId, ITransaction transaction, CancellationToken cancellationToken = default)
+        => ExtendedApi.Require<IExtendedConsumer>(consumer, nameof(consumer), nameof(AcknowledgeCumulative)).AcknowledgeCumulative(messageId, transaction, cancellationToken);
+
+    /// <summary>
+    /// Negatively acknowledge a single message using the MessageId, so it will be redelivered after the configured negative acknowledge redelivery delay.
+    /// </summary>
+    public static ValueTask NegativeAcknowledge(this IConsumer consumer, MessageId messageId, CancellationToken cancellationToken = default)
+        => ExtendedApi.Require<IExtendedConsumer>(consumer, nameof(consumer), nameof(NegativeAcknowledge)).NegativeAcknowledge(messageId, cancellationToken);
+
+    /// <summary>
+    /// Negatively acknowledge a single message using the MessageId and the number of times the message has been redelivered ('IMessage.RedeliveryCount'). The number is used by the negative acknowledge
+    /// redelivery backoff, and ignored without one, so the message is then redelivered after the configured negative acknowledge redelivery delay.
+    /// </summary>
+    public static ValueTask NegativeAcknowledge(this IConsumer consumer, MessageId messageId, uint redeliveryCount, CancellationToken cancellationToken = default)
+        => ExtendedApi.Require<IExtendedConsumer>(consumer, nameof(consumer), nameof(NegativeAcknowledge)).NegativeAcknowledge(messageId, redeliveryCount, cancellationToken);
 }

@@ -128,6 +128,8 @@ Add at the top of the interface (alphabetical, before `ConsumerName`):
 ```
 This is a breaking change for third-party `IConsumerBuilder` implementers; it is accepted, following the repo precedent (`AllowOutOfOrderDeliver` was added the same way).
 
+**Superseded on 2026-11-01 by [decision 0009](../decisions/0009-no-breaking-public-api.md):** `IConsumerBuilder` is unchanged, and `AckTimeout`, `AckTimeoutTickTime` and the other new builder methods are extension methods of it.
+
 ### 2.3 `dp:Internal/ConsumerBuilder.cs`
 - Add fields `private TimeSpan _ackTimeout;` and `private TimeSpan _ackTimeoutTickTime;` (field block L23-L39). Initialise them in the ctor (L41-L55) from `ConsumerOptions<TMessage>.DefaultAckTimeout` and `.DefaultAckTimeoutTickTime`.
 - Add the two fluent setters, same shape as `PriorityLevel` (L75-L79). They do not validate.

@@ -33,7 +33,7 @@ use that overload to inject a substitute.
 
 ## 2. `IPulsarClient` + `PulsarClient`
 
-1. `IPulsarClient`: add `CreateTransaction(TransactionOptions, CancellationToken)` after `CreateReader`
+1. `IPulsarClient`: add `CreateTransaction(TransactionOptions, CancellationToken)` after `CreateReader` **(superseded by [decision 0009](../decisions/0009-no-breaking-public-api.md): it is an extension method of `IPulsarClient` that calls `IExtendedPulsarClient`, which `PulsarClient` implements)**
    ([03 §3.1](../03-public-api.md#31-ipulsarclient--add-member-breaking-for-external-implementers)).
 2. `PulsarClient`:
    - Add the field `private readonly ITransactionCoordinatorClient? _transactionCoordinatorClient;`.
