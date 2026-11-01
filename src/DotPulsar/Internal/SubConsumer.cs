@@ -251,12 +251,16 @@ public sealed class SubConsumer<TMessage> : IConsumer<TMessage>, IContainsChanne
         await _executor.Execute(() => InternalRedeliverUnacknowledgedMessages(command, cancellationToken), cancellationToken).ConfigureAwait(false);
     }
 
-    // Upstream: ConsumerImpl#negativeAcknowledge
     public ValueTask NegativeAcknowledge(MessageId messageId, CancellationToken cancellationToken)
+        => NegativeAcknowledge(messageId, 0, cancellationToken);
+
+    // Upstream: ConsumerImpl#negativeAcknowledge
+    public ValueTask NegativeAcknowledge(MessageId messageId, uint redeliveryCount, CancellationToken cancellationToken)
     {
         Guard();
+        // A backoff that throws leaves the message to the ack timeout, so the tracker comes first (the order of Java)
+        _negativeAcknowledgeTracker.Add(messageId, redeliveryCount);
         _unAckedMessageTracker?.Remove(messageId);
-        _negativeAcknowledgeTracker.Add(messageId);
         return default;
     }
 

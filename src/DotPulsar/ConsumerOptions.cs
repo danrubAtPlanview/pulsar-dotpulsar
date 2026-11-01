@@ -117,6 +117,7 @@ public sealed class ConsumerOptions<TMessage>
         MaxPendingChunkedMessage = DefaultMaxPendingChunkedMessage;
         InitialPosition = DefaultInitialPosition;
         NegativeAcknowledgeRedeliveryDelay = DefaultNegativeAcknowledgeRedeliveryDelay;
+        NegativeAcknowledgeRedeliveryBackoff = null;
         PriorityLevel = DefaultPriorityLevel;
         MessagePrefetchCount = DefaultMessagePrefetchCount;
         ReadCompacted = DefaultReadCompacted;
@@ -300,6 +301,18 @@ public sealed class ConsumerOptions<TMessage>
     /// Set the delay before negatively acknowledged messages are redelivered. A delay below 100 milliseconds is raised to 100 milliseconds. The default is 1 minute.
     /// </summary>
     public TimeSpan NegativeAcknowledgeRedeliveryDelay { get; set; }
+
+    /// <summary>
+    /// Set the backoff that decides how long to wait before a negatively acknowledged message is redelivered. This is optional.
+    /// </summary>
+    /// <remarks>
+    /// Without a backoff the delay is 'NegativeAcknowledgeRedeliveryDelay'. With a backoff the delay is the one that 'Next' returns for the number of times the message has been redelivered, and
+    /// 'NegativeAcknowledgeRedeliveryDelay' is not used (the minimum of 100 milliseconds does not apply either). The number is 'IMessage.RedeliveryCount', so it is only known when the message is
+    /// negatively acknowledged by 'NegativeAcknowledge(IMessage)', and it is only counted by the broker on 'Shared' and 'KeyShared' subscriptions. 'NegativeAcknowledge(MessageId)' and the other subscription
+    /// types always use the delay for 0 redeliveries. If the backoff throws, the exception is thrown by the 'NegativeAcknowledge' call and the message is not tracked.
+    /// The backoff is used by every consumer that a partitioned, multi-topic or regex consumer creates.
+    /// </remarks>
+    public IRedeliveryBackoff? NegativeAcknowledgeRedeliveryBackoff { get; set; }
 
     /// <summary>
     /// The max number of chunked messages that are being assembled at the same time. When it is exceeded, the oldest is dropped. 0 means no limit. The default is 10.

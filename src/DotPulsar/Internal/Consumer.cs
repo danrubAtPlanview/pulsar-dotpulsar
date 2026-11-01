@@ -383,14 +383,17 @@ public sealed class Consumer<TMessage> : IConsumer<TMessage>
         await Task.WhenAll(redeliverTasks).ConfigureAwait(false);
     }
 
-    public async ValueTask NegativeAcknowledge(MessageId messageId, CancellationToken cancellationToken)
+    public ValueTask NegativeAcknowledge(MessageId messageId, CancellationToken cancellationToken)
+        => NegativeAcknowledge(messageId, 0, cancellationToken);
+
+    public async ValueTask NegativeAcknowledge(MessageId messageId, uint redeliveryCount, CancellationToken cancellationToken)
     {
         await Guard(cancellationToken).ConfigureAwait(false);
 
         if (_singleSubConsumer is not null)
-            await _singleSubConsumer.NegativeAcknowledge(messageId, cancellationToken).ConfigureAwait(false);
+            await _singleSubConsumer.NegativeAcknowledge(messageId, redeliveryCount, cancellationToken).ConfigureAwait(false);
         else
-            await _subConsumers[messageId.Topic].NegativeAcknowledge(messageId, cancellationToken).ConfigureAwait(false);
+            await _subConsumers[messageId.Topic].NegativeAcknowledge(messageId, redeliveryCount, cancellationToken).ConfigureAwait(false);
     }
 
     public async ValueTask RedeliverUnacknowledgedMessages(CancellationToken cancellationToken)
@@ -577,7 +580,7 @@ public sealed class Consumer<TMessage> : IConsumer<TMessage>
             }
         }
 
-        var negativeAcknowledgeTracker = new NegativeAcknowledgeTracker(_consumerOptions.NegativeAcknowledgeRedeliveryDelay, (ids, ct) => subConsumer!.RedeliverUnacknowledgedMessages(ids, ct));
+        var negativeAcknowledgeTracker = new NegativeAcknowledgeTracker(_consumerOptions.NegativeAcknowledgeRedeliveryDelay, (ids, ct) => subConsumer!.RedeliverUnacknowledgedMessages(ids, ct), redeliveryBackoff: _consumerOptions.NegativeAcknowledgeRedeliveryBackoff);
 
         DeadLetterHandler<TMessage>? deadLetterHandler = null;
         if (_consumerOptions.DeadLetterPolicy is not null)

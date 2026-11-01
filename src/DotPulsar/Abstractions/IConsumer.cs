@@ -94,4 +94,10 @@ public interface IConsumer : IGetLastMessageIds, ISeek, IStateHolder<ConsumerSta
     /// Negatively acknowledge a single message using the MessageId, so it will be redelivered after the configured negative acknowledge redelivery delay.
     /// </summary>
     ValueTask NegativeAcknowledge(MessageId messageId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Negatively acknowledge a single message using the MessageId and the number of times the message has been redelivered ('IMessage.RedeliveryCount'). The number is used by the negative acknowledge
+    /// redelivery backoff, and ignored without one, so the message is then redelivered after the configured negative acknowledge redelivery delay.
+    /// </summary>
+    ValueTask NegativeAcknowledge(MessageId messageId, uint redeliveryCount, CancellationToken cancellationToken = default);
 }

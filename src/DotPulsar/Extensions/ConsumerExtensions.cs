@@ -35,10 +35,11 @@ public static class ConsumerExtensions
         => await consumer.Acknowledge(message.MessageId, transaction, cancellationToken).ConfigureAwait(false);
 
     /// <summary>
-    /// Negatively acknowledge a single message, so it will be redelivered after the configured negative acknowledge redelivery delay.
+    /// Negatively acknowledge a single message, so it will be redelivered after the configured negative acknowledge redelivery delay, or after the delay that the negative acknowledge redelivery backoff
+    /// returns for 'IMessage.RedeliveryCount'.
     /// </summary>
     public static async ValueTask NegativeAcknowledge(this IConsumer consumer, IMessage message, CancellationToken cancellationToken = default)
-        => await consumer.NegativeAcknowledge(message.MessageId, cancellationToken).ConfigureAwait(false);
+        => await consumer.NegativeAcknowledge(message.MessageId, message.RedeliveryCount, cancellationToken).ConfigureAwait(false);
 
     /// <summary>
     /// Acknowledge the consumption of multiple messages.
