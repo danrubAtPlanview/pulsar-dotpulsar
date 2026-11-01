@@ -1,0 +1,2412 @@
+# Upstream traceability map for the DotPulsar transactions port.
+# The schema and the sync procedure are described in 11-upstream-sync.md.
+# Line numbers refer to the pinned SHAs below.
+#
+# status values:
+#   components: planned | ported | adapted | deviated | excluded
+#   tests:      Port | Port-partial | Port-unit | Excluded | Sample (plus detail). Set "done: true" when the C# test lands.
+#               done: true only when the C# test exists and is not skipped (or the sample exists); false for missing, skipped and pending-wp9-producer rows; omitted for Excluded rows.
+#               note: only where a row deviates (missing, skipped, pending-wp9-producer, weakened, stale exclusion, extra or fewer rows). csharp: null when no test exists.
+#               The tests of TransactionEndToEnd* are named by their post-merge file TransactionEndToEndTests.cs.
+#
+# For client-unit tests, tests[].csharp names the primary file only. The detailed spec (tests[].spec) decides placement.
+# The ~240-method classification sweep is in 08-tests/tests-client.md §5; only its Port, Port-partial and Port-unit rows are repeated here (note: sweep section 5).
+# The tests of 06-prerequisites/*.md have spec: 06-prerequisites/<file>.md. Rows named after Java main-code members (ConsumerImpl#..., ProducerImpl#...), the grouped C++ rows and the websocket row are not listed.
+upstream:
+  java: { repo: apache/pulsar, sha: f3846f4811b6a7d98de40a3be2caff1fe288e026 }
+  cpp:  { repo: apache/pulsar-client-cpp, sha: f71d7e99019d58b1d11858f05ff0dc83b718627b }
+  dotpulsar_baseline: e8f2ba22c7136a35d279451e7278589fb0084d2e
+
+components:
+  - csharp: src/DotPulsar/TransactionId.cs
+    wp: WP3
+    status: ported
+    spec: 05-components/transaction-id.md
+    sources: [{ repo: java, path: pulsar-client-api/src/main/java/org/apache/pulsar/client/api/transaction/TxnID.java, lines: 1-86 }]
+  - csharp: src/DotPulsar/TransactionState.cs
+    wp: WP3
+    status: ported
+    spec: 03-public-api.md
+    sources: [{ repo: java, path: pulsar-client-api/src/main/java/org/apache/pulsar/client/api/transaction/Transaction.java, symbol: State, lines: 32-79 }]
+  - csharp: src/DotPulsar/TransactionOptions.cs
+    wp: WP3
+    status: ported
+    spec: 03-public-api.md
+    sources: [{ repo: java, path: pulsar-client/src/main/java/org/apache/pulsar/client/impl/transaction/TransactionBuilderImpl.java, symbol: txnTimeout, lines: 38-39 }]
+  - csharp: src/DotPulsar/Abstractions/ITransaction.cs
+    wp: WP3
+    status: ported
+    spec: 03-public-api.md
+    sources: [{ repo: java, path: pulsar-client-api/src/main/java/org/apache/pulsar/client/api/transaction/Transaction.java, lines: 1-108 }]
+  - csharp: src/DotPulsar/Abstractions/ITransactionBuilder.cs
+    wp: WP3
+    status: ported
+    spec: 03-public-api.md
+    sources: [{ repo: java, path: pulsar-client-api/src/main/java/org/apache/pulsar/client/api/transaction/TransactionBuilder.java, lines: 1-54 }]
+  - csharp: src/DotPulsar/Internal/TransactionBuilder.cs
+    wp: WP3
+    status: ported
+    spec: 05-components/transaction-builder.md
+    sources: [{ repo: java, path: pulsar-client/src/main/java/org/apache/pulsar/client/impl/transaction/TransactionBuilderImpl.java, lines: 1-81 }]
+  - csharp: src/DotPulsar/Internal/Transactions/Transaction.cs
+    wp: WP3
+    status: adapted
+    spec: 05-components/transaction.md
+    sources: [{ repo: java, path: pulsar-client/src/main/java/org/apache/pulsar/client/impl/transaction/TransactionImpl.java, lines: 1-280 }]
+    members:
+      - { csharp: OnTimeout, upstream: "TransactionImpl#run", lines: 83-85 }
+      - { csharp: RegisterProducedTopic, upstream: "TransactionImpl#registerProducedTopic", lines: 107-122 }
+      - { csharp: RegisterSendOp, upstream: "TransactionImpl#registerSendOp", lines: 124-145 }
+      - { csharp: RegisterAckedTopic, upstream: "TransactionImpl#registerAckedTopic", lines: 148-163 }
+      - { csharp: RegisterAckOp, upstream: "TransactionImpl#registerAckOp", lines: 165-186 }
+      - { csharp: Commit, upstream: "TransactionImpl#commit", lines: 189-217 }
+      - { csharp: Abort, upstream: "TransactionImpl#abort", lines: 220-224 }
+      - { csharp: InternalAbort, upstream: "TransactionImpl#internalAbort", lines: 226-246 }
+      - { csharp: EnsureOpen, upstream: "TransactionImpl#checkIfOpen", lines: 258-267 }
+      - { csharp: CheckState, upstream: "TransactionImpl#checkState", lines: 269-279 }
+  - csharp: src/DotPulsar/Internal/Abstractions/ITransactionCoordinatorClient.cs
+    wp: WP2
+    status: ported
+    spec: 05-components/transaction-coordinator-client.md
+    sources: [{ repo: java, path: pulsar-client-api/src/main/java/org/apache/pulsar/client/api/transaction/TransactionCoordinatorClient.java, lines: 1-183 }]
+  - csharp: src/DotPulsar/Internal/Transactions/TransactionCoordinatorClient.cs
+    wp: WP2
+    status: deviated
+    spec: 05-components/transaction-coordinator-client.md
+    sources: [{ repo: java, path: pulsar-client/src/main/java/org/apache/pulsar/client/impl/transaction/TransactionCoordinatorClientImpl.java, lines: 1-307 }]
+    deviations: [X2]
+  - csharp: src/DotPulsar/Internal/Transactions/TransactionCoordinatorClientState.cs
+    wp: WP2
+    status: ported
+    spec: 05-components/transaction-coordinator-client.md
+    sources: [{ repo: java, path: pulsar-client-api/src/main/java/org/apache/pulsar/client/api/transaction/TransactionCoordinatorClient.java, symbol: State, lines: 41-47 }]
+  - csharp: src/DotPulsar/Internal/Abstractions/ITcDiscovery.cs
+    wp: WP2
+    status: ported
+    spec: 05-components/assign-topic-tc-discovery.md
+    sources: [{ repo: java, path: pulsar-client/src/main/java/org/apache/pulsar/client/impl/transaction/TcDiscovery.java, lines: 1-67 }]
+  - csharp: src/DotPulsar/Internal/Transactions/AssignTopicTcDiscovery.cs
+    wp: WP2
+    status: ported
+    spec: 05-components/assign-topic-tc-discovery.md
+    sources: [{ repo: java, path: pulsar-client/src/main/java/org/apache/pulsar/client/impl/transaction/AssignTopicTcDiscovery.java, lines: 1-126 }]
+  - csharp: src/DotPulsar/Internal/Abstractions/ITransactionMetaStoreHandler.cs
+    wp: WP2
+    status: ported
+    spec: 05-components/transaction-meta-store-handler.md
+    sources: [{ repo: java, path: pulsar-client/src/main/java/org/apache/pulsar/client/impl/TransactionMetaStoreHandler.java, lines: 1-923 }]
+  - csharp: src/DotPulsar/Internal/Transactions/TransactionMetaStoreHandler.cs
+    wp: WP2
+    status: deviated
+    spec: 05-components/transaction-meta-store-handler.md
+    sources:
+      - { repo: java, path: pulsar-client/src/main/java/org/apache/pulsar/client/impl/TransactionMetaStoreHandler.java, lines: 1-923 }
+      - { repo: java, path: pulsar-client/src/main/java/org/apache/pulsar/client/impl/ConnectionHandler.java }
+      - { repo: java, path: pulsar-client/src/main/java/org/apache/pulsar/client/impl/HandlerState.java }
+    deviations: [X1, X3, X4, X7]
+  - csharp: src/DotPulsar/Internal/Transactions/TransactionMetaStoreHandlerState.cs
+    wp: WP2
+    status: ported
+    spec: 05-components/transaction-meta-store-handler.md
+    sources: [{ repo: java, path: pulsar-client/src/main/java/org/apache/pulsar/client/impl/HandlerState.java, symbol: State }]
+  - csharp: src/DotPulsar/Internal/Backoff.cs
+    wp: WP2
+    status: ported
+    spec: 05-components/transaction-meta-store-handler.md
+    sources: [{ repo: java, path: "Backoff.java (locate at the pinned SHA; pulsar-client impl or pulsar-common util)" }]
+  - csharp: src/DotPulsar/Internal/RetriableErrors.cs
+    wp: WP2
+    status: ported
+    spec: 05-components/transaction-meta-store-handler.md
+    sources: [{ repo: java, path: pulsar-client-api/src/main/java/org/apache/pulsar/client/api/PulsarClientException.java, symbol: isRetriableError, lines: 1157-1181 }]
+  - csharp: "src/DotPulsar/Exceptions/{TransactionNotFound,TransactionHasOperationFailed,TransactionCoordinatorClient,TransactionCoordinatorClientState,MetaStoreHandlerNotExists,MetaStoreHandlerNotReady,OperationTimeout}Exception.cs"
+    wp: WP1-WP3
+    status: deviated
+    spec: 05-components/exceptions.md
+    sources:
+      - { repo: java, path: pulsar-client-api/src/main/java/org/apache/pulsar/client/api/transaction/TransactionCoordinatorClientException.java, lines: 40-145 }
+      - { repo: java, path: pulsar-client-api/src/main/java/org/apache/pulsar/client/api/PulsarClientException.java, lines: 932-960 }
+    deviations: [X5, X6, X7]
+  - csharp: src/DotPulsar/Internal/Extensions/CommandExtensions.cs
+    wp: WP1
+    status: ported
+    spec: 05-components/connection-integration.md
+    sources:
+      - { repo: java, path: pulsar-client/src/main/java/org/apache/pulsar/client/impl/ClientCnx.java, symbol: getPulsarClientException, lines: 2067-2109 }
+      - { repo: java, path: pulsar-common/src/main/java/org/apache/pulsar/common/protocol/Commands.java, symbol: "newTxn, newAddPartitionToTxn, newAddSubscriptionToTxn, newEndTxn, newTcClientConnectRequest", lines: "767-775, 1525-1659" }
+  - csharp: "src/DotPulsar/Internal/{RequestResponseHandler,ChannelManager,Connection,ConnectionPool,Constants}.cs, src/DotPulsar/Internal/Abstractions/IConnection.cs"
+    wp: WP0-WP1
+    status: ported
+    spec: 05-components/connection-integration.md
+    sources:
+      - { repo: java, path: pulsar-client/src/main/java/org/apache/pulsar/client/impl/ClientCnx.java, symbol: "handleAckResponse, txn response handlers, idleCheck, channelInactive", lines: "925-944, 1590-1671, 2199-2229, 529-560" }
+  - csharp: src/DotPulsar/Internal/PulsarApi.proto
+    wp: WP1
+    status: ported
+    spec: 04-protocol.md
+    sources: [{ repo: java, path: pulsar-common/src/main/proto/PulsarApi.proto, symbol: "CommandNewTxn.txn_ttl_millis", lines: 1157-1163 }]
+  - csharp: "src/DotPulsar/{PulsarClient.cs, Internal/PulsarClientBuilder.cs, Abstractions/IPulsarClient.cs, Abstractions/IPulsarClientBuilder.cs, Extensions/PulsarClientExtensions.cs}"
+    wp: WP3
+    status: ported
+    spec: 05-components/client-integration.md
+    sources:
+      - { repo: java, path: pulsar-client/src/main/java/org/apache/pulsar/client/impl/PulsarClientImpl.java, lines: "345-353, 1491-1498, 2111-2122" }
+      - { repo: java, path: pulsar-client/src/main/java/org/apache/pulsar/client/impl/conf/ClientConfigurationData.java, lines: "138, 475" }
+  - csharp: "src/DotPulsar/{Internal/Producer.cs, Internal/SubProducer.cs, Internal/SendOp.cs, Internal/ProducerChannel.cs, Internal/ProducerChannelFactory.cs, Internal/MessageBuilder.cs, Internal/MessageMetadataObjectPool.cs, MessageMetadata.cs, Abstractions/IMessageBuilder.cs}"
+    wp: WP4
+    status: deviated
+    spec: 05-components/producer-integration.md
+    sources:
+      - { repo: java, path: pulsar-client/src/main/java/org/apache/pulsar/client/impl/ProducerBase.java, lines: 91-104 }
+      - { repo: java, path: pulsar-client/src/main/java/org/apache/pulsar/client/impl/TypedMessageBuilderImpl.java, lines: "104-109, 131-141" }
+      - { repo: java, path: pulsar-client/src/main/java/org/apache/pulsar/client/impl/ProducerImpl.java, symbol: "internalSendWithTxnAsync, recoverNotAllowedError", lines: "519-530, 1704-1720" }
+      - { repo: java, path: pulsar-client/src/main/java/org/apache/pulsar/client/impl/PartitionedProducerImpl.java, lines: 256-314 }
+    deviations: ["R-ORDER: registration gate in the dispatcher gives stronger ordering than Java"]
+  - csharp: "src/DotPulsar/{Internal/Consumer.cs, Internal/SubConsumer.cs, Internal/ConsumerChannel.cs, Internal/NotReadyChannel.cs, Abstractions/IConsumer.cs, Internal/Abstractions/IConsumerChannel.cs, Extensions/ConsumerExtensions.cs}"
+    wp: WP5
+    status: adapted
+    spec: 05-components/consumer-integration.md
+    sources:
+      - { repo: java, path: pulsar-client/src/main/java/org/apache/pulsar/client/impl/ConsumerBase.java, lines: "594-619, 687-776, 867-869" }
+      - { repo: java, path: pulsar-client/src/main/java/org/apache/pulsar/client/impl/ConsumerImpl.java, symbol: "doAcknowledge, doTransactionAcknowledgeForResponse", lines: "654-698, 3520-3585, 3631-3666" }
+      - { repo: java, path: pulsar-client/src/main/java/org/apache/pulsar/client/impl/MultiTopicsConsumerImpl.java, lines: 491-549 }
+
+prerequisites:
+  # Member-level mappings (java + cpp, with line ranges) are in each spec's "Upstream mapping" table.
+  - { feature: ack-receipt, wp: WP1, spec: 06-prerequisites/ack-receipt.md, status: ported }
+  - { feature: batch-index-ack, wp: WP5a, spec: 06-prerequisites/batch-index-ack.md, status: ported }
+  - { feature: producer-batching, wp: WP6, spec: 06-prerequisites/producer-batching.md, status: adapted }
+  - { feature: redelivery-primitive, wp: WP7a, spec: 06-prerequisites/ack-timeout.md, status: adapted }
+  - { feature: send-timeout, wp: WP7, spec: 06-prerequisites/send-timeout.md, status: adapted }
+  - { feature: ack-timeout, wp: WP7, spec: 06-prerequisites/ack-timeout.md, status: adapted }
+  - { feature: dead-letter-policy, wp: WP7, spec: 06-prerequisites/dead-letter-policy.md, status: adapted }
+  - { feature: chunking, wp: WP8, spec: 06-prerequisites/chunking.md, status: adapted }
+  - { feature: encryption, wp: WP9, spec: 06-prerequisites/encryption.md, status: planned }  # producer side pending (WP9-producer)
+
+deviations:
+  # Mirror of 12-risks-open-questions.md §2. Keep the two in sync.
+  - { id: X1, summary: "Async SemaphoreSlim instead of blocking Semaphore for max pending TC ops" }
+  - { id: X2, summary: "TC client starts lazily on first CreateTransaction; retryable" }
+  - { id: X3, summary: "TC responses correlated by per-connection request_id, not routed by txnid_most_bits" }
+  - { id: X4, summary: "Pending TC ops resent with a new request id after reconnect" }
+  - { id: X5, summary: "MetaStoreHandlerNotExists/NotReady messages interpolate the tc id (Java has a literal {})" }
+  - { id: X6, summary: "Flat sealed exception types" }
+  - { id: X7, summary: "AlreadyClosedException maps to PulsarClientClosedException" }
+  - { id: X8, summary: "newMessage(Schema, Transaction) not applicable" }
+  - { id: X9, summary: "Transaction timeout <= 0 rejected" }
+  - { id: X10, summary: "InvalidTxnStatus on client commands maps to InvalidTransactionStatusException" }
+
+tests:
+  - upstream: TransactionEndToEndTest#testIndividualAckAbortFilterAckSetInPendingAckState
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/TransactionEndToEndTest.java
+    lines: "123-176"
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionEndToEndTestsBase.cs#Abort_GivenBatchIndexesAckedByTwoTransactionsAndPlainAck_ShouldRedeliverOnlyTheAbortedIndexes"
+    status: "Port"
+    spec: 08-tests/tests-e2e.md
+    done: true
+  - upstream: TransactionEndToEndTest#testFilterMsgsInPendingAckStateWhenConsumerDisconnect
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/TransactionEndToEndTest.java
+    lines: "179-252"
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionEndToEndTestsBase.cs#Abort_GivenPendingAcksAndReconnectedConsumer_ShouldDeliverOnlyAbortedMessages"
+    status: "Port"
+    spec: 08-tests/tests-e2e.md
+    done: true
+  - upstream: TransactionEndToEndTest#testMsgsInPendingAckStateWouldNotGetTheConsumerStuck
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/TransactionEndToEndTest.java
+    lines: "254-311"
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionEndToEndTestsBase.cs#Receive_GivenMessagesInPendingAckStateAndSmallPrefetch_ShouldNotGetConsumerStuck"
+    status: "Port"
+    spec: 08-tests/tests-e2e.md
+    note: "weakened (minor): the producer does not set EnableBatching(true) as the spec requires; the test comment argues that Java sends one-message batches"
+    done: true
+  - upstream: TransactionEndToEndTest#produceCommitTest
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/TransactionEndToEndTest.java
+    lines: "313-368"
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionEndToEndTestsBase.cs#Commit_GivenTwoTransactionsProducingToPartitionedTopic_ShouldDeliverAllMessagesOnlyAfterCommit"
+    status: "Port"
+    spec: 08-tests/tests-e2e.md
+    done: true
+  - upstream: TransactionEndToEndTest#produceAbortTest
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/TransactionEndToEndTest.java
+    lines: "370-453"
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionEndToEndTestsBase.cs#Abort_GivenProducedMessages_ShouldNotDeliverAndShouldMoveMarkDeleteToEnd"
+    status: "Port-partial (broker cursor check -> admin internal stats)"
+    spec: 08-tests/tests-e2e.md
+    done: true
+  - upstream: TransactionEndToEndTest#testUnackMessageAfterAckAllMessages
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/TransactionEndToEndTest.java
+    lines: "470-521"
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionEndToEndTestsBase.cs#Commit_GivenAllMessagesAckedWithTransaction_ShouldLeaveNoUnackedMessages"
+    status: "Port (skipped in NOBIA)"
+    spec: 08-tests/tests-e2e.md
+    done: true
+    note: "8 rows as upstream; NOBIA: disabled upstream, so the NOBIA collection skips it by design"
+  - upstream: TransactionEndToEndTest#testAckWithTransactionReduceUnAckMessageCount
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/TransactionEndToEndTest.java
+    lines: "523-583"
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionEndToEndTestsBase.cs#Commit_GivenHalfOfMessagesAckedWithTransaction_ShouldReduceUnackedMessageCount"
+    status: "Port-partial (broker `Consumer#getUnackedMessages` -> admin stats) (skipped in NOBIA)"
+    spec: 08-tests/tests-e2e.md
+    done: true
+    note: "2 rows as upstream; NOBIA: disabled upstream, so the NOBIA collection skips it by design"
+  - upstream: TransactionEndToEndTest#txnIndividualAckTestNoBatchAndSharedSub
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/TransactionEndToEndTest.java
+    lines: "585-588"
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionEndToEndTestsBase.cs#Acknowledge_GivenNoBatchAndSharedSubscription_ShouldRedeliverAfterAbortAndRemoveAfterCommit"
+    status: "Port-partial (reflection re-commit -> TC client commit)"
+    spec: 08-tests/tests-e2e.md
+    done: true
+  - upstream: TransactionEndToEndTest#txnIndividualAckTestBatchAndSharedSub
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/TransactionEndToEndTest.java
+    lines: "590-593"
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionEndToEndTestsBase.cs#Acknowledge_GivenBatchAndSharedSubscription_ShouldRedeliverAfterAbortAndRemoveAfterCommit"
+    status: "Port-partial (same)"
+    spec: 08-tests/tests-e2e.md
+    done: true
+  - upstream: TransactionEndToEndTest#txnIndividualAckTestNoBatchAndFailoverSub
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/TransactionEndToEndTest.java
+    lines: "595-598"
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionEndToEndTestsBase.cs#Acknowledge_GivenNoBatchAndFailoverSubscription_ShouldRedeliverAfterAbortAndRemoveAfterCommit"
+    status: "Port-partial (same)"
+    spec: 08-tests/tests-e2e.md
+    done: true
+  - upstream: TransactionEndToEndTest#txnIndividualAckTestBatchAndFailoverSub
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/TransactionEndToEndTest.java
+    lines: "600-603"
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionEndToEndTestsBase.cs#Acknowledge_GivenBatchAndFailoverSubscription_ShouldRedeliverAfterAbortAndRemoveAfterCommit"
+    status: "Port-partial (same) (NOBIA override: skipped, see §3)"
+    spec: 08-tests/tests-e2e.md
+    done: true
+    note: "NOBIA: the NOBIA collection skips it by design (upstream turns batch index ack on at runtime); the base collection runs it"
+  - upstream: TransactionEndToEndTest#testAfterDeleteTopicOtherTopicCanRecover
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/TransactionEndToEndTest.java
+    lines: "684-704"
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionEndToEndTestsBase.cs#Send_GivenOtherTopicWithSubscriptionWasDeleted_ShouldProduceAndConsume"
+    status: "Port"
+    spec: 08-tests/tests-e2e.md
+    note: "missing: no C# test; planned name Send_GivenOtherTopicWithSubscriptionWasDeleted_ShouldProduceAndConsume; needs fixture CreateSubscription and a non-partitioned DeleteTopic"
+    done: true
+  - upstream: TransactionEndToEndTest#txnMessageAckTest
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/TransactionEndToEndTest.java
+    lines: "706-819"
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionEndToEndTestsBase.cs#Acknowledge_GivenCommittedTransactionalMessages_ShouldAckAndMoveMarkDeleteToEnd"
+    status: "Port-partial (broker cursor check -> admin internal stats)"
+    spec: 08-tests/tests-e2e.md
+    note: "missing: no C# test; planned name Acknowledge_GivenCommittedTransactionalMessages_ShouldAckAndMoveMarkDeleteToEnd; GetInternalStats and IsMarkDeleteAtEnd already exist"
+    done: true
+  - upstream: TransactionEndToEndTest#txnAckTestBatchAndCumulativeSub
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/TransactionEndToEndTest.java
+    lines: "821-824"
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionEndToEndTestsBase.cs#AcknowledgeCumulative_GivenBatchAndFailoverSubscription_ShouldConflictRedeliverAfterAbortAndRemoveAfterCommit"
+    status: "Port-partial (reflection re-commit -> TC client commit)"
+    spec: 08-tests/tests-e2e.md
+    done: true
+  - upstream: TransactionEndToEndTest#txnAckTestNoBatchAndCumulativeSub
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/TransactionEndToEndTest.java
+    lines: "826-829"
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionEndToEndTestsBase.cs#AcknowledgeCumulative_GivenNoBatchAndFailoverSubscription_ShouldConflictRedeliverAfterAbortAndRemoveAfterCommit"
+    status: "Port-partial (same)"
+    spec: 08-tests/tests-e2e.md
+    done: true
+  - upstream: TransactionEndToEndTest#txnMetadataHandlerRecoverTest
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/TransactionEndToEndTest.java
+    lines: "941-996"
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionEndToEndTestsBase.cs#Commit_GivenTransactionsCommittedByIdFromAnotherClient_ShouldDeliverAllMessages"
+    status: "Port"
+    spec: 08-tests/tests-e2e.md
+    done: true
+    note: "2 rows (batching true, false), upstream has one run with the Java default (batching); superset"
+  - upstream: TransactionEndToEndTest#produceTxnMessageOrderTest
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/TransactionEndToEndTest.java
+    lines: "998-1038"
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionEndToEndTestsBase.cs#Commit_GivenThousandTransactionalMessages_ShouldDeliverInSendOrder"
+    status: "Port"
+    spec: 08-tests/tests-e2e.md
+    done: true
+    note: "2 rows (batching true, false), upstream has one run with the Java default (batching); superset"
+  - upstream: TransactionEndToEndTest#produceAndConsumeCloseStateTxnTest
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/TransactionEndToEndTest.java
+    lines: "1040-1148"
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionEndToEndTestsBase.cs#SendAndAcknowledge_GivenEndedOrTimedOutTransaction_ShouldThrow"
+    status: "Port-partial (TC store lookup -> admin `transactionMetadata`; reflection ctor -> public internal ctor)"
+    spec: 08-tests/tests-e2e.md
+    note: "missing: no C# test; planned name SendAndAcknowledge_GivenEndedOrTimedOutTransaction_ShouldThrow; needs fixture TransactionMetadataExists (404 poll)"
+    done: true
+  - upstream: TransactionEndToEndTest#testTxnTimeoutAtTransactionMetadataStore
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/TransactionEndToEndTest.java
+    lines: "1150-1169"
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionEndToEndTestsBase.cs#Create_GivenTimeoutElapsesAtCoordinator_ShouldIncrementCoordinatorTimeoutCount"
+    status: "Port-partial (broker TC service -> client `Create` + admin + `/metrics`)"
+    spec: 08-tests/tests-e2e.md
+    note: "missing: no C# test; planned name Create_GivenTimeoutElapsesAtCoordinator_ShouldIncrementCoordinatorTimeoutCount; needs fixture TransactionMetadataExists and GetTransactionTimeoutTotal (/metrics)"
+    done: true
+  - upstream: TransactionEndToEndTest#transactionTimeoutTest
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/TransactionEndToEndTest.java
+    lines: "1171-1214"
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionEndToEndTestsBase.cs#Acknowledge_GivenTransactionTimesOut_ShouldRedeliverMessage"
+    status: "Port"
+    spec: 08-tests/tests-e2e.md
+    done: true
+  - upstream: TransactionEndToEndTest#txnTransactionRedeliverNullDispatcher
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/TransactionEndToEndTest.java
+    lines: "1221-1283"
+    csharp: null
+    status: "Excluded"
+    note: "Broker internals only: the test sets the private field PersistentSubscription.dispatcher to null by reflection on the in-process broker; a client cannot put a real broker into that state (08-tests/tests-e2e.md row 21)"
+    spec: 08-tests/tests-e2e.md
+  - upstream: TransactionEndToEndTest#oneTransactionOneTopicWithMultiSubTest
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/TransactionEndToEndTest.java
+    lines: "1285-1347"
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionEndToEndTestsBase.cs#Acknowledge_GivenOneTransactionAndTwoSubscriptions_ShouldRegisterBothSubscriptions"
+    status: "Port-partial (TC store -> admin `transactionMetadata.ackedPartitions`)"
+    spec: 08-tests/tests-e2e.md
+    done: true
+  - upstream: TransactionEndToEndTest#testTxnTimeOutInClient
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/TransactionEndToEndTest.java
+    lines: "1349-1386"
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionEndToEndTestsBase.cs#SendAndAcknowledge_GivenTransactionTimedOutInClient_ShouldThrowInvalidTransactionStatusException"
+    status: "Port"
+    spec: 08-tests/tests-e2e.md
+    done: true
+  - upstream: TransactionEndToEndTest#testCumulativeAckRedeliverMessages
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/TransactionEndToEndTest.java
+    lines: "1388-1459"
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionEndToEndTestsBase.cs#AcknowledgeCumulative_GivenConflictingTransactionThenAbort_ShouldRedeliverMessages"
+    status: "Port"
+    spec: 08-tests/tests-e2e.md
+    done: true
+    note: "2 rows (batching false, true), upstream has one run with the Java default (batching) where every send is awaited; false = Java's one-message batches, true = one batch of 5; superset"
+  - upstream: TransactionEndToEndTest#testSendTxnMessageTimeout
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/TransactionEndToEndTest.java
+    lines: "1461-1498"
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionEndToEndTestsBase.cs#Send_GivenTransactionalMessageWithoutReceipt_ShouldThrowOperationTimeoutException"
+    status: "Port-partial (mocked `ClientCnx` -> black-hole TCP relay)"
+    spec: 08-tests/tests-e2e.md
+    done: true
+  - upstream: TransactionEndToEndTest#testAckWithTransactionReduceUnackCountNotInPendingAcks
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/TransactionEndToEndTest.java
+    lines: "1500-1543"
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionEndToEndTestsBase.cs#Acknowledge_GivenOneBatchIndexAckedWithTransaction_ShouldReduceUnackedCountByOne"
+    status: "Port-partial (broker consumer -> admin stats)"
+    spec: 08-tests/tests-e2e.md
+    done: true
+  - upstream: TransactionEndToEndTest#testSendTxnAckMessageToDLQ
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/TransactionEndToEndTest.java
+    lines: "1545-1608"
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionEndToEndTestsBase.cs#Abort_GivenMessageExceedsMaxRedeliverCount_ShouldSendMessageToDeadLetterTopic"
+    status: "Port-partial (client permit counter dropped -> unit test)"
+    spec: 08-tests/tests-e2e.md
+    note: "weakened (minor): the producer has no SendTimeout(1 s); the dropped permit assertion is replaced by ConsumerChannelTests#Receive_GivenNonBatchedMessageAboveMaxRedeliverCount_ShouldCountItsPermitAsReceived"
+    done: true
+  - upstream: TransactionEndToEndTest#testSendTxnAckBatchMessageToDLQ
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/TransactionEndToEndTest.java
+    lines: "1610-1683"
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionEndToEndTestsBase.cs#Abort_GivenBatchMessageExceedsMaxRedeliverCount_ShouldSendBatchToDeadLetterTopic"
+    status: "Port-partial (same)"
+    spec: 08-tests/tests-e2e.md
+    note: "weakened (minor, documented in the test): SendTimeout 5 s instead of 1 s and BatchingMaxMessages(2) closes the batch; the permit assertion is replaced as in testSendTxnAckMessageToDLQ"
+    done: true
+  - upstream: TransactionEndToEndTest#testDelayedTransactionMessages
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/TransactionEndToEndTest.java
+    lines: "1685-1748"
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionEndToEndTestsBase.cs#Commit_GivenDelayedTransactionalMessages_ShouldDeliverImmediatelyToFailoverAndDelayedToShared"
+    status: "Port"
+    spec: 08-tests/tests-e2e.md
+    done: true
+  - upstream: TransactionTest#testTopicTransactionMetrics
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionTest.java
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionTests.cs#Commit_GivenCommittedAbortedAndOngoingTransactions_ShouldReportTransactionCountsInTopicStats"
+    status: "Port-partial (OTel dropped)"
+    spec: 08-tests/tests-broker.md
+    note: "missing: no C# test (no committedTxnCount/ongoingTxnCount/abortedTxnCount assertion in tests/)"
+    done: true
+  - upstream: TransactionTest#testCreateTransactionSystemTopic
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionTest.java
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionTests.cs#Subscribe_GivenTransactionPendingAckSystemTopic_ShouldThrowNotAllowedException"
+    status: "Port-partial (namespace delete/recreate → fresh namespace)"
+    spec: 08-tests/tests-broker.md
+    note: "missing: only step 3 of 9 exists (TransactionConsumerTests#Acknowledge_GivenMessageIdThatWasNeverDelivered_..., which claims this upstream); steps 4-9 (pending-ack system topic, consumer fault, REST reasons) are absent"
+    done: true
+  - upstream: TransactionTest#testCanDeleteNamespaceWhenEnableTxnSegmentedSnapshot
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionTest.java
+    csharp: null
+    status: "Excluded: mutates broker config at runtime (`transactionBufferSegmentedSnapshotEnabled`); no transaction client API involved"
+    spec: 08-tests/tests-broker.md
+  - upstream: TransactionTest#brokerNotInitTxnManagedLedgerTopic
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionTest.java
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionTests.cs#Create_GivenSystemNamespaceUnloaded_ShouldCreateTransaction"
+    status: "Port-partial (broker topic-map asserts dropped)"
+    spec: 08-tests/tests-broker.md
+    note: "missing: no C# test; needs an admin unload of pulsar/system"
+    done: true
+  - upstream: TransactionTest#testAsyncSendOrAckForSingleFuture
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionTest.java
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionTests.cs#Commit_GivenConcurrentTransactionalSendsAndAcks_ShouldCompleteAllOperations"
+    status: "Port-partial (client `opCount` reflection dropped; broker config → topic policy)"
+    spec: 08-tests/tests-broker.md
+    note: "missing: no integration test; the unit test Internal/Transactions/TransactionTests#RegisterSendOp_GivenConcurrentOps_ShouldCompleteWhenAllDone covers only the op counting"
+    done: true
+  - upstream: TransactionTest#testSendAndAckWithSchema
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionTest.java
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionTests.cs#Send_GivenStringSchemaProducerAndTransaction_ShouldDeliverValueWithSchemaVersion"
+    status: "Port-partial (per-message schema → String producer, 03 §1)"
+    spec: 08-tests/tests-broker.md
+    note: "missing: no C# test"
+    done: true
+  - upstream: TransactionTest#testGetTxnID
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionTest.java
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionTests.cs#Create_GivenPreviousTransaction_ShouldIncrementLeastSigBits"
+    status: "Port"
+    spec: 08-tests/tests-broker.md
+    note: "missing: no C# test (nothing asserts that a second Create increments LeastSigBits)"
+    done: true
+  - upstream: TransactionTest#testSubscriptionRecreateTopic
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionTest.java
+    csharp: null
+    status: "Excluded: reflection on `ManagedLedgerFactoryImpl.ledgers`, `MLPendingAckStoreProvider`"
+    spec: 08-tests/tests-broker.md
+  - upstream: TransactionTest#testPendingAckStoreEntriesArentPulsarMessages
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionTest.java
+    csharp: null
+    status: "Excluded: asserts `ManagedLedgerConfig.isPulsarMessageEntries`"
+    spec: 08-tests/tests-broker.md
+  - upstream: TransactionTest#testTakeSnapshotBeforeBuildTxnProducer
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionTest.java
+    csharp: null
+    status: "Excluded: decodes broker-internal `TransactionBufferSnapshot` Avro records from a system topic"
+    spec: 08-tests/tests-broker.md
+  - upstream: TransactionTest#testAppendBufferWithNotManageLedgerExceptionCanCastToMLE
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionTest.java
+    csharp: null
+    status: "Excluded: closes a managed ledger and calls `PersistentTopic.publishTxnMessage` directly"
+    spec: 08-tests/tests-broker.md
+  - upstream: TransactionTest#testMaxReadPositionForNormalPublish
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionTest.java
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionTests.cs#Send_GivenNormalAndTransactionalMessages_ShouldMoveMaxReadPositionOnlyWhenNoOpenTransaction"
+    status: "Port-partial (last reflection step dropped)"
+    spec: 08-tests/tests-broker.md
+    done: true
+  - upstream: TransactionTest#testEndTBRecoveringWhenManagerLedgerDisReadable
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionTest.java
+    csharp: null
+    status: "Excluded: mocked `ManagedCursorImpl` injected into the managed ledger"
+    spec: 08-tests/tests-broker.md
+  - upstream: TransactionTest#testEndTPRecoveringWhenManagerLedgerDisReadable
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionTest.java
+    csharp: null
+    status: "Excluded: mocked pending ack store provider"
+    spec: 08-tests/tests-broker.md
+  - upstream: TransactionTest#testEndTCRecoveringWhenManagerLedgerDisReadable
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionTest.java
+    csharp: null
+    status: "Excluded: constructs `MLTransactionMetadataStore` with mocks"
+    spec: 08-tests/tests-broker.md
+  - upstream: TransactionTest#testEndTxnWhenCommittingOrAborting
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionTest.java
+    csharp: "tests/DotPulsar.Tests/Internal/Transactions/TransactionTests.cs#Commit_GivenCommittingState_ShouldSendEndTxnAgain"
+    status: "Excluded: reflection sets client txn state + broker interceptor counters"
+    spec: 08-tests/tests-broker.md
+    note: "replaced by the unit test Internal/Transactions/TransactionTests#Commit_GivenCommittingState_ShouldSendEndTxnAgain"
+  - upstream: TransactionTest#testNoEntryCanBeReadWhenRecovery
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionTest.java
+    csharp: null
+    status: "Excluded: spies on `ManagedLedgerImpl`"
+    spec: 08-tests/tests-broker.md
+  - upstream: TransactionTest#testRetryExceptionOfEndTxn
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionTest.java
+    csharp: null
+    status: "Excluded: reflection sets TC store state"
+    spec: 08-tests/tests-broker.md
+  - upstream: TransactionTest#testCancelTxnTimeout
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionTest.java
+    csharp: "tests/DotPulsar.Tests/Internal/Transactions/TransactionTests.cs#Commit_ShouldCancelTimer"
+    status: "Excluded: reads the client `Timeout` field"
+    spec: 08-tests/tests-broker.md
+    note: "replaced by the unit test Internal/Transactions/TransactionTests#Commit_ShouldCancelTimer"
+  - upstream: TransactionTest#testNotChangeMaxReadPositionCountWhenCheckIfNoSnapshot
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionTest.java
+    csharp: null
+    status: "Excluded: reflection on `TopicTransactionBuffer`"
+    spec: 08-tests/tests-broker.md
+  - upstream: TransactionTest#testAutoCreateSchemaForTransactionSnapshot
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionTest.java
+    csharp: null
+    status: "Excluded: runtime broker config (`allowAutoUpdateSchemaEnabled`), system-topic schemas only"
+    spec: 08-tests/tests-broker.md
+  - upstream: TransactionTest#testPendingAckMarkDeletePosition
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionTest.java
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionPendingAckLogIndexTests.cs#Acknowledge_GivenCommittedTransactionalAck_ShouldMarkDeletePendingAckLogUpToUncommittedEntries"
+    status: "Port-partial (runtime config → fixture config)"
+    spec: 08-tests/tests-broker.md
+    note: "missing: no C# test; needs a fixture with transactionPendingAckLogIndexMinLag=1"
+    done: true
+  - upstream: TransactionTest#testConsistencyOfTransactionStatsAtEndTxn
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionTest.java
+    csharp: null
+    status: "Excluded: closes the TC log cursor via reflection"
+    spec: 08-tests/tests-broker.md
+  - upstream: TransactionTest#testTransactionAckMessageList
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionTest.java
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionConsumerTests.cs#Acknowledge_GivenMessageIdListAndAbortedThenCommittedTransaction_ShouldRedeliverOnlyAfterAbort"
+    status: "Port"
+    spec: 08-tests/tests-broker.md
+    done: true
+  - upstream: TransactionTest#testTransactionAckMessages
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionTest.java
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionConsumerTests.cs#Acknowledge_GivenMessagesOnPartitionedTopicAndAbortedThenCommittedTransaction_ShouldRedeliverOnlyAfterAbort"
+    status: "Port (reflection only built the Java `Messages` container)"
+    spec: 08-tests/tests-broker.md
+    done: true
+  - upstream: TransactionTest#testGetConnectExceptionForAckMsgWhenCnxIsNull
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionTest.java
+    csharp: null
+    status: "Excluded: invokes the private `connectionClosed` via reflection; DotPulsar has different reconnect semantics (OD-13)"
+    spec: 08-tests/tests-broker.md
+  - upstream: TransactionTest#testPendingAckBatchMessageCommit
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionTest.java
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionConsumerTests.cs#Acknowledge_GivenBatchMessageAckedInAbortedTransaction_ShouldAllowAckInNewTransaction"
+    status: "Port"
+    spec: 08-tests/tests-broker.md
+    done: true
+  - upstream: TransactionTest#testPendingAckReplayChangeStateError
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionTest.java
+    csharp: null
+    status: "Excluded: all broker objects mocked"
+    spec: 08-tests/tests-broker.md
+  - upstream: TransactionTest#testTBRecoverChangeStateError
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionTest.java
+    csharp: null
+    status: "Excluded: all broker objects mocked"
+    spec: 08-tests/tests-broker.md
+  - upstream: TransactionTest#testGetTxnState
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionTest.java
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionTests.cs#CurrentState_GivenTransactionLifecycle_ShouldReportEachState"
+    status: "Port-partial (two client/broker internals substituted)"
+    spec: 08-tests/tests-broker.md
+    note: "weakened: steps 1-4 only (TimedOut, Aborted, Committed, Error); steps 5-6 (Committing and Aborting while a batched send is held) are not ported; the test is named ..._GivenEmptyTransactions_..."
+    done: true
+  - upstream: TransactionTest#testEncryptionRequired
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionTest.java
+    status: "Port"
+    spec: 08-tests/tests-broker.md
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionTests.cs#Send_GivenEncryptionRequiredNamespaceAndEncryptedTransactionalMessage_ShouldCommit"
+    done: true
+  - upstream: TransactionTest#testDeleteNamespace
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionTest.java
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionTests.cs#DeleteNamespace_GivenTransactionalProduceAndAck_ShouldSucceed"
+    status: "Port"
+    spec: 08-tests/tests-broker.md
+    note: "missing: no C# test; needs a DeleteNamespace helper and forceDeleteNamespaceAllowed=true on the broker"
+    done: true
+  - upstream: TransactionTest#testTBSnapshotWriter
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionTest.java
+    csharp: null
+    status: "Excluded: injects failed writer futures into `SystemTopicTxnBufferSnapshotService`"
+    spec: 08-tests/tests-broker.md
+  - upstream: TransactionTest#testReadCommittedWithReadCompacted
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionTest.java
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionTests.cs#Receive_GivenReadCompactedConsumerAndOpenTransaction_ShouldDeliverTransactionalMessagesOnlyAfterCommit"
+    status: "Port"
+    spec: 08-tests/tests-broker.md
+    note: "missing: no C# test; needs a topic compaction threshold helper"
+    done: true
+  - upstream: TransactionTest#testReadCommittedWithCompaction
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionTest.java
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionTests.cs#Receive_GivenCompactedTopicWithCommittedTransactions_ShouldDeliverLatestValuePerKey"
+    status: "Port"
+    spec: 08-tests/tests-broker.md
+    note: "missing: no C# test; needs a compaction trigger helper"
+    done: true
+  - upstream: TransactionTest#testDelayedDeliveryExceedsMaxDelay
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionTest.java
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionTests.cs#Send_GivenTransactionalMessageExceedingMaxDeliveryDelay_ShouldThrowNotAllowedException"
+    status: "Port"
+    spec: 08-tests/tests-broker.md
+    note: "pending-wp9-producer: the test exists and is not skipped, but its producer has no encryption (TransactionTests.cs TODO(WP9), not TODO(WP9-producer))"
+    done: true
+  - upstream: TransactionTest#testPersistentTopicGetLastDispatchablePositionWithTxn
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionTest.java
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionTests.cs#GetLastMessageIds_GivenOpenAndAbortedTransactions_ShouldReturnLastNonTransactionalMessage"
+    status: "Port-partial (`getLastDispatchablePosition` → `GetLastMessageIds`)"
+    spec: 08-tests/tests-broker.md
+    note: "missing: no C# test (no transactional GetLastMessageIds test)"
+    done: true
+  - upstream: TransactionProduceTest#testAbortedTransactionDoesNotDiscardPlainMessageBatchedWithIt
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionProduceTest.java
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionProduceTests.cs#Abort_GivenPlainMessageBatchedAfterTransactionalMessage_ShouldDeliverPlainMessage"
+    status: "Port"
+    spec: 08-tests/tests-broker.md
+    done: true
+  - upstream: TransactionProduceTest#produceAndCommitTest
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionProduceTest.java
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionProduceTests.cs#Commit_GivenTransactionalMessagesOnPartitionedTopic_ShouldWriteCommitMarkerAndDeliverAllMessages"
+    status: "Port-partial (ReadOnlyCursor → internal stats + consumer)"
+    spec: 08-tests/tests-broker.md
+    done: true
+  - upstream: TransactionProduceTest#produceAndAbortTest
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionProduceTest.java
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionProduceTests.cs#Abort_GivenTransactionalMessagesOnPartitionedTopic_ShouldWriteAbortMarkerAndDeliverNoMessages"
+    status: "Port-partial"
+    spec: 08-tests/tests-broker.md
+    done: true
+  - upstream: TransactionProduceTest#testSkipMaxReadPositionTimestampWithoutReplicatedSubscriptions
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionProduceTest.java
+    csharp: null
+    status: "Excluded: `PersistentTopic.getLastMaxReadPositionMovedForwardTimestamp()` has no external view"
+    spec: 08-tests/tests-broker.md
+  - upstream: TransactionProduceTest#ackCommitTest
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionProduceTest.java
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionConsumerTests.cs#Commit_GivenTransactionalAcks_ShouldClearPendingAcksAndNotRedeliver"
+    status: "Port-partial (pending ack count via REST)"
+    spec: 08-tests/tests-broker.md
+    note: "weakened: transaction timeout 30 s instead of 5 s (a changed value, justified in the test comment)"
+    done: true
+  - upstream: TransactionProduceTest#ackAbortTest
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionProduceTest.java
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionConsumerTests.cs#Abort_GivenTransactionalAcks_ShouldClearPendingAcksAndRedeliver"
+    status: "Port-partial"
+    spec: 08-tests/tests-broker.md
+    done: true
+  - upstream: TransactionProduceTest#testCommitFailure
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionProduceTest.java
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionProduceTests.cs#Commit_GivenFailedTransactionalSend_ShouldThrowTransactionHasOperationFailedExceptionAndAbort"
+    status: "Port-partial (`getTxnMeta` → admin transactionMetadata 404)"
+    spec: 08-tests/tests-broker.md
+    done: true
+  - upstream: TransactionConsumeTest#noSortedTest
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionConsumeTest.java
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionConsumeTests.cs#Receive_GivenOpenTransactionBetweenNormalMessages_ShouldHoldBackLaterMessagesUntilCommit"
+    status: "Port-partial (raw broker append → real transaction)"
+    spec: 08-tests/tests-broker.md
+    done: true
+  - upstream: TransactionConsumeTest#sortedTest
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionConsumeTest.java
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionConsumeTests.cs#Receive_GivenCommittedTransactionBetweenNormalMessages_ShouldDeliverInSendOrder"
+    status: "Port-partial (same substitution)"
+    spec: 08-tests/tests-broker.md
+    done: true
+  - upstream: TransactionConsumeTest#testMessageRedelivery
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionConsumeTest.java
+    csharp: null
+    status: "Excluded: reflection on `PersistentDispatcherMultipleConsumers.redeliveryMessages`"
+    spec: 08-tests/tests-broker.md
+  - upstream: TransactionConsumeTest#testAckChunkMessage
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionConsumeTest.java
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionConsumeTests.cs#Acknowledge_GivenChunkedMessageAndTransaction_ShouldLeaveNoUnackedMessagesAfterCommit"
+    status: "Port"
+    spec: 08-tests/tests-broker.md
+    done: true
+  - upstream: TransactionConsumeTest#testFirstTnxBufferSnapshotAndRecoveryConcurrently ×2 dp ×3 invocations
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TransactionConsumeTest.java
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionConsumeTests.cs#Send_GivenConcurrentFirstTransactionalSendsFromManyClients_ShouldDeliverOnlyCommitted"
+    status: "Port-partial (TB state via REST)"
+    spec: 08-tests/tests-broker.md
+    done: true
+  - upstream: PendingAckPersistentTest#testBuildConsumerEncounterPendingAckInitFailure ×3
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/pendingack/PendingAckPersistentTest.java
+    csharp: null
+    status: "Excluded: Mockito replaces `transactionPendingAckStoreProvider`"
+    spec: 08-tests/tests-broker.md
+  - upstream: PendingAckPersistentTest#individualPendingAckReplayTest
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/pendingack/PendingAckPersistentTest.java
+    csharp: "tests/DotPulsar.Tests/Transactions/PendingAckPersistentTests.cs#Acknowledge_GivenIndividualPendingAcksAndTopicUnload_ShouldReplayPendingAckState"
+    status: "Port-partial (cursor reflection → REST)"
+    spec: 08-tests/tests-broker.md
+    note: "missing: no C# test"
+    done: true
+  - upstream: PendingAckPersistentTest#testPendingAckMetrics
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/pendingack/PendingAckPersistentTest.java
+    csharp: "tests/DotPulsar.Tests/Transactions/PendingAckPersistentTests.cs#AcknowledgeCumulative_GivenCommittedAndAbortedTransactions_ShouldReportPendingAckMetrics"
+    status: "Port-partial (OTel dropped)"
+    spec: 08-tests/tests-broker.md
+    note: "missing: no C# test; needs a Prometheus metrics helper"
+    done: true
+  - upstream: PendingAckPersistentTest#cumulativePendingAckReplayTest
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/pendingack/PendingAckPersistentTest.java
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionPendingAckReplayTests.cs#AcknowledgeCumulative_GivenPendingAcksAndTopicUnload_ShouldReplayPendingAckState"
+    status: "Port-partial (cursor reflection → REST; runtime config → fixture)"
+    spec: 08-tests/tests-broker.md
+    note: "missing: no C# test; needs a fixture with transactionPendingAckLogIndexMinLag=4002"
+    done: true
+  - upstream: PendingAckPersistentTest#testDeleteSubThenDeletePendingAckManagedLedger
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/pendingack/PendingAckPersistentTest.java
+    csharp: "tests/DotPulsar.Tests/Transactions/PendingAckPersistentTests.cs#DeleteSubscription_GivenSubscription_ShouldNotLeavePendingAckTopic"
+    status: "Port (private method, OD-15)"
+    spec: 08-tests/tests-broker.md
+    note: "missing: no C# test; needs fixture DeleteSubscription and a namespace topic list"
+    done: true
+  - upstream: PendingAckPersistentTest#testDeleteTopicThenDeletePendingAckManagedLedger
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/pendingack/PendingAckPersistentTest.java
+    csharp: "tests/DotPulsar.Tests/Transactions/PendingAckPersistentTests.cs#DeleteTopic_GivenSubscriptions_ShouldNotLeavePendingAckTopics"
+    status: "Port (private method, OD-15)"
+    spec: 08-tests/tests-broker.md
+    note: "missing: no C# test; needs fixture DeleteTopic and a namespace topic list"
+    done: true
+  - upstream: PendingAckPersistentTest#testDeleteUselessLogDataWhenSubCursorMoved
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/pendingack/PendingAckPersistentTest.java
+    csharp: null
+    status: "Excluded: `groups = \"quarantine\"`; reflection on `MLPendingAckStore.pendingAckLogIndex` / `maxIndexLag`"
+    spec: 08-tests/tests-broker.md
+  - upstream: PendingAckPersistentTest#testPendingAckLowWaterMarkRemoveFirstTxn
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/pendingack/PendingAckPersistentTest.java
+    csharp: null
+    status: "Excluded: re-opens committed client transactions via reflection; reflection on `PendingAckHandleImpl`"
+    spec: 08-tests/tests-broker.md
+  - upstream: PendingAckPersistentTest#testTransactionConflictExceptionWhenAckBatchMessage
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/pendingack/PendingAckPersistentTest.java
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionConsumerTests.cs#Acknowledge_GivenBatchIndexAckedInCommittedTransaction_ShouldThrowTransactionConflictException"
+    status: "Port (`setDeletionAtBatchIndexLevelEnabled` → fixture `acknowledgmentAtBatchIndexLevelEnabled=true`)"
+    spec: 08-tests/tests-broker.md
+    done: true
+  - upstream: PendingAckPersistentTest#testGetSubPatternTopicFilterTxnInternalTopic
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/pendingack/PendingAckPersistentTest.java
+    csharp: "tests/DotPulsar.Tests/Transactions/PendingAckPersistentTests.cs#Receive_GivenTopicsPatternAndPendingAckTopics_ShouldReceiveFromUserTopicsOnly"
+    status: "Port"
+    spec: 08-tests/tests-broker.md
+    note: "missing: no C# test"
+    done: true
+  - upstream: PendingAckPersistentTest#testGetManagedLegerConfigFailThenUnload
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/pendingack/PendingAckPersistentTest.java
+    csharp: null
+    status: "Excluded: spies on `BrokerService.getManagedLedgerConfig`"
+    spec: 08-tests/tests-broker.md
+  - upstream: ConsumerRedeliveryTest#testSelectiveRedeliveryAfterConflictingTransactionalBatchAck ×4
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/api/ConsumerRedeliveryTest.java
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionConsumerTests.cs#RedeliverUnacknowledgedMessages_GivenConflictingTransactionalBatchAck_ShouldRedeliverUntouchedBatchIndexes"
+    status: "Port (broker fix, OD-10)"
+    spec: 08-tests/tests-broker.md
+    done: true
+  - upstream: ConsumerRedeliveryTest#testZeroCountSelectiveRedeliveryPreservesBackpressure ×2
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/api/ConsumerRedeliveryTest.java
+    csharp: null
+    status: "Excluded: pauses the broker `PendingAckHandleImpl` pinned executor; asserts broker `Consumer` internals"
+    spec: 08-tests/tests-broker.md
+  - upstream: TopicTransactionBufferTest#testTransactionBufferAppendMarkerWriteFailState
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/buffer/TopicTransactionBufferTest.java
+    csharp: null
+    status: "Excluded: writes `ManagedLedgerImpl.state` via reflection; OTel"
+    spec: 08-tests/tests-broker.md
+  - upstream: TopicTransactionBufferTest#testCheckDeduplicationFailedWhenCreatePersistentTopic
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/buffer/TopicTransactionBufferTest.java
+    csharp: null
+    status: "Excluded: spies on `BrokerService.newTopic`"
+    spec: 08-tests/tests-broker.md
+  - upstream: TopicTransactionBufferTest#testCloseTransactionBufferWhenTimeout
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/buffer/TopicTransactionBufferTest.java
+    csharp: null
+    status: "Excluded: spies on `BrokerService.newTopic` (sleep injection)"
+    spec: 08-tests/tests-broker.md
+  - upstream: TopicTransactionBufferTest#testGetMaxPositionAfterTBReady
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/buffer/TopicTransactionBufferTest.java
+    csharp: null
+    status: "Excluded: mocked `TransactionBufferProvider`"
+    spec: 08-tests/tests-broker.md
+  - upstream: TopicTransactionBufferTest#testGetLastMessageIdsWithOngoingTransactions
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/buffer/TopicTransactionBufferTest.java
+    csharp: "tests/DotPulsar.Tests/Transactions/TopicTransactionBufferTests.cs#GetLastMessageIds_GivenOngoingTransactions_ShouldNotAdvancePastOpenTransactions"
+    status: "Port"
+    spec: 08-tests/tests-broker.md
+    note: "missing: no C# test (no transactional GetLastMessageIds assertion)"
+    done: true
+  - upstream: TopicTransactionBufferTest#testGetLastMessageIdsWithOpenTransactionAtLedgerHead
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/buffer/TopicTransactionBufferTest.java
+    csharp: "tests/DotPulsar.Tests/Transactions/TopicTransactionBufferTests.cs#HasMessageAvailable_GivenOpenTransactionAtLedgerHead_ShouldReturnTrue"
+    status: "Port-partial (ML state via REST)"
+    spec: 08-tests/tests-broker.md
+    note: "missing: no C# test; needs a managed ledger state helper"
+    done: true
+  - upstream: TopicTransactionBufferTest#testWriteSnapshotWhenFirstTxnMessageSend
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/buffer/TopicTransactionBufferTest.java
+    csharp: "tests/DotPulsar.Tests/Transactions/TopicTransactionBufferTests.cs#Send_GivenFirstTransactionalMessage_ShouldMoveTransactionBufferFromNoSnapshotToReady"
+    status: "Port-partial (TB state via REST)"
+    spec: 08-tests/tests-broker.md
+    done: true
+  - upstream: TopicTransactionBufferTest#testMessagePublishInOrder
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/buffer/TopicTransactionBufferTest.java
+    csharp: "tests/DotPulsar.Tests/Transactions/TopicTransactionBufferTests.cs#Commit_GivenTransactionalMessagesSentWhileBufferBecomesReady_ShouldDeliverInSendOrder"
+    status: "Port-partial (test TB provider + `registerProducedTopic` dropped)"
+    spec: 08-tests/tests-broker.md
+    done: true
+  - upstream: TopicTransactionBufferTest#testRefCountWhenAppendBufferToTxn
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/buffer/TopicTransactionBufferTest.java
+    csharp: null
+    status: "Excluded: calls `TransactionBufferTestImpl.appendBufferToTxn` with Netty `ByteBuf`s"
+    spec: 08-tests/tests-broker.md
+  - upstream: TopicTransactionBufferTest#testAppendBufferToTxnWithInMemTransactionBuffer
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/buffer/TopicTransactionBufferTest.java
+    csharp: null
+    status: "Excluded: `InMemTransactionBuffer` direct call"
+    spec: 08-tests/tests-broker.md
+  - upstream: TopicTransactionBufferPublishOrderTest#testPlainMessageSentAfterTransactionalMessageIsStoredAfterIt ×2
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/buffer/impl/TopicTransactionBufferPublishOrderTest.java
+    csharp: "tests/DotPulsar.Tests/Transactions/TopicTransactionBufferPublishOrderTests.cs#Send_GivenPlainMessageAfterTransactionalMessage_ShouldStoreInSendOrder"
+    status: "Port-partial (mocked `AbortedTxnProcessor` hold → natural first-snapshot / recovery window)"
+    spec: 08-tests/tests-broker.md
+    note: "skipped: row [false] needs the broker fix apache/pulsar#27082 (not in apachepulsar/pulsar:4.0.9); row [true] runs"
+    done: true
+  - upstream: AuthenticatedTransactionProducerConsumerTest#testEndTxn ×6
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/AuthenticatedTransactionProducerConsumerTest.java
+    csharp: "tests/DotPulsar.Tests/Transactions/AuthenticatedTransactionProducerConsumerTests.cs#Commit_GivenTransactionOfAnotherRole_ShouldOnlySucceedForOwnerOrSuperUser"
+    status: "Port-partial (`removeTransactionMetadataStore` → unload `pulsar/system`)"
+    spec: 08-tests/tests-broker.md
+    note: "missing: no C# test; needs an authenticated fixture (several roles and tokens)"
+    done: true
+  - upstream: AuthenticatedTransactionProducerConsumerTest#testAddPartitionToTxn ×6
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/AuthenticatedTransactionProducerConsumerTest.java
+    csharp: "tests/DotPulsar.Tests/Transactions/AuthenticatedTransactionProducerConsumerTests.cs#AddPublishPartitionToTxn_GivenTransactionOfAnotherRole_ShouldOnlySucceedForOwnerOrSuperUser"
+    status: "Port-partial (`getTxnMeta` → REST)"
+    spec: 08-tests/tests-broker.md
+    note: "missing: no C# test; needs the authenticated fixture"
+    done: true
+  - upstream: AuthenticatedTransactionProducerConsumerTest#testAddSubscriptionToTxn ×6
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/AuthenticatedTransactionProducerConsumerTest.java
+    csharp: "tests/DotPulsar.Tests/Transactions/AuthenticatedTransactionProducerConsumerTests.cs#AddSubscriptionToTxn_GivenTransactionOfAnotherRole_ShouldOnlySucceedForOwnerOrSuperUser"
+    status: "Port-partial"
+    spec: 08-tests/tests-broker.md
+    note: "missing: no C# test; needs the authenticated fixture"
+    done: true
+  - upstream: AuthenticatedTransactionProducerConsumerTest#testNoAuth
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/AuthenticatedTransactionProducerConsumerTest.java
+    csharp: "tests/DotPulsar.Tests/Transactions/AuthenticatedTransactionProducerConsumerTests.cs#Create_GivenClientWithoutAuthentication_ShouldThrowAuthenticationException"
+    status: "Port-partial (failure point: `Create` instead of `build()`)"
+    spec: 08-tests/tests-broker.md
+    note: "missing: no C# test; needs the authenticated fixture"
+    done: true
+  - upstream: TransactionAndSchemaAuthZTest#testSchemaAndTransactionAuthorization ×24
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/admin/TransactionAndSchemaAuthZTest.java
+    csharp: null
+    status: "Excluded: tests broker admin-REST authorization of schema/transaction admin endpoints with the Java admin client and an injected broker `AuthorizationService` checker. No DotPulsar client surface."
+    spec: 08-tests/tests-broker.md
+  - upstream: TransactionBuilderTest#checkClientEnableTransactionConfiguration
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/TransactionBuilderTest.java
+    lines: "30-46"
+    status: "Port-unit"
+    spec: 08-tests/tests-client.md
+    csharp: "tests/DotPulsar.Tests/Internal/Transactions/TransactionBuilderTests.cs#Create_GivenClientWithTransactionsDisabled_ShouldThrowConfigurationException"
+    done: true
+  - upstream: TransactionMetaStoreHandlerTest#testStateChangeFailure
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/TransactionMetaStoreHandlerTest.java
+    lines: "53-78"
+    status: "Port-unit"
+    spec: 08-tests/tests-client.md
+    csharp: "tests/DotPulsar.Tests/Internal/Transactions/TransactionMetaStoreHandlerTests.cs#Connect_GivenHandlerDisposedWhileConnecting_ShouldFaultConnectedAndNotRegister"
+    done: true
+  - upstream: TransactionMetaStoreHandlerTest#testFailedResendOnReconnectRemovesPendingRequest
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/TransactionMetaStoreHandlerTest.java
+    lines: "80-111"
+    status: "Port-unit"
+    spec: 08-tests/tests-client.md
+    csharp: "tests/DotPulsar.Tests/Internal/Transactions/TransactionMetaStoreHandlerTests.cs#Connect_GivenHandlerDisposedBeforePendingRequestIsResent_ShouldFailPendingRequestWithMetaStoreHandlerNotReadyException"
+    done: true
+  - upstream: TransactionMetaStoreHandlerTest#testCloseFailsAndReleasesPendingRequests
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/TransactionMetaStoreHandlerTest.java
+    lines: "113-132"
+    status: "Port-unit"
+    spec: 08-tests/tests-client.md
+    csharp: "tests/DotPulsar.Tests/Internal/Transactions/TransactionMetaStoreHandlerTests.cs#DisposeAsync_GivenPendingEndTxnRequest_ShouldFailItWithPulsarClientClosedExceptionAndReleaseIt"
+    done: true
+  - upstream: TransactionMetaStoreHandlerTest#testCloseReleasesCancelledPendingRequests
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/TransactionMetaStoreHandlerTest.java
+    lines: "134-151"
+    status: "Port-unit"
+    spec: 08-tests/tests-client.md
+    csharp: "tests/DotPulsar.Tests/Internal/Transactions/TransactionMetaStoreHandlerTests.cs#DisposeAsync_GivenCancelledPendingRequest_ShouldReleaseIt"
+    done: true
+  - upstream: TransactionMetaStoreHandlerTest#testTimeoutReleasesCancelledPendingRequests
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/TransactionMetaStoreHandlerTest.java
+    lines: "153-169"
+    status: "Port-unit"
+    spec: 08-tests/tests-client.md
+    csharp: "tests/DotPulsar.Tests/Internal/Transactions/TransactionMetaStoreHandlerTests.cs#Request_GivenCancelledRequestAndNoResponse_ShouldBeReleasedByTheTimeoutSweep"
+    done: true
+  - upstream: TransactionMetaStoreHandlerTest#testClientCloseFailsPendingRequestsQueuedBehindBusyExecutor
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/TransactionMetaStoreHandlerTest.java
+    lines: "171-195"
+    status: "Port-unit (adapted)"
+    spec: 08-tests/tests-client.md
+    csharp: "tests/DotPulsar.Tests/Internal/Transactions/TransactionMetaStoreHandlerTests.cs#DisposeAsync_GivenConnectionPoolDisposedRightAfter_ShouldStillFailAndReleasePendingRequest"
+    done: true
+  - upstream: TransactionMetaStoreHandlerTest#testClientCloseFailsRequestsQueuedBeforeBeingSent
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/TransactionMetaStoreHandlerTest.java
+    lines: "197-223"
+    status: "Port-unit (adapted)"
+    spec: 08-tests/tests-client.md
+    csharp: "tests/DotPulsar.Tests/Internal/Transactions/TransactionMetaStoreHandlerTests.cs#EndTxn_GivenClosedHandler_ShouldThrowMetaStoreHandlerNotReadyExceptionAndSendNothing"
+    done: true
+  - upstream: BatchMessageContainerImplTest#testUpdateMaxBatchSize
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/BatchMessageContainerImplTest.java
+    lines: "75-130"
+    status: "Port-unit"
+    spec: 08-tests/tests-client.md
+    csharp: "tests/DotPulsar.Tests/Internal/Batching/BatchMessageContainerTests.cs#UpdateMaxBatchSize_GivenGrowShrinkAndAlternatingSizes_ShouldFollowCoolingOffRules"
+    done: true
+  - upstream: BatchMessageContainerImplTest#recoveryAfterOom
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/BatchMessageContainerImplTest.java
+    lines: "132-175"
+    csharp: "tests/DotPulsar.Tests/Internal/Batching/BatchMessageContainerTests.cs#CreateBatches_GivenMessageThatFailsWhileTheBatchIsBuilt_ShouldReturnTheBatchAndBuildItAgainAfterwards"
+    status: "Port-unit (adapted)"
+    spec: 08-tests/tests-client.md
+    note: "adapted: the managed batch container has no Discard or injectable buffer pool, so the OOM itself cannot be injected; the C# test checks the same recovery property (a message that fails while the batch is built returns the batch, and the batch is built again afterwards)"
+    done: true
+  - upstream: BatchMessageContainerImplTest#testMessagesSize
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/BatchMessageContainerImplTest.java
+    lines: "177-193"
+    status: "Port-unit"
+    spec: 08-tests/tests-client.md
+    csharp: "tests/DotPulsar.Tests/Internal/Batching/BatchMessageContainerTests.cs#MaxMessagesNum_GivenBatchesOf10Then200Then10_ShouldBe32Then200Then200"
+    done: true
+  - upstream: BatchMessageContainerImplTest#testEntryBucketHashRangeIsStampedWhenCreatingSendOperation
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/BatchMessageContainerImplTest.java
+    lines: "195-224"
+    status: "Excluded"
+    note: "PIP-486 entry-bucket hash range (entry_hash_min/max), part of the v5 scalable-topic producer; out of scope (08-tests/tests-client.md A3.4)"
+    spec: 08-tests/tests-client.md
+    csharp: null
+  - upstream: BatchMessageContainerImplTest#testRecoveryAfterEncryptionFailure
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/BatchMessageContainerImplTest.java
+    lines: "338-384"
+    status: "Excluded"
+    spec: 08-tests/tests-client.md
+    csharp: null
+    note: "the managed batch container does not encrypt (encryption happens in ProducerChannel.Send), so the Java test has no direct counterpart; the recovery property (a batch whose encryption failed is left as it was and is written as a valid frame when it is sent again) is covered by BatchSendThroughProducerChannelTests#Send_GivenEncryptionFailsOnceAndTheBatchIsSentAgain_ShouldLeaveTheBatchAsItWasAndWriteItAsAValidFrame"
+  - upstream: BatchMessageContainerImplTest#testNoCompressionBuildFailureProducesValidFrame
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/BatchMessageContainerImplTest.java
+    lines: "386-456"
+    csharp: "tests/DotPulsar.Tests/Internal/Batching/BatchSendThroughProducerChannelTests.cs#Send_GivenFailureOnceWithoutCompressionAndTheBatchIsSentAgain_ShouldWriteAValidFrame"
+    status: "Port-partial (adapted)"
+    spec: 08-tests/tests-client.md
+    note: "pending-wp9-producer: no test; encryption is applied in ProducerChannel.Send, so the failure point is not in the container"
+    done: true
+  - upstream: BatchMessageContainerImplTest#testMultiBatchesPartialBuildFailureReleasesBuiltOps
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/BatchMessageContainerImplTest.java
+    lines: "458-534"
+    csharp: "tests/DotPulsar.Tests/Internal/Batching/KeyBasedBatchMessageContainerTests.cs#CreateBatches_GivenSecondBatchThatFailsToBuild_ShouldReturnTheBatchesThatWereBuiltAndKeepAllMessages"
+    status: "Port-unit (adapted)"
+    spec: 08-tests/tests-client.md
+    note: "pending-wp9-producer: no test; the failure it injects is an encryption failure of the second sub-batch"
+    done: true
+  - upstream: BatchMessageContainerImplTest#testEntryBucketPartialBuildFailureReleasesBuiltOps
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/BatchMessageContainerImplTest.java
+    lines: "536-610"
+    status: "Excluded"
+    note: "EntryBucketBatchContainer is the v5 scalable-topic batcher (PIP-486); out of scope (08-tests/tests-client.md A3.9)"
+    spec: 08-tests/tests-client.md
+    csharp: null
+  - upstream: BatchMessageContainerImplTest#discardReleasesTheBatchBufferWhenTheCallbackThrows
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/BatchMessageContainerImplTest.java
+    lines: "612-648"
+    csharp: "tests/DotPulsar.Tests/Internal/SubProducerBatchOwnershipTests.cs#Dispatcher_GivenBatchThatFailsAndContinuationsOfTheMessagesThatThrow_ShouldStillReturnTheBatchAndNotFaultTheProducer"
+    status: "Port-unit (adapted)"
+    spec: 08-tests/tests-client.md
+    note: "missing: no managed equivalent (IBatchMessageContainer has no Discard; the SubProducer dispatcher fails the ops itself); producer-batching.md names a covering test FailHead_GivenThrowingContinuation_ShouldStillReturnBatchBuffer that does not exist"
+    done: true
+  - upstream: BatchMessageContainerImplTest#oversizedSingleMessageReleasesTheBatchBufferExactlyOnce
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/BatchMessageContainerImplTest.java
+    lines: "650-696"
+    csharp: "tests/DotPulsar.Tests/Internal/SubProducerBatchOwnershipTests.cs#Dispatcher_GivenSingleMessageThatIsTooLargeAndBatching_ShouldFailItWithoutRentingABatchAndWriteTheNextMessage"
+    status: "Port-unit (adapted)"
+    spec: 08-tests/tests-client.md
+    note: "missing: no test with an Upstream comment; SubProducerTests#Send_GivenMessageThatIsTooLarge_... is a partial equivalent without the exactly-once buffer assertion"
+    done: true
+  - upstream: BatchMessageContainerImplTest#oversizedBatchReleasesThePayloadExactlyOnce
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/BatchMessageContainerImplTest.java
+    lines: "698-758"
+    csharp: "tests/DotPulsar.Tests/Internal/SubProducerBatchOwnershipTests.cs#Dispatcher_GivenBatchThatIsTooLarge_ShouldFailTheMessagesAndReturnTheBatchToThePoolExactlyOnce"
+    status: "Port-unit (adapted)"
+    spec: 08-tests/tests-client.md
+    note: "missing: no test with an Upstream comment and no None/Zlib theory; SubProducerBatchingTests#Dispatcher_GivenBatchLargerThanMaxMessageSize_... is a partial equivalent without the exactly-once buffer assertion"
+    done: true
+  - upstream: BatchMessageContainerImplTest#testPlainMessageIsNotBatchedWithTransactionalMessages
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/BatchMessageContainerImplTest.java
+    lines: "850-867"
+    status: "Port-unit"
+    spec: 08-tests/tests-client.md
+    csharp: "tests/DotPulsar.Tests/Internal/Batching/BatchMessageContainerTests.cs#HasSameTxn_GivenTransactionalBatchAndPlainMessage_ShouldReturnFalse"
+    done: true
+  - upstream: BatchMessageContainerImplTest#testTransactionalMessageIsNotBatchedWithPlainMessages
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/BatchMessageContainerImplTest.java
+    lines: "869-884"
+    status: "Port-unit"
+    spec: 08-tests/tests-client.md
+    csharp: "tests/DotPulsar.Tests/Internal/Batching/BatchMessageContainerTests.cs#HasSameTxn_GivenPlainBatchAndTransactionalMessage_ShouldReturnFalse"
+    done: true
+  - upstream: BatchMessageContainerImplTest#testKeyBasedContainerKeepsTransactionalAndPlainMessagesApart
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/BatchMessageContainerImplTest.java
+    lines: "886-905"
+    status: "Port-unit"
+    spec: 08-tests/tests-client.md
+    csharp: "tests/DotPulsar.Tests/Internal/Batching/KeyBasedBatchMessageContainerTests.cs#HasSameTxn_GivenKeyBasedPlainBatchAndTransactionalMessage_ShouldReturnFalse"
+    done: true
+  - upstream: BatchMessageContainerImplTest#testSameTransactionStillBatchesTogether
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/BatchMessageContainerImplTest.java
+    lines: "906-920"
+    status: "Port-unit"
+    spec: 08-tests/tests-client.md
+    csharp: "tests/DotPulsar.Tests/Internal/Batching/BatchMessageContainerTests.cs#HasSameTxn_GivenSameTransaction_ShouldReturnTrueAndGivenOtherTransaction_ShouldReturnFalse"
+    done: true
+  - upstream: BatchMessageContainerImplTest#testPlainMessagesStillBatchTogether
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/BatchMessageContainerImplTest.java
+    lines: "922-934"
+    status: "Port-unit"
+    spec: 08-tests/tests-client.md
+    csharp: "tests/DotPulsar.Tests/Internal/Batching/BatchMessageContainerTests.cs#HasSameTxn_GivenTwoPlainMessages_ShouldReturnTrue"
+    done: true
+  - upstream: BatchMessageContainerImplTest#testKeyBasedContainerDropsTheTransactionIdentityOfAFailedFirstAdd
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/BatchMessageContainerImplTest.java
+    lines: "949-979"
+    status: "Port-unit (adapted)"
+    spec: 08-tests/tests-client.md
+    csharp: "tests/DotPulsar.Tests/Internal/Batching/KeyBasedBatchMessageContainerTests.cs#HasSameTxn_GivenKeyBasedContainerClearedAfterTransactionalBatch_ShouldTreatNextPlainMessageAsPlain"
+    done: true
+    note: "weakened: replaced by Clear() after a transactional batch, because an add cannot fail in the C# container (test comment)"
+  - upstream: BatchMessageContainerImplTest#testEntryBucketContainerKeepsPlainMessagesOutOfTransactionalBatches
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/BatchMessageContainerImplTest.java
+    lines: "981-1000"
+    status: "Excluded"
+    note: "PIP-486 / v5 entry-bucket batch container; out of scope (08-tests/tests-client.md A3.19)"
+    spec: 08-tests/tests-client.md
+    csharp: null
+  - upstream: BatchMessageContainerImplTest#testEntryBucketContainerBatchesMessagesOfOneTransactionTogether
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/BatchMessageContainerImplTest.java
+    lines: "1002-1019"
+    status: "Excluded"
+    note: "PIP-486 / v5 entry-bucket batch container; out of scope (08-tests/tests-client.md A3.20)"
+    spec: 08-tests/tests-client.md
+    csharp: null
+  - upstream: BatchMessageContainerImplTest#testEntryBucketContainerDropsTheTransactionIdentityOfAFailedFirstAdd
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/BatchMessageContainerImplTest.java
+    lines: "1021-1051"
+    status: "Excluded"
+    note: "PIP-486 / v5 entry-bucket batch container; out of scope (08-tests/tests-client.md A3.21)"
+    spec: 08-tests/tests-client.md
+    csharp: null
+  - upstream: BatchMessageContainerImplTest#testOversizedBatchReleasesItsPayloadExactlyOnce
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/BatchMessageContainerImplTest.java
+    lines: "1053-1094"
+    csharp: "tests/DotPulsar.Tests/Internal/SubProducerBatchOwnershipTests.cs#Dispatcher_GivenBatchThatIsTooLarge_ShouldFailTheMessagesAndReturnTheBatchToThePoolExactlyOnce"
+    status: "Port-unit (adapted)"
+    spec: 08-tests/tests-client.md
+    note: "missing: no test with an Upstream comment; SubProducerBatchingTests#Dispatcher_GivenBatchLargerThanMaxMessageSize_... is a partial equivalent"
+    done: true
+  - upstream: BatchMessageContainerImplTest#testOversizedEncryptedBatchReleasesItsBuffersExactlyOnce
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/BatchMessageContainerImplTest.java
+    lines: "1096-1148"
+    csharp: "tests/DotPulsar.Tests/Internal/Batching/BatchSendThroughProducerChannelTests.cs#Send_GivenBatchThatIsLargerThanMaxMessageSizeAfterCompressionAndEncryption_ShouldThrowTooLargeMessageExceptionAndLeaveTheBatchToItsOwner"
+    status: "Port-unit (adapted)"
+    spec: 08-tests/tests-client.md
+    note: "pending-wp9-producer: no test; needs encrypted batches"
+    done: true
+  - upstream: BatchMessageContainerImplTest#testOversizedSingleMessageBatchReleasesItsPayloadExactlyOnce
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/BatchMessageContainerImplTest.java
+    lines: "1150-1197"
+    csharp: "tests/DotPulsar.Tests/Internal/SubProducerBatchOwnershipTests.cs#Dispatcher_GivenSingleMessageThatIsTooLargeAndBatching_ShouldFailItWithoutRentingABatchAndWriteTheNextMessage"
+    status: "Port-unit (adapted)"
+    spec: 08-tests/tests-client.md
+    note: "missing: no test with an Upstream comment; SubProducerTests#Send_GivenMessageThatIsTooLarge_... is a partial equivalent"
+    done: true
+  - upstream: TransactionClientCloseTest#testEndTransactionAfterClientClose
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/TransactionClientCloseTest.java
+    lines: "51-63"
+    status: "Port"
+    spec: 08-tests/tests-client.md
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionClientCloseTests.cs#Commit_GivenClientDisposedAfterCreatingTransactions_ShouldThrowTransactionCoordinatorClientStateException"
+    done: true
+  - upstream: TransactionClientCloseTest#testCoordinatorRequestsFailAfterClientClose
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/TransactionClientCloseTest.java
+    lines: "65-77"
+    status: "Port"
+    spec: 08-tests/tests-client.md
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionClientCloseTests.cs#Requests_GivenDisposedClient_ShouldThrowTransactionCoordinatorClientStateException"
+    done: true
+    note: "2 rows (isStarted false, true), upstream has one run; superset"
+  - upstream: TransactionClientCloseTest#testCoordinatorRequestsFailBeforeStart
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/TransactionClientCloseTest.java
+    lines: "79-82"
+    status: "Port-unit"
+    spec: 08-tests/tests-client.md
+    csharp: "tests/DotPulsar.Tests/Internal/Transactions/TransactionCoordinatorClientTests.cs#Requests_GivenClientNotStarted_ShouldThrowTransactionCoordinatorClientStateException"
+    done: true
+  - upstream: TransactionClientCloseTest#testNewTransactionWhenClientClosesDuringCoordinatorSelection
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/TransactionClientCloseTest.java
+    lines: "84-102"
+    status: "Port-unit (adapted)"
+    spec: 08-tests/tests-client.md
+    csharp: "tests/DotPulsar.Tests/Internal/Transactions/TransactionCoordinatorClientTests.cs#NewTransaction_GivenClientDisposedWhileSelectingHandler_ShouldThrowPulsarClientClosedException"
+    done: true
+  - upstream: TransactionClientCloseTest#testCommitWhenClientClosesBeforeTheRequestIsSent
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/TransactionClientCloseTest.java
+    lines: "104-133"
+    status: "Port-unit (adapted)"
+    spec: 08-tests/tests-client.md
+    csharp: "tests/DotPulsar.Tests/Internal/Transactions/TransactionCoordinatorClientTests.cs#Commit_GivenClientDisposedBeforeRequestIsSent_ShouldThrowPulsarClientClosedExceptionAndReleaseRequest"
+    done: true
+  - upstream: TransactionClientConnectTest#testPulsarClientCloseThenCloseTcClient
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/TransactionClientConnectTest.java
+    lines: "139-164"
+    status: "Port-unit"
+    spec: 08-tests/tests-client.md
+    csharp: "tests/DotPulsar.Tests/Internal/Transactions/TransactionMetaStoreHandlerTests.cs#NewTransaction_GivenHandlerClosedAfterReconnect_ShouldThrowMetaStoreHandlerNotReadyException"
+    done: true
+  - upstream: TransactionClientConnectTest#testHandlerStateChangeToReady
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/TransactionClientConnectTest.java
+    lines: "166-174"
+    status: "Port-unit"
+    spec: 08-tests/tests-client.md
+    csharp: "tests/DotPulsar.Tests/Internal/Transactions/TransactionMetaStoreHandlerTests.cs#Connected_GivenReadyHandler_ShouldCompleteAndKeepReadyState"
+    done: true
+    note: "weakened: the assertion handler.ChangeToReadyState().ShouldBeTrue() is dropped, the member does not exist"
+  - upstream: TransactionClientConnectTest#testNotEnableTransactionInBroker
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/TransactionClientConnectTest.java
+    lines: "177-183"
+    status: "Port-unit"
+    spec: 08-tests/tests-client.md
+    csharp: "tests/DotPulsar.Tests/Internal/Transactions/TransactionCoordinatorClientTests.cs#Start_GivenNoTransactionCoordinatorPartitions_ShouldThrowTransactionCoordinatorClientException"
+    done: true
+  - upstream: TransactionCoordinatorClientTest#testClientStart
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/coordinator/TransactionCoordinatorClientTest.java
+    lines: "67-79"
+    status: "Port"
+    spec: 08-tests/tests-client.md
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionCoordinatorClientTests.cs#NewTransaction_GivenStartedClient_ShouldCommitAndAbortTransactionsById"
+    done: true
+  - upstream: TransactionCoordinatorClientTest#testNewTxn
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/coordinator/TransactionCoordinatorClientTest.java
+    lines: "81-86"
+    status: "Port-partial"
+    spec: 08-tests/tests-client.md
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionCoordinatorClientTests.cs#NewTransaction_GivenStartedClient_ShouldCommitAndAbortTransactionsById"
+    done: true
+  - upstream: TransactionCoordinatorClientTest#testCommitAndAbort
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/coordinator/TransactionCoordinatorClientTest.java
+    lines: "88-100"
+    status: "Port"
+    spec: 08-tests/tests-client.md
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionCoordinatorClientTests.cs#NewTransaction_GivenStartedClient_ShouldCommitAndAbortTransactionsById"
+    done: true
+  - upstream: TransactionCoordinatorClientTest#testTransactionCoordinatorExceptionUnwrap
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/coordinator/TransactionCoordinatorClientTest.java
+    lines: "102-115"
+    status: "Excluded"
+    note: "Tests the unwrapping of the Java ExecutionException (TransactionCoordinatorClientException.unwrap); await surfaces the original exception in .NET (08-tests/tests-client.md B3.4)"
+    spec: 08-tests/tests-client.md
+    csharp: null
+  - upstream: TransactionCoordinatorClientTest#testClientStartWithRetry
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/coordinator/TransactionCoordinatorClientTest.java
+    lines: "117-135"
+    status: "Excluded"
+    spec: 08-tests/tests-client.md
+    csharp: null
+    note: "the reason still holds (the service URL is a single URL)"
+  - upstream: BatchMessageContainerImplTest#testRecoveryAfterBatchBuildFailure
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/BatchMessageContainerImplTest.java
+    lines: "273-336"
+    csharp: "tests/DotPulsar.Tests/Internal/Batching/BatchSendThroughProducerChannelTests.cs#Send_GivenEncryptionFailsOnceAndTheBatchIsSentAgain_ShouldLeaveTheBatchAsItWasAndWriteItAsAValidFrame"
+    status: "Port-unit (adapted)"
+    spec: 08-tests/tests-client.md
+    note: "pending-wp9-producer: no test (not even skipped); the failure is an encryption failure; producer-batching.md says NOT PORTED"
+    done: true
+  - upstream: WatchTcAssignmentsDiscoveryTest#testUnsupportedBrokerFailsWithoutRetrying
+    lines: "38-57"
+    csharp: null
+    status: "Excluded: v5 metadata-store discovery (WatchTcAssignments); DotPulsar has no such type"
+    spec: 08-tests/tests-client.md
+  - upstream: RawBatchMessageContainerImplTest#testToByteBufWithBatchLimit
+    lines: "122-176"
+    csharp: null
+    status: "Excluded: the broker compaction container RawBatchMessageContainerImpl; DotPulsar has no raw batch container"
+    spec: 08-tests/tests-client.md
+  - upstream: RawBatchMessageContainerImplTest#testToByteBufWithCompressionAndEncryption
+    lines: "178-229"
+    csharp: null
+    status: "Excluded: the broker compaction container RawBatchMessageContainerImpl; DotPulsar has no raw batch container"
+    spec: 08-tests/tests-client.md
+  - upstream: RawBatchMessageContainerImplTest#testToByteBufReleasesTheOutputBufferWhenSerializationFails
+    lines: "236-261"
+    csharp: null
+    status: "Excluded: the broker compaction container RawBatchMessageContainerImpl; DotPulsar has no raw batch container"
+    spec: 08-tests/tests-client.md
+  - upstream: RawBatchMessageContainerImplTest#testToByteBufWithSingleMessage
+    lines: "276-308"
+    csharp: null
+    status: "Excluded: the broker compaction container RawBatchMessageContainerImpl; DotPulsar has no raw batch container"
+    spec: 08-tests/tests-client.md
+  - upstream: RawBatchMessageContainerImplTest#testAddDifferentBatchMessage
+    lines: "310-324"
+    csharp: null
+    status: "Excluded: the broker compaction container RawBatchMessageContainerImpl; DotPulsar has no raw batch container"
+    spec: 08-tests/tests-client.md
+  - upstream: RawBatchMessageContainerImplTest#testCreateOpSendMsg
+    lines: "326-330"
+    csharp: null
+    status: "Excluded: the broker compaction container RawBatchMessageContainerImpl; DotPulsar has no raw batch container"
+    spec: 08-tests/tests-client.md
+  - upstream: RawBatchMessageContainerImplTest#testToByteBufWithEncryptionWithoutCryptoKeyReader
+    lines: "332-348"
+    csharp: null
+    status: "Excluded: the broker compaction container RawBatchMessageContainerImpl; DotPulsar has no raw batch container"
+    spec: 08-tests/tests-client.md
+  - upstream: RawBatchMessageContainerImplTest#testToByteBufWithEncryptionWithInvalidEncryptKeys
+    lines: "350-369"
+    csharp: null
+    status: "Excluded: the broker compaction container RawBatchMessageContainerImpl; DotPulsar has no raw batch container"
+    spec: 08-tests/tests-client.md
+  - upstream: RawBatchMessageContainerImplTest#testToByteBufReleasesPayloadWhenEncryptionFailsUnexpectedly
+    lines: "375-417"
+    csharp: null
+    status: "Excluded: the broker compaction container RawBatchMessageContainerImpl; DotPulsar has no raw batch container"
+    spec: 08-tests/tests-client.md
+  - upstream: RawBatchMessageContainerImplTest#testToByteBufReleasesPayloadAndDiscardsWhenEncryptionFailsWithClientException
+    lines: "423-456"
+    csharp: null
+    status: "Excluded: the broker compaction container RawBatchMessageContainerImpl; DotPulsar has no raw batch container"
+    spec: 08-tests/tests-client.md
+  - upstream: TransactionExample#main
+    lines: "40-97"
+    csharp: "samples/Transactions/Program.cs"
+    status: "Sample"
+    spec: 08-tests/tests-client.md
+    done: true
+  - upstream: TransactionClientConnectTest#testTransactionNewReconnect
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/TransactionClientConnectTest.java
+    lines: "71-76"
+    csharp: "tests/DotPulsar.Tests/Internal/Transactions/TransactionCoordinatorClientTests.cs#NewTransaction_GivenCoordinatorNotFoundThenAvailable_ShouldRetryUntilSuccess"
+    status: "Port-unit"
+    spec: 08-tests/tests-client.md
+    done: true
+  - upstream: TransactionClientConnectTest#testTransactionAddSubscriptionToTxnAsyncReconnect
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/TransactionClientConnectTest.java
+    lines: "78-84"
+    csharp: "tests/DotPulsar.Tests/Internal/Transactions/TransactionCoordinatorClientTests.cs#AddSubscriptionToTxn_GivenCoordinatorNotFoundThenAvailable_ShouldRetryUntilSuccess"
+    status: "Port-unit"
+    spec: 08-tests/tests-client.md
+    done: true
+  - upstream: TransactionClientConnectTest#testTransactionAbortToTxnAsyncReconnect
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/TransactionClientConnectTest.java
+    lines: "110-118"
+    csharp: "tests/DotPulsar.Tests/Internal/Transactions/TransactionCoordinatorClientTests.cs#Abort_GivenCoordinatorNotFoundThenAvailable_ShouldRetryUntilSuccess"
+    status: "Port-unit"
+    spec: 08-tests/tests-client.md
+    done: true
+  - upstream: TransactionClientConnectTest#testTransactionCommitToTxnAsyncReconnect
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/TransactionClientConnectTest.java
+    lines: "120-128"
+    csharp: "tests/DotPulsar.Tests/Internal/Transactions/TransactionCoordinatorClientTests.cs#Commit_GivenCoordinatorNotFoundThenAvailable_ShouldRetryUntilSuccess"
+    status: "Port-unit"
+    spec: 08-tests/tests-client.md
+    done: true
+  - upstream: TransactionClientConnectTest#testTransactionAddPublishPartitionToTxnReconnect
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/TransactionClientConnectTest.java
+    lines: "130-137"
+    csharp: "tests/DotPulsar.Tests/Internal/Transactions/TransactionCoordinatorClientTests.cs#AddPublishPartitionToTxn_GivenCoordinatorNotFoundThenAvailable_ShouldRetryUntilSuccess"
+    status: "Port-unit"
+    spec: 08-tests/tests-client.md
+    done: true
+  - upstream: TransactionCoordinatorConfigTest#testMaxActiveTxn
+    lines: "63-97"
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionCoordinatorConfigTests.cs#Create_GivenMaxActiveTransactionsReached_ShouldTimeOutUntilTransactionsEnd"
+    status: "Port"
+    spec: 08-tests/tests-client.md
+    note: "missing: no C# test; needs a broker fixture with maxActiveTransactionsPerCoordinator set (OperationTimeout and OperationTimeoutException exist)"
+    done: true
+  - upstream: TransactionMetaStoreAssignmentTest#testTransactionMetaStoreAssignAndFailover
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/coordinator/TransactionMetaStoreAssignmentTest.java
+    lines: "44-74"
+    csharp: null
+    status: "Excluded: needs a 3-broker cluster and a broker crash"
+    spec: 08-tests/tests-client.md
+  - upstream: TransactionMetaStoreAssignmentTest#testTransactionMetaStoreUnload
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/coordinator/TransactionMetaStoreAssignmentTest.java
+    lines: "76-99"
+    csharp: null
+    status: "Excluded: broker internals; the coordinator unload is covered by TransactionMetaStoreHandlerTests as additional coverage"
+    spec: 08-tests/tests-client.md
+  - upstream: AutoCloseUselessClientConTXTest#testConnectionAutoReleaseUnPartitionedTopicWithTransaction
+    lines: "124-153"
+    csharp: "tests/DotPulsar.Tests/Transactions/AutoCloseUselessClientConTXTests.cs#Transactions_GivenInactiveConnectionsClosed_ShouldKeepWorking"
+    status: "Port-partial"
+    spec: 08-tests/tests-client.md
+    note: "missing: no C# test (CloseInactiveConnectionsInterval exists)"
+    done: true
+  - upstream: TransactionStablePositionTest#commitTxnTest
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/buffer/TransactionStablePositionTest.java
+    lines: "75-120"
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionStablePositionTests.cs#Commit_GivenTransactionalMessageBetweenPlainMessages_ShouldBlockReadsUntilCommit"
+    status: "Port"
+    spec: 08-tests/tests-client.md
+    done: true
+    note: "sweep section 5"
+  - upstream: TransactionStablePositionTest#abortTxnTest
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/buffer/TransactionStablePositionTest.java
+    lines: "122-162"
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionStablePositionTests.cs#Abort_GivenTransactionalMessageBetweenPlainMessages_ShouldBlockReadsUntilAbortAndDropIt"
+    status: "Port"
+    spec: 08-tests/tests-client.md
+    done: true
+    note: "sweep section 5"
+  - upstream: TransactionMarkerDeleteTest#testMarkerDelete
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/service/TransactionMarkerDeleteTest.java
+    lines: "94-158"
+    csharp: "tests/DotPulsar.Tests/Transactions/TransactionMarkerDeleteTests.cs#Acknowledge_GivenTransactionMarkers_ShouldMoveMarkDeletePositionPastMarkers"
+    status: "Port"
+    spec: 08-tests/tests-client.md
+    note: "sweep section 5; missing: no C# test (ack receipt exists)"
+    done: true
+  - upstream: TopicTransactionBufferRecoverTest#recoverTest
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/transaction/TopicTransactionBufferRecoverTest.java
+    lines: "148-255"
+    csharp: "tests/DotPulsar.Tests/Transactions/TopicTransactionBufferRecoverTests.cs#Receive_GivenTopicUnloadedWithOpenTransactions_ShouldRecoverTransactionBuffer"
+    status: "Port-partial"
+    spec: 08-tests/tests-client.md
+    note: "sweep section 5; missing: no C# test; needs a test that unloads a topic that has open producer and consumer transactions (2 rows)"
+    done: true
+  - upstream: AckReceiptOnTopicUnloadTest#testDelayedAckReceipt
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/service/AckReceiptOnTopicUnloadTest.java
+    lines: "52-140"
+    csharp: "tests/DotPulsar.Tests/Internal/ConsumerTests.cs#Acknowledge_GivenDelayedAckReceipt_ShouldCompleteOrFailWithConsumerNotFound"
+    status: "Port-partial"
+    spec: 06-prerequisites/ack-receipt.md
+    note: "skipped: rows (false,true) and (true,true) need the broker fix apache/pulsar#27128 (not in apachepulsar/pulsar:4.0.9); rows (false,false) and (true,false) run"
+    done: true
+  - upstream: UnAckedMessageTrackerTest#testAddAndRemove
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/UnAckedMessageTrackerTest.java
+    lines: "44-83"
+    csharp: "tests/DotPulsar.Tests/Internal/UnAckedMessageTrackerTests.cs#Add_GivenSameMessageIdTwice_ShouldTrackItOnceAndRemoveIt"
+    status: "Port"
+    spec: 06-prerequisites/ack-timeout.md
+    done: true
+  - upstream: UnAckedMessageTrackerTest#testTrackChunkedMessageId
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/UnAckedMessageTrackerTest.java
+    lines: "85-129"
+    csharp: "tests/DotPulsar.Tests/Internal/UnAckedMessageTrackerTests.cs#Tick_GivenChunkedMessageIdExpired_ShouldRedeliverAllChunks"
+    status: "Port-partial"
+    spec: 06-prerequisites/ack-timeout.md
+    note: "weakened: tracks one id instead of the 5 chunk ids (1,i,-1), and does not assert the redelivery expansion; chunking has landed, so the comment 'chunk ids are not part of the id yet' is stale"
+    done: true
+  - upstream: UnAckedTopicMessageRedeliveryTrackerTest
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/UnAckedTopicMessageRedeliveryTrackerTest.java
+    csharp: null
+    status: "Excluded: not portable (RedeliveryBackoff, OD-1)"
+    spec: 06-prerequisites/ack-timeout.md
+  - upstream: UnAcknowledgedMessagesTimeoutTest#testAckTimeoutMinValue
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/UnAcknowledgedMessagesTimeoutTest.java
+    lines: "403-418"
+    csharp: "tests/DotPulsar.Tests/PulsarClientConsumerOptionsTests.cs#CreateConsumer_GivenAckTimeoutBelowOneSecond_ShouldThrowConfigurationException"
+    status: "Port-partial"
+    spec: 06-prerequisites/ack-timeout.md
+    done: true
+    note: "4 rows (999, 1, -1, -1000 ms) instead of 999 ms only; superset; ConfigurationException from CreateConsumer"
+  - upstream: UnAcknowledgedMessagesTimeoutTest#testExclusiveSingleAckedNormalTopic
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/UnAcknowledgedMessagesTimeoutTest.java
+    lines: "56-120"
+    csharp: "tests/DotPulsar.Tests/Internal/AckTimeoutTests.cs#Receive_GivenExclusiveSubscriptionAndUnacknowledgedMessages_ShouldRedeliverAfterAckTimeout"
+    status: "Port"
+    spec: 06-prerequisites/ack-timeout.md
+    done: true
+  - upstream: UnAcknowledgedMessagesTimeoutTest#testExclusiveCumulativeAckedNormalTopic
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/UnAcknowledgedMessagesTimeoutTest.java
+    lines: "122-175"
+    csharp: "tests/DotPulsar.Tests/Internal/AckTimeoutTests.cs#AcknowledgeCumulative_GivenAckTimeout_ShouldUntrackAllAndNotRedeliver"
+    status: "Port"
+    spec: 06-prerequisites/ack-timeout.md
+    done: true
+  - upstream: UnAcknowledgedMessagesTimeoutTest#testSharedSingleAckedPartitionedTopic
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/UnAcknowledgedMessagesTimeoutTest.java
+    lines: "177-280"
+    csharp: "tests/DotPulsar.Tests/Internal/AckTimeoutTests.cs#Receive_GivenSharedPartitionedTopicAndOneConsumerNotAcknowledging_ShouldRedeliverAfterAckTimeout"
+    status: "Port"
+    spec: 06-prerequisites/ack-timeout.md
+    note: "missing: no C# test; the spec says portable (Shared, 3 partitions, consumers Consumer-1 and Consumer-2)"
+    done: true
+  - upstream: UnAcknowledgedMessagesTimeoutTest#testFailoverSingleAckedPartitionedTopic
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/UnAcknowledgedMessagesTimeoutTest.java
+    lines: "282-401"
+    csharp: "tests/DotPulsar.Tests/Internal/AckTimeoutTests.cs#Receive_GivenTwoSharedConsumersOnPartitionedTopicOneNotAcknowledging_ShouldRedeliverOnlyUnacknowledged"
+    status: "Port"
+    spec: 06-prerequisites/ack-timeout.md
+    note: "missing: no C# test; the spec says portable (the upstream test uses Shared)"
+    done: true
+  - upstream: UnAcknowledgedMessagesTimeoutTest#testCheckUnAcknowledgedMessageTimer
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/UnAcknowledgedMessagesTimeoutTest.java
+    lines: "420-461"
+    csharp: "tests/DotPulsar.Tests/Internal/AckTimeoutTests.cs#Receive_GivenLastMessageNotAcknowledged_ShouldTrackOnlyItAndLeaveTrackerEmptyAfterItIsRedeliveredAndAcknowledged"
+    status: "Port"
+    spec: 06-prerequisites/ack-timeout.md
+    done: true
+  - upstream: UnAcknowledgedMessagesTimeoutTest#testCheckUnAcknowledgedMessageRedeliveryTimer
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/UnAcknowledgedMessagesTimeoutTest.java
+    lines: "463-530"
+    csharp: null
+    status: "Excluded: not portable (redelivery backoff, OD-1)"
+    spec: 06-prerequisites/ack-timeout.md
+  - upstream: UnAcknowledgedMessagesTimeoutTest#testSingleMessageBatch
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/UnAcknowledgedMessagesTimeoutTest.java
+    lines: "532-558"
+    csharp: "tests/DotPulsar.Tests/Internal/AckTimeoutTests.cs#Acknowledge_GivenSingleMessageBatch_ShouldUntrackEntry"
+    status: "Port-partial"
+    spec: 06-prerequisites/ack-timeout.md
+    done: true
+  - upstream: PerMessageUnAcknowledgedRedeliveryTest#testSharedAckedNormalTopic
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/PerMessageUnAcknowledgedRedeliveryTest.java
+    lines: "39-135"
+    csharp: "tests/DotPulsar.Tests/Internal/AckTimeoutTests.cs#Receive_GivenSharedSubscriptionAndPartiallyAcknowledgedMessages_ShouldRedeliverOnlyExpired"
+    status: "Port"
+    spec: 06-prerequisites/ack-timeout.md
+    note: "weakened: the tracker sizes the spec asserts (5, 5/5, 10) are not asserted; only the redelivered counts are"
+    done: true
+  - upstream: PerMessageUnAcknowledgedRedeliveryTest#testUnAckedMessageTrackerSize
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/PerMessageUnAcknowledgedRedeliveryTest.java
+    lines: "137-177"
+    csharp: "tests/DotPulsar.Tests/Internal/AckTimeoutTests.cs#Receive_GivenAckTimeoutDisabled_ShouldNotTrackMessages"
+    status: "Port-partial"
+    spec: 06-prerequisites/ack-timeout.md
+    done: true
+  - upstream: PerMessageUnAcknowledgedRedeliveryTest#testExclusiveAckedNormalTopic
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/PerMessageUnAcknowledgedRedeliveryTest.java
+    lines: "179-275"
+    csharp: "tests/DotPulsar.Tests/Internal/AckTimeoutTests.cs#Receive_GivenSubscriptionWithSingleActiveConsumerAndPartiallyAcknowledgedMessages_ShouldRedeliverAllUnacknowledged"
+    status: "Port"
+    spec: 06-prerequisites/ack-timeout.md
+    done: true
+  - upstream: PerMessageUnAcknowledgedRedeliveryTest#testFailoverAckedNormalTopic
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/PerMessageUnAcknowledgedRedeliveryTest.java
+    lines: "277-373"
+    csharp: "tests/DotPulsar.Tests/Internal/AckTimeoutTests.cs#Receive_GivenSubscriptionWithSingleActiveConsumerAndPartiallyAcknowledgedMessages_ShouldRedeliverAllUnacknowledged"
+    status: "Port"
+    spec: 06-prerequisites/ack-timeout.md
+    done: true
+  - upstream: PerMessageUnAcknowledgedRedeliveryTest#testSharedAckedPartitionedTopic
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/PerMessageUnAcknowledgedRedeliveryTest.java
+    lines: "381-479"
+    csharp: "tests/DotPulsar.Tests/Internal/AckTimeoutTests.cs#Receive_GivenSharedPartitionedTopicAndPartiallyAcknowledgedMessages_ShouldRedeliverOnlyExpired"
+    status: "Port"
+    spec: 06-prerequisites/ack-timeout.md
+    done: true
+  - upstream: ConsumerRedeliveryTest#testUnAckMessageRedeliveryWithReceiveAsync
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/api/ConsumerRedeliveryTest.java
+    lines: "394-443"
+    csharp: "tests/DotPulsar.Tests/Internal/AckTimeoutTests.cs#Receive_GivenUnacknowledgedBatchedMessages_ShouldRedeliverAfterAckTimeout"
+    status: "Port-partial"
+    spec: 06-prerequisites/ack-timeout.md
+    done: true
+  - upstream: ConsumerRedeliveryTest#testMessageRedeliveryWhenTimeoutInListener
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/api/ConsumerRedeliveryTest.java
+    lines: "491-544"
+    csharp: "tests/DotPulsar.Tests/Internal/AckTimeoutTests.cs#Receive_GivenSlowProcessingBeyondAckTimeout_ShouldRedeliverOnlyThatMessage"
+    status: "Port-partial"
+    spec: 06-prerequisites/ack-timeout.md
+    done: true
+  - upstream: MessageIdAdvUtilsTest#testAcknowledgeIndividualConcurrently
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/MessageIdAdvUtilsTest.java
+    csharp: "tests/DotPulsar.Tests/Internal/BatchAckTrackerTests.cs#AckIndividual_GivenConcurrentAcksOfAll32Indexes_ShouldReportEmptyExactlyOnce"
+    status: "Port"
+    spec: 06-prerequisites/batch-index-ack.md
+    done: true
+  - upstream: BatchMessageIdImplTest#compareToTest
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/BatchMessageIdImplTest.java
+    lines: "29-37"
+    csharp: "tests/DotPulsar.Tests/MessageIdTests.cs#CompareTo_GivenBatchIds0000And1111_ShouldOrder"
+    status: "Port"
+    spec: 06-prerequisites/batch-index-ack.md
+    done: true
+  - upstream: BatchMessageIdImplTest#hashCodeTest
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/BatchMessageIdImplTest.java
+    lines: "39-46"
+    csharp: "tests/DotPulsar.Tests/MessageIdTests.cs#GetHashCode_GivenDifferentBatchIds_ShouldDiffer"
+    status: "Port"
+    spec: 06-prerequisites/batch-index-ack.md
+    done: true
+  - upstream: BatchMessageIdImplTest#equalsTest
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/BatchMessageIdImplTest.java
+    lines: "48-70"
+    csharp: "tests/DotPulsar.Tests/MessageIdTests.cs#Equals_GivenBatchAndNonBatchIds_ShouldFollowJavaRules"
+    status: "Port"
+    spec: 06-prerequisites/batch-index-ack.md
+    done: true
+  - upstream: BatchMessageIdImplTest#notEqualsMultiTest
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/BatchMessageIdImplTest.java
+    lines: "72-82"
+    csharp: null
+    status: "Excluded: no MultiMessageIdImpl in DotPulsar"
+    spec: 06-prerequisites/batch-index-ack.md
+  - upstream: BatchMessageIdImplTest#compareToUnbatchedTest
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/BatchMessageIdImplTest.java
+    lines: "84-94"
+    csharp: "tests/DotPulsar.Tests/MessageIdTests.cs#CompareTo_GivenUnbatchedAndBatchIndex0_ShouldBeLess"
+    status: "Port"
+    spec: 06-prerequisites/batch-index-ack.md
+    done: true
+  - upstream: BatchMessageIdImplTest#equalsUnbatchedTest
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/BatchMessageIdImplTest.java
+    lines: "96-108"
+    csharp: "tests/DotPulsar.Tests/MessageIdTests.cs#Equals_GivenUnbatchedIds_ShouldCompareCoordinates"
+    status: "Port"
+    spec: 06-prerequisites/batch-index-ack.md
+    done: true
+  - upstream: BatchMessageIdImplTest#hashCodeUnbatchedTest
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/BatchMessageIdImplTest.java
+    lines: "110-120"
+    csharp: "tests/DotPulsar.Tests/MessageIdTests.cs#GetHashCode_GivenEqualUnbatchedIds_ShouldBeEqual"
+    status: "Port"
+    spec: 06-prerequisites/batch-index-ack.md
+    done: true
+  - upstream: BatchMessageIdImplTest#serializeAndDeserializeTest
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/BatchMessageIdImplTest.java
+    lines: "122-131"
+    csharp: null
+    status: "Excluded: MessageId has no ToByteArray/FromByteArray; replaced by MessageIdTests#BatchSize_ShouldNotTakePartInEqualityOrHashCode"
+    spec: 06-prerequisites/batch-index-ack.md
+  - upstream: AcknowledgementsGroupingTrackerTest
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/AcknowledgementsGroupingTrackerTest.java
+    csharp: null
+    status: "Excluded: class-level; the time-based acknowledgment grouping and flush do not exist in DotPulsar"
+    spec: 06-prerequisites/batch-index-ack.md
+  - upstream: BatchMessageIndexAckTest#testBatchMessageIndexAckForSharedSubscription
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/BatchMessageIndexAckTest.java
+    lines: "164-242"
+    csharp: "tests/DotPulsar.Tests/Prerequisites/BatchMessageIndexAckTests.cs#Acknowledge_GivenBatchIndexAckEnabledAndSharedSubscription_ShouldRedeliverOnlyNegativelyAcknowledgedMessages"
+    status: "Port"
+    spec: 06-prerequisites/batch-index-ack.md
+    done: true
+  - upstream: BatchMessageIndexAckTest#testBatchMessageIndexAckForExclusiveSubscription
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/BatchMessageIndexAckTest.java
+    lines: "244-310"
+    csharp: "tests/DotPulsar.Tests/Prerequisites/BatchMessageIndexAckTests.cs#AcknowledgeCumulative_GivenBatchIndexAckEnabledAndExclusiveSubscription_ShouldRedeliverOnlyTheUnacknowledgedBatchIndexes"
+    status: "Port"
+    spec: 06-prerequisites/batch-index-ack.md
+    done: true
+  - upstream: BatchMessageIndexAckTest#testDoNotRecycleAckSetMultipleTimes
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/BatchMessageIndexAckTest.java
+    lines: "312-341"
+    csharp: "tests/DotPulsar.Tests/Prerequisites/BatchMessageIndexAckTests.cs#AcknowledgeCumulative_GivenEveryMessageOfBatchesAcknowledgedOneByOne_ShouldNotThrowAndAcknowledgeEverything"
+    status: "Port"
+    spec: 06-prerequisites/batch-index-ack.md
+    note: "weakened: 3 batches of 10 (30 messages) instead of 100 messages"
+    done: true
+  - upstream: BatchMessageIndexAckDisableTest#testBatchMessageIndexAckForSharedSubscription
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/BatchMessageIndexAckDisableTest.java
+    lines: "66-106"
+    csharp: "tests/DotPulsar.Tests/Prerequisites/BatchMessageIndexAckDisableTests.cs#Acknowledge_GivenBatchIndexAckDisabledOnBrokerAndSharedSubscription_ShouldReceiveAllMessagesAfterAckTimeout"
+    status: "Port"
+    spec: 06-prerequisites/batch-index-ack.md
+    done: true
+  - upstream: BatchMessageIndexAckDisableTest#testBatchMessageIndexAckForExclusiveSubscription
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/BatchMessageIndexAckDisableTest.java
+    lines: "108-156"
+    csharp: "tests/DotPulsar.Tests/Prerequisites/BatchMessageIndexAckDisableTests.cs#AcknowledgeCumulative_GivenBatchIndexAckDisabledOnBrokerAndExclusiveSubscription_ShouldRedeliverAllMessages"
+    status: "Port"
+    spec: 06-prerequisites/batch-index-ack.md
+    done: true
+  - upstream: ConsumerSeekBatchIndexAckTest#testSeekReplaysBatchAfterSuccessWhileDisconnected
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/ConsumerSeekBatchIndexAckTest.java
+    lines: "47-"
+    csharp: null
+    status: "Excluded: deferred, needs seek with ack_set (OD 3)"
+    spec: 06-prerequisites/batch-index-ack.md
+  - upstream: BatchMessageWithBatchIndexLevelTest#testBatchMessageAck
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/service/BatchMessageWithBatchIndexLevelTest.java
+    lines: "85-"
+    csharp: "tests/DotPulsar.Tests/Prerequisites/BatchMessageWithBatchIndexLevelTests.cs#Acknowledge_GivenTwoBatchesAndNegativeAcknowledge_ShouldCountTheUnackedMessagesOfTheConsumerInTheBroker"
+    status: "Port"
+    spec: 06-prerequisites/batch-index-ack.md
+    note: "missing: no C# test; the spec says portable (broker stats through admin REST)"
+    done: true
+  - upstream: BatchMessageWithBatchIndexLevelTest#testPermitsIfHalfAckBatchMessage
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/service/BatchMessageWithBatchIndexLevelTest.java
+    lines: "661-"
+    csharp: "tests/DotPulsar.Tests/Prerequisites/BatchMessageWithBatchIndexLevelTests.cs#Receive_GivenBatchThatIsHalfAcknowledgedAndRedelivered_ShouldNotLoseOrCreatePermits"
+    status: "Port"
+    spec: 06-prerequisites/batch-index-ack.md
+    note: "missing: no C# test; the spec says portable"
+    done: true
+  - upstream: BatchMessageWithBatchIndexLevelTest#testMixIndexAndNonIndexUnAckMessageCount
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/service/BatchMessageWithBatchIndexLevelTest.java
+    lines: "452-"
+    csharp: "tests/DotPulsar.Tests/Prerequisites/BatchMessageWithBatchIndexLevelTests.cs#Acknowledge_GivenMessagesOfOneEntryAndOfABatch_ShouldLeaveNoUnackedMessages"
+    status: "Port"
+    spec: 06-prerequisites/batch-index-ack.md
+    note: "missing: no C# test; the spec says portable"
+    done: true
+  - upstream: ProducerBuilderImplTest#testProducerBuilderImplWhenBatchingMaxPublishDelayPropertyIsNegative
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/ProducerBuilderImplTest.java
+    csharp: "tests/DotPulsar.Tests/Internal/ProducerBuilderTests.cs#Create_GivenBatchingMaxPublishDelayBelowOneMillisecond_ShouldThrowConfigurationException"
+    status: "Port-partial"
+    spec: 06-prerequisites/producer-batching.md
+    done: true
+    note: "2 rows (-1 ms and 0 ms); ConfigurationException from Create"
+  - upstream: BatchMessageTest#testSimpleBatchProducerWithFixedBatchSize
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/service/BatchMessageTest.java
+    lines: "98-139"
+    csharp: "tests/DotPulsar.Tests/Prerequisites/BatchMessageTests.cs#Send_GivenFixedBatchSizeOf25And50Messages_ShouldCreateTwoEntries"
+    status: "Port"
+    spec: 06-prerequisites/producer-batching.md
+    done: true
+  - upstream: BatchMessageTest#testSimpleBatchProducerWithFixedBatchBytes
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/service/BatchMessageTest.java
+    lines: "141-"
+    csharp: "tests/DotPulsar.Tests/Prerequisites/BatchMessageTests.cs#Send_GivenFixedBatchBytes_ShouldCreateEntriesOfTenMessages"
+    status: "Port"
+    spec: 06-prerequisites/producer-batching.md
+    done: true
+  - upstream: BatchMessageTest#testSimpleBatchProducerWithFixedBatchTime
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/service/BatchMessageTest.java
+    lines: "186-"
+    csharp: "tests/DotPulsar.Tests/Prerequisites/BatchMessageTests.cs#Send_GivenFixedBatchTime_ShouldCreateEntriesByTime"
+    status: "Port"
+    spec: 06-prerequisites/producer-batching.md
+    done: true
+  - upstream: BatchMessageTest#testSimpleBatchProducerWithFixedBatchSizeAndTime
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/service/BatchMessageTest.java
+    lines: "219-"
+    csharp: "tests/DotPulsar.Tests/Prerequisites/BatchMessageTests.cs#Send_GivenFixedBatchSizeAndTime_ShouldCloseTheBatchBySizeOrTime"
+    status: "Port"
+    spec: 06-prerequisites/producer-batching.md
+    done: true
+  - upstream: BatchMessageTest#testBatchProducerWithLargeMessage
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/service/BatchMessageTest.java
+    lines: "252-"
+    csharp: "tests/DotPulsar.Tests/Prerequisites/BatchMessageTests.cs#Send_GivenMessageLargerThanBatchingMaxBytes_ShouldSendItAloneAndBatchTheOthers"
+    status: "Port"
+    spec: 06-prerequisites/producer-batching.md
+    done: true
+  - upstream: BatchMessageTest#testSimpleBatchProducerConsumer
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/service/BatchMessageTest.java
+    lines: "310-"
+    csharp: "tests/DotPulsar.Tests/Prerequisites/BatchMessageTests.cs#Send_GivenBatchedMessages_ShouldDeliverThemWithTheMessageIdsOfTheProducer"
+    status: "Port"
+    spec: 06-prerequisites/producer-batching.md
+    done: true
+  - upstream: BatchMessageTest#testSimpleBatchSyncProducerWithFixedBatchSize
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/service/BatchMessageTest.java
+    lines: "366-"
+    status: "Port"
+    spec: 06-prerequisites/producer-batching.md
+    csharp: "tests/DotPulsar.Tests/Prerequisites/BatchMessageTests.cs#Send_GivenFixedBatchSizeAndSynchronousSends_ShouldCreateOneEntryPerMessage"
+    done: true
+  - upstream: BatchMessageTest#testSimpleBatchProducerConsumer1kMessages
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/service/BatchMessageTest.java
+    lines: "405-"
+    csharp: "tests/DotPulsar.Tests/Prerequisites/BatchMessageTests.cs#Send_GivenThousandMessagesAndBatching_ShouldDeliverAllInOrder"
+    status: "Port"
+    spec: 06-prerequisites/producer-batching.md
+    done: true
+  - upstream: BatchMessageTest#testOutOfOrderAcksForBatchMessage
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/service/BatchMessageTest.java
+    lines: "466-"
+    csharp: "tests/DotPulsar.Tests/Prerequisites/BatchMessageTests.cs#AcknowledgeCumulative_GivenOutOfOrderAcksForBatchMessages_ShouldAcknowledgeTheBatchesWhenAllTheirMessagesAreAcknowledged"
+    status: "Port"
+    spec: 06-prerequisites/producer-batching.md
+    done: true
+  - upstream: BatchMessageTest#testNonBatchCumulativeAckAfterBatchPublish
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/service/BatchMessageTest.java
+    lines: "526-"
+    csharp: "tests/DotPulsar.Tests/Prerequisites/BatchMessageTests.cs#AcknowledgeCumulative_GivenNonBatchMessageAfterBatchPublish_ShouldAcknowledgeTheBatchAndTheMessage"
+    status: "Port"
+    spec: 06-prerequisites/producer-batching.md
+    done: true
+  - upstream: BatchMessageTest#testBatchAndNonBatchCumulativeAcks
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/service/BatchMessageTest.java
+    lines: "574-"
+    csharp: "tests/DotPulsar.Tests/Prerequisites/BatchMessageTests.cs#AcknowledgeCumulative_GivenBatchAndNonBatchMessages_ShouldAcknowledgeEverything"
+    status: "Port"
+    spec: 06-prerequisites/producer-batching.md
+    done: true
+  - upstream: BatchMessageTest#testConcurrentBatchMessageAck
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/service/BatchMessageTest.java
+    lines: "647-"
+    csharp: "tests/DotPulsar.Tests/Prerequisites/BatchMessageTests.cs#Acknowledge_GivenConcurrentAcksOfTheMessagesOfABatch_ShouldAcknowledgeAllMessages"
+    status: "Port"
+    spec: 06-prerequisites/producer-batching.md
+    done: true
+  - upstream: BatchMessageTest#testOrderingOfKeyBasedBatchMessageContainer
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/service/BatchMessageTest.java
+    lines: "702-768"
+    csharp: "tests/DotPulsar.Tests/Prerequisites/BatchMessageTests.cs#Send_GivenKeyBasedBatcherAndKeySharedConsumers_ShouldPreserveOrderPerKey"
+    status: "Port"
+    spec: 06-prerequisites/producer-batching.md
+    done: true
+  - upstream: BatchMessageTest#testBatchSendOneMessage
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/service/BatchMessageTest.java
+    lines: "769-799"
+    csharp: "tests/DotPulsar.Tests/Prerequisites/BatchMessageTests.cs#Send_GivenSingleMessageInBatch_ShouldSendItUnbatched"
+    status: "Port"
+    spec: 06-prerequisites/producer-batching.md
+    done: true
+  - upstream: BatchMessageTest#testRetrieveSequenceIdGenerated
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/service/BatchMessageTest.java
+    lines: "801-832"
+    csharp: "tests/DotPulsar.Tests/Prerequisites/BatchMessageTests.cs#Send_GivenGeneratedSequenceIds_ShouldDeliverThemWithTheMessages"
+    status: "Port"
+    spec: 06-prerequisites/producer-batching.md
+    done: true
+  - upstream: BatchMessageTest#testRetrieveSequenceIdSpecify
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/service/BatchMessageTest.java
+    lines: "834-865"
+    csharp: "tests/DotPulsar.Tests/Prerequisites/BatchMessageTests.cs#Send_GivenExplicitSequenceIds_ShouldDeliverThemWithTheMessages"
+    status: "Port"
+    spec: 06-prerequisites/producer-batching.md
+    done: true
+  - upstream: BatchMessageTest#testSendOverSizeMessage
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/service/BatchMessageTest.java
+    lines: "867-"
+    csharp: "tests/DotPulsar.Tests/Prerequisites/BatchMessageTests.cs#Send_GivenMessageLargerThanMaxMessageSize_ShouldFailTheSendAndNotFaultTheProducer"
+    status: "Port"
+    spec: 06-prerequisites/producer-batching.md
+    done: true
+  - upstream: BatchMessageTest#testBatchMessageDispatchingAccordingToPermits
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/service/BatchMessageTest.java
+    lines: "895-"
+    csharp: "tests/DotPulsar.Tests/Prerequisites/BatchMessageTests.cs#Receive_GivenTwoSharedConsumersAndBatches_ShouldDispatchMessagesAccordingToPermits"
+    status: "Port"
+    spec: 06-prerequisites/producer-batching.md
+    done: true
+  - upstream: ProducerBuilderImplTest#testProducerBuilderImplWhenSendTimeoutIsNegative
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/ProducerBuilderImplTest.java
+    csharp: "tests/DotPulsar.Tests/Internal/ProducerBuilderTests.cs#Create_GivenNegativeSendTimeout_ShouldThrowConfigurationException"
+    status: "Port-partial"
+    spec: 06-prerequisites/send-timeout.md
+    done: true
+  - upstream: ProducerBuilderImplTest#testProducerBuilderImplWhenSendTimeoutPropertyIsNegative
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/ProducerBuilderImplTest.java
+    csharp: "tests/DotPulsar.Tests/Internal/ProducerBuilderTests.cs#Create_GivenNegativeSendTimeout_ShouldThrowConfigurationException"
+    status: "Port-partial"
+    spec: 06-prerequisites/send-timeout.md
+    done: true
+  - upstream: SimpleProducerConsumerTest#testSendTimeout
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/api/SimpleProducerConsumerTest.java
+    lines: "709-744"
+    csharp: "tests/DotPulsar.Tests/Prerequisites/SimpleProducerConsumerTests.cs#Send_GivenBrokerUnreachable_ShouldFailWithOperationTimeoutException"
+    status: "Port-partial"
+    spec: 06-prerequisites/send-timeout.md
+    done: true
+  - upstream: SimpleProducerConsumerTest#testSendTimeoutAndRecover
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/api/SimpleProducerConsumerTest.java
+    lines: "746-"
+    csharp: "tests/DotPulsar.Tests/Prerequisites/SimpleProducerConsumerTests.cs#Send_GivenSendTimeoutAndBrokerRecovers_ShouldSendAfterRecovery"
+    status: "Port-partial"
+    spec: 06-prerequisites/send-timeout.md
+    note: "weakened: the assertion that the first Flush throws the send timeout is dropped (the test never calls Flush)"
+    done: true
+  - upstream: SimpleProducerConsumerTest#testSendCallBackReturnSequenceId
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/api/SimpleProducerConsumerTest.java
+    lines: "1390-"
+    csharp: "tests/DotPulsar.Tests/Prerequisites/SimpleProducerConsumerTests.cs#Send_GivenBrokerUnreachable_ShouldFailEachMessageWithItsSequenceId"
+    status: "Port-partial"
+    spec: 06-prerequisites/send-timeout.md
+    done: true
+  - upstream: SimpleProducerConsumerTest#testSendMsgGreaterThanBatchingMaxBytes
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/api/SimpleProducerConsumerTest.java
+    lines: "5015-5035"
+    csharp: "tests/DotPulsar.Tests/Prerequisites/SimpleProducerConsumerTests.cs#Send_GivenMessageLargerThanBatchingMaxBytes_ShouldCompleteWithinSendTimeout"
+    status: "Port"
+    spec: 06-prerequisites/send-timeout.md
+    done: true
+  - upstream: ProducerImplTest#testFailPendingMessagesSyncRetry
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/ProducerImplTest.java
+    lines: "182-258"
+    csharp: "tests/DotPulsar.Tests/Internal/SubProducerSendTimeoutTests.cs#SendTimeout_GivenMessageEnqueuedAfterTimeout_ShouldNotBeFailedByThatTimeout"
+    status: "Port-partial"
+    spec: 06-prerequisites/send-timeout.md
+    done: true
+    note: "ported as a unit test of the intent; the test has no Upstream comment"
+  - upstream: ProducerImplTest#testSendTimeoutDuringInFlightWriteDefersCmdRelease
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/ProducerImplTest.java
+    lines: "1432-"
+    csharp: "tests/DotPulsar.Tests/Internal/SubProducerSendTimeoutBatchTests.cs#SendTimeout_GivenTimeoutWhileBatchIsBeingWritten_ShouldReturnBufferOnlyAfterTheWrite"
+    status: "Excluded: Netty event-loop ownership; the intent is covered by the C# test in csharp"
+    spec: 06-prerequisites/send-timeout.md
+    note: "intent covered by SubProducerSendTimeoutBatchTests#SendTimeout_GivenTimeoutWhileBatchIsBeingWritten_ShouldReturnBufferOnlyAfterTheWrite (no Upstream comment)"
+  - upstream: ProducerImplTest#testSendTimeoutReleasesCmdInlineWhenNoWriteInFlight
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/ProducerImplTest.java
+    lines: "1496-"
+    csharp: "tests/DotPulsar.Tests/Internal/SubProducerSendTimeoutBatchTests.cs#SendTimeout_GivenFrozenBatch_ShouldFailAllMessagesOfTheBatchAndReturnBuffer"
+    status: "Excluded: Netty event-loop ownership; the intent is covered by the C# test in csharp"
+    spec: 06-prerequisites/send-timeout.md
+    note: "intent covered by SubProducerSendTimeoutBatchTests#SendTimeout_GivenFrozenBatch_ShouldFailAllMessagesOfTheBatchAndReturnBuffer (no Upstream comment)"
+  - upstream: ChunkMessageIdImplTest#compareToTest
+    lines: "28-42"
+    csharp: "tests/DotPulsar.Tests/MessageIdTests.cs#CompareTo_GivenChunkMessageIds_ShouldCompareByLastChunk"
+    status: "Port"
+    spec: 06-prerequisites/chunking.md
+    done: true
+  - upstream: ChunkMessageIdImplTest#hashCodeTest
+    lines: "44-57"
+    csharp: "tests/DotPulsar.Tests/MessageIdTests.cs#GetHashCode_GivenDifferentChunkMessageIds_ShouldDiffer"
+    status: "Port"
+    spec: 06-prerequisites/chunking.md
+    done: true
+  - upstream: ChunkMessageIdImplTest#equalsTest
+    lines: "59-75"
+    csharp: "tests/DotPulsar.Tests/MessageIdTests.cs#Equals_GivenChunkMessageIdAndItsLastChunkId_ShouldBeEqual"
+    status: "Port"
+    spec: 06-prerequisites/chunking.md
+    done: true
+  - upstream: ChunkMessageIdImplTest#serializeAndDeserializeTest
+    lines: "77-87"
+    csharp: null
+    status: "Excluded: MessageId has no ToByteArray/FromByteArray"
+    spec: 06-prerequisites/chunking.md
+  - upstream: "cpp:MessageChunkingTest.cc#ChunkMessageIdTest.testSetChunkMessageId"
+    lines: "312-338"
+    csharp: null
+    status: "Excluded: C++ serialization API"
+    spec: 06-prerequisites/chunking.md
+  - upstream: MessageChunkingTest#testExpiryWorksAfterAnEarlierChunkedMessageCompletes
+    lines: "341-373"
+    csharp: "tests/DotPulsar.Tests/Internal/Chunking/ChunkedMessageAssemblerTests.cs#RemoveExpired_GivenCompletedThenIncompleteMessage_ShouldExpireIncomplete"
+    status: "Port-unit"
+    spec: 06-prerequisites/chunking.md
+    done: true
+  - upstream: MessageChunkingTest#testExpirySkipsStaleQueueHeadFromDiscardPath
+    lines: "389-418"
+    csharp: "tests/DotPulsar.Tests/Internal/Chunking/ChunkedMessageAssemblerTests.cs#RemoveExpired_GivenStaleQueueHeadFromDiscardPath_ShouldStillExpireLiveEntries"
+    status: "Port-unit"
+    spec: 06-prerequisites/chunking.md
+    done: true
+  - upstream: MessageChunkingTest#testExpiryStaleHeadSkipDoesNotDropConcurrentLiveEntry
+    lines: "435-557"
+    csharp: "tests/DotPulsar.Tests/Internal/Chunking/ChunkedMessageAssemblerTests.cs#RemoveExpired_GivenCompletionOfOtherMessage_ShouldKeepLiveEntryQueued"
+    status: "Port-unit"
+    spec: 06-prerequisites/chunking.md
+    done: true
+  - upstream: MessageChunkingTest#testNonHeadCompletionKeepsIncompleteHeadExpirable
+    lines: "559-599"
+    csharp: "tests/DotPulsar.Tests/Internal/Chunking/ChunkedMessageAssemblerTests.cs#Process_GivenNonHeadCompletion_ShouldKeepIncompleteHeadExpirable"
+    status: "Port-unit"
+    spec: 06-prerequisites/chunking.md
+    done: true
+  - upstream: MessageChunkingTest#testPendingChunkedMessageUuidQueueDoesNotLeak
+    lines: "835-875"
+    csharp: "tests/DotPulsar.Tests/Internal/Chunking/ChunkedMessageAssemblerTests.cs#Process_GivenFiftyCompletedMessages_ShouldLeaveNoPendingContexts"
+    status: "Port-unit"
+    spec: 06-prerequisites/chunking.md
+    done: true
+  - upstream: MessageChunkingTest#testMaxPendingChunkMessages
+    lines: "612-667"
+    csharp: "tests/DotPulsar.Tests/MessageChunkingTests.cs#Receive_GivenMaxPendingChunkedMessageExceededAndAutoAckOldest_ShouldAcknowledgeTheOldestMessageAndNotDeliverIt"
+    status: "Port-partial"
+    spec: 06-prerequisites/chunking.md
+    note: "weakened: the RedeliverUnacknowledgedMessages() step of the spec is missing; the assembler part is also covered by a unit test; also covered by the unit tests Process_GivenMaxPendingExceededWithAutoAck_ShouldAckOldestChunks"
+    done: true
+  - upstream: MessageChunkingTest#testResendChunkMessagesWithoutAckHole
+    lines: "877-907"
+    csharp: "tests/DotPulsar.Tests/MessageChunkingTests.cs#Acknowledge_GivenFirstChunkThatWasSentAgain_ShouldLeaveNoAckHole"
+    status: "Port-partial"
+    spec: 06-prerequisites/chunking.md
+    done: true
+    note: "also covered by the unit tests Process_GivenResentFirstChunkWithSameEntry_ShouldNotAck"
+  - upstream: MessageChunkingTest#testExpireIncompleteChunkMessage
+    lines: "951-1001"
+    csharp: "tests/DotPulsar.Tests/Internal/Chunking/ChunkedMessageAssemblerTests.cs#RemoveExpired_GivenIncompleteMessageOlderThanExpiry_ShouldRemoveContext"
+    status: "Port-unit"
+    spec: 06-prerequisites/chunking.md
+    done: true
+  - upstream: "cpp:MessageChunkingTest.cc#testInvalidConfig"
+    lines: "115-123"
+    csharp: "tests/DotPulsar.Tests/Internal/ProducerBuilderTests.cs#Create_GivenChunkingAndBatchingEnabled_ShouldThrowConfigurationException"
+    status: "Port"
+    spec: 06-prerequisites/chunking.md
+    done: true
+  - upstream: MessageChunkingTest#testReaderChunkingConfiguration
+    lines: "1201-1213"
+    csharp: "tests/DotPulsar.Tests/Internal/ReaderBuilderTests.cs#Create_GivenChunkSettings_ShouldPassThemOnInTheOptions"
+    status: "Port-partial"
+    spec: 06-prerequisites/chunking.md
+    done: true
+  - upstream: MessageChunkingTest#testLargeMessage
+    lines: "111-186"
+    csharp: "tests/DotPulsar.Tests/MessageChunkingSmallMessageSizeTests.cs#Send_GivenMessagesAboveMaxMessageSize_ShouldDeliverThemAssembledInOrderAndAcknowledgeEveryChunk"
+    status: "Port-partial"
+    spec: 06-prerequisites/chunking.md
+    note: "weakened: broker max message size 100 instead of 35/50 and the unackedMessages == 0 assertion is dropped; the 4 rows are in the spec order"
+    done: true
+  - upstream: MessageChunkingTest#testChunkingWithOrderingKey
+    lines: "188-209"
+    csharp: "tests/DotPulsar.Tests/MessageChunkingSmallMessageSizeTests.cs#Receive_GivenChunkedMessageWithOrderingKey_ShouldPreserveDataAndOrderingKey"
+    status: "Port"
+    spec: 06-prerequisites/chunking.md
+    done: true
+  - upstream: MessageChunkingTest#testLargeMessageAckTimeOut
+    lines: "211-289"
+    csharp: "tests/DotPulsar.Tests/MessageChunkingSmallMessageSizeTests.cs#Receive_GivenChunkedMessagesNotAcknowledgedBeforeAckTimeout_ShouldDeliverThemAgainInOrderAndAcknowledgeAllWithCumulativeAcknowledgment"
+    status: "Port-partial"
+    spec: 06-prerequisites/chunking.md
+    note: "weakened: 1 message of 12 MB, ack timeout 2 s and 1 row instead of 5 messages, 5 s, an IReader and 2 rows"
+    done: true
+  - upstream: MessageChunkingTest#testPublishWithFailure
+    lines: "291-312"
+    csharp: "tests/DotPulsar.Tests/MessageChunkingSmallMessageSizeTests.cs#Send_GivenConnectionCutWhileTheChunksAreOnTheWay_ShouldFailWithOperationTimeoutExceptionAndSendAgainWhenTheConnectionIsBack"
+    status: "Excluded: stops the broker (the send timeout it also needed exists now, see note)"
+    spec: 06-prerequisites/chunking.md
+    note: "stale exclusion: the send timeout it waited for exists now (SendTimeout option and tests)"
+    done: true
+  - upstream: MessageChunkingTest#testOrphanedLastChunkDoesNotStallDispatch
+    lines: "669-721"
+    csharp: "tests/DotPulsar.Tests/MessageChunkingTests.cs#Receive_GivenTwelveOrphanedLastChunks_ShouldStillDeliverTheNextMessage"
+    status: "Port-partial"
+    spec: 06-prerequisites/chunking.md
+    done: true
+  - upstream: MessageChunkingTest#testLargeMessageOnNonPersistentTopicIsSentOnceWithoutChunking
+    lines: "723-758"
+    csharp: "tests/DotPulsar.Tests/MessageChunkingTests.cs#Send_GivenLargeMessageOnNonPersistentTopic_ShouldSendItOnceWithoutChunking"
+    status: "Port"
+    spec: 06-prerequisites/chunking.md
+    done: true
+  - upstream: MessageChunkingTest#testLargeMessageOnNonPersistentTopicAboveBrokerLimitIsRejectedLocally
+    lines: "760-789"
+    csharp: "tests/DotPulsar.Tests/MessageChunkingSmallMessageSizeTests.cs#Send_GivenNonPersistentMessageAboveBrokerLimit_ShouldThrowTooLargeMessageException"
+    status: "Port-partial"
+    spec: 06-prerequisites/chunking.md
+    done: true
+    note: "changed value: broker max message size 100 instead of 1024; a second variant runs against the default broker"
+  - upstream: MessageChunkingTest#testNonPersistentMessageOverLimitOnlyWithMetadataIsRejectedLocally
+    lines: "791-833"
+    csharp: "tests/DotPulsar.Tests/MessageChunkingSmallMessageSizeTests.cs#Send_GivenNonPersistentMessageOverLimitOnlyWithMetadata_ShouldThrowTooLargeMessageExceptionAndKeepTheProducerUsable"
+    status: "Excluded: client-side setMaxMessageSize on a live producer (an equivalent test exists, see note)"
+    spec: 06-prerequisites/chunking.md
+    note: "stale exclusion: an equivalent test exists (MessageChunkingSmallMessageSizeTests), its Upstream comment names another Java method"
+    done: true
+  - upstream: MessageChunkingTest#testResendChunkMessages
+    lines: "909-949"
+    csharp: "tests/DotPulsar.Tests/MessageChunkingTests.cs#Receive_GivenResentAndInterleavedChunks_ShouldAssembleBothMessages"
+    status: "Port-partial"
+    spec: 06-prerequisites/chunking.md
+    note: "weakened: only unit-level ports exist; the integration test of spec 8.2 is missing"
+    done: true
+  - upstream: MessageChunkingTest#testChunksEnqueueFailed
+    lines: "1003-1037"
+    csharp: null
+    status: "Excluded: memory limit controller and ProducerQueueIsFullError are not built"
+    spec: 06-prerequisites/chunking.md
+  - upstream: MessageChunkingTest#testSeekChunkMessages
+    lines: "1045-1113"
+    csharp: "tests/DotPulsar.Tests/MessageChunkingTests.cs#Seek_GivenChunkedMessageId_ShouldDeliverTheMessageAgain"
+    status: "Port-partial"
+    spec: 06-prerequisites/chunking.md
+    done: true
+    note: "only the inclusive expectations, as the spec says; consumer and reader variants"
+  - upstream: MessageChunkingTest#testRepeatedSeekDoesNotRetainFilteredChunkMessageIds
+    lines: "1115-1199"
+    csharp: "tests/DotPulsar.Tests/MessageChunkingTests.cs#Seek_GivenIdOfEachChunkedMessage_ShouldDeliverTheMessagesFromThatMessageAndTheMarkerThatIsNotChunked"
+    status: "Port-partial"
+    spec: 06-prerequisites/chunking.md
+    done: true
+    note: "1 row of 2 (inclusive = true only), the spec adaptation"
+  - upstream: MessageChunkingTest#testChunkSize
+    lines: "1215-1235"
+    csharp: "tests/DotPulsar.Tests/MessageChunkingSmallMessageSizeTests.cs#Send_GivenSizesUpToMaxMessageSize_ShouldChunkOnlyAbovePayloadChunkSize"
+    status: "Port-partial"
+    spec: 06-prerequisites/chunking.md
+    done: true
+  - upstream: MessageChunkingTest#testBlockIfQueueFullWhenChunking
+    lines: "1237-1275"
+    csharp: "tests/DotPulsar.Tests/MessageChunkingSmallMessageSizeTests.cs#Send_GivenMaxPendingMessagesSmallerThanNumberOfChunks_ShouldNotDeadlock"
+    status: "Port"
+    spec: 06-prerequisites/chunking.md
+    done: true
+  - upstream: MessageChunkingSharedTest#testSingleConsumer
+    lines: "61-95"
+    csharp: "tests/DotPulsar.Tests/MessageChunkingTests.cs#Receive_GivenChunkCountsAboveAndBelowMessagePrefetchCount_ShouldReceiveAllMessagesInOrder"
+    status: "Port"
+    spec: 06-prerequisites/chunking.md
+    done: true
+  - upstream: MessageChunkingSharedTest#testMultiConsumers
+    lines: "97-135"
+    csharp: "tests/DotPulsar.Tests/MessageChunkingTests.cs#Receive_GivenTwoSharedConsumers_ShouldDeliverEveryChunkedMessageToOneOfThem"
+    status: "Port-partial"
+    spec: 06-prerequisites/chunking.md
+    done: true
+  - upstream: MessageChunkingSharedTest#testInterleavedChunks
+    lines: "137-182"
+    csharp: "tests/DotPulsar.Tests/MessageChunkingTests.cs#Receive_GivenInterleavedChunksOfTwoProducers_ShouldDeliverTheMessagesInTheOrderTheyAreCompleted"
+    status: "Port-partial"
+    spec: 06-prerequisites/chunking.md
+    done: true
+  - upstream: MessageChunkingSharedTest#testNegativeAckChunkedMessage
+    lines: "184-206"
+    csharp: "tests/DotPulsar.Tests/MessageChunkingTests.cs#NegativeAcknowledge_GivenChunkedMessage_ShouldRedeliverIt"
+    status: "Port"
+    spec: 06-prerequisites/chunking.md
+    note: "weakened: a 12 MB message over the 5 MiB broker limit instead of 10240 characters with chunk size 1024"
+    done: true
+  - upstream: "cpp:MessageChunkingTest.cc#testChunkedMessageDLQ"
+    lines: "543"
+    csharp: "tests/DotPulsar.Tests/Internal/DeadLetterTopicTests.cs#Receive_GivenChunkedMessageRedeliveredPastMaxRedeliverCount_ShouldSendItToDeadLetterTopicInChunks"
+    status: "Port"
+    spec: 06-prerequisites/chunking.md
+    done: true
+  - upstream: "cpp:MessageChunkingTest.cc#testAckTimeoutChunkedMessage"
+    lines: "502"
+    csharp: "tests/DotPulsar.Tests/MessageChunkingTests.cs#Receive_GivenChunkedMessageThatIsNotAcknowledgedBeforeTheAckTimeout_ShouldDeliverItAgain"
+    status: "Port"
+    spec: 06-prerequisites/chunking.md
+    note: "covered by the port of testLargeMessageAckTimeOut, which is weakened"
+    done: true
+  - upstream: "cpp:MessageChunkingTest.cc#testNegativeAckChunkedMessage"
+    lines: "461"
+    csharp: "tests/DotPulsar.Tests/MessageChunkingTests.cs#NegativeAcknowledge_GivenChunkedMessage_ShouldDeliverItAgain"
+    status: "Port"
+    spec: 06-prerequisites/chunking.md
+    done: true
+  - upstream: "cpp:MessageChunkingTest.cc#testResendChunkWithAckHoleMessages"
+    lines: "421"
+    csharp: "tests/DotPulsar.Tests/Internal/Chunking/ChunkedMessageAssemblerTests.cs#Process_GivenFirstChunkAgainWithDifferentEntry_ShouldAckPreviousChunks"
+    status: "Port-unit"
+    spec: 06-prerequisites/chunking.md
+    done: true
+  - upstream: "cpp:DeadLetterQueueTest.cc#testAutoSetDLQTopicName"
+    lines: "126"
+    csharp: "tests/DotPulsar.Tests/Internal/DeadLetterHandlerTests.cs#Constructor_GivenNoDeadLetterTopic_ShouldUseTopicSubscriptionDlqSuffix"
+    status: "Port-unit"
+    spec: 06-prerequisites/dead-letter-policy.md
+    done: true
+    note: "the test exists (3 rows) but has no Upstream comment (rule 3)"
+  - upstream: DeadLetterTopicTest#testPossibleToDeadLetterEntryIsRemovedWhenRedeliveringABatchMessageId
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/api/DeadLetterTopicTest.java
+    lines: "1775"
+    csharp: "tests/DotPulsar.Tests/Internal/DeadLetterTopicTests.cs#RedeliverUnacknowledgedMessages_GivenBatchMessageIdOfDeadLetterCandidate_ShouldSendWholeBatchToDeadLetterTopicOnce"
+    status: "Port-partial"
+    spec: 06-prerequisites/dead-letter-policy.md
+    done: true
+    note: "also covered by the unit tests TryDeadLetter_GivenBatchIndexMessageId_ShouldResolveEntryAndRemoveIt"
+  - upstream: NegativeAcksTest#testNegativeAcksDeleteFromUnackedTracker
+    lines: "293"
+    csharp: "tests/DotPulsar.Tests/Internal/NegativeAcknowledgeTrackerTests.cs#Add_GivenBatchMessageIdsOfSameEntry_ShouldTrackOneEntryAndRemoveFromUnackedTracker"
+    status: "Port-unit"
+    spec: 06-prerequisites/dead-letter-policy.md
+    done: true
+  - upstream: DeadLetterTopicTest#testDeadLetterTopicWithMessageKey
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/api/DeadLetterTopicTest.java
+    lines: "88"
+    csharp: "tests/DotPulsar.Tests/Internal/DeadLetterTopicTests.cs#Receive_GivenMessagesWithKeyRedeliveredPastMaxRedeliverCount_ShouldSendThemToDeadLetterTopicWithKey"
+    status: "Port"
+    spec: 06-prerequisites/dead-letter-policy.md
+    done: true
+  - upstream: DeadLetterTopicTest#testDeadLetterTopicWithBinaryMessageKey
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/api/DeadLetterTopicTest.java
+    lines: "149"
+    csharp: "tests/DotPulsar.Tests/Internal/DeadLetterTopicTests.cs#Receive_GivenMessagesWithBinaryKeyRedeliveredPastMaxRedeliverCount_ShouldSendThemToDeadLetterTopicWithKeyBytes"
+    status: "Port"
+    spec: 06-prerequisites/dead-letter-policy.md
+    done: true
+  - upstream: DeadLetterTopicTest#testDeadLetterTopicMessagesWithOrderingKey
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/api/DeadLetterTopicTest.java
+    lines: "211"
+    csharp: "tests/DotPulsar.Tests/Internal/DeadLetterTopicTests.cs#Receive_GivenMessagesWithOrderingKeyRedeliveredPastMaxRedeliverCount_ShouldSendThemToDeadLetterTopicWithOrderingKey"
+    status: "Port"
+    spec: 06-prerequisites/dead-letter-policy.md
+    done: true
+  - upstream: DeadLetterTopicTest#testDeadLetterTopicMessagesWithEventTime
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/api/DeadLetterTopicTest.java
+    lines: "273"
+    csharp: "tests/DotPulsar.Tests/Internal/DeadLetterTopicTests.cs#Receive_GivenMessagesWithEventTimeRedeliveredPastMaxRedeliverCount_ShouldSendThemToDeadLetterTopicWithEventTime"
+    status: "Port"
+    spec: 06-prerequisites/dead-letter-policy.md
+    done: true
+  - upstream: DeadLetterTopicTest#testDeadLetterTopicWithProducerName
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/api/DeadLetterTopicTest.java
+    lines: "334"
+    csharp: "tests/DotPulsar.Tests/Internal/DeadLetterTopicTests.cs#Receive_GivenConsumerName_ShouldSendToDeadLetterTopicWithJavaCompatibleProducerName"
+    status: "Port"
+    spec: 06-prerequisites/dead-letter-policy.md
+    done: true
+  - upstream: DeadLetterTopicTest#testMultipleSameNameConsumersToDeadLetterTopic
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/api/DeadLetterTopicTest.java
+    lines: "406"
+    csharp: "tests/DotPulsar.Tests/Internal/DeadLetterTopicTests.cs#Receive_GivenThreeConsumersWithSameNameNeverAcknowledging_ShouldDeliverEachMessageMaxRedeliverPlusOneTimesAndDeadLetterEachOnce"
+    status: "Port-partial"
+    spec: 06-prerequisites/dead-letter-policy.md
+    note: "missing: no C# test; wp7a-wp7-consumer-wiring.md lists it as not ported without a reason"
+    done: true
+  - upstream: DeadLetterTopicTest#testDeadLetterTopic
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/api/DeadLetterTopicTest.java
+    lines: "485"
+    csharp: "tests/DotPulsar.Tests/Internal/DeadLetterTopicTests.cs#Receive_GivenMessagesRedeliveredPastMaxRedeliverCount_ShouldSendAllToDeadLetterTopicAndAcknowledgeOriginals"
+    status: "Port"
+    spec: 06-prerequisites/dead-letter-policy.md
+    note: "rows differ: a Theory over batching false/true plus a Fact for the large message instead of the 2-row produceLargeMessages provider; the large-message half is covered by Receive_GivenChunkedMessageRedeliveredPastMaxRedeliverCount_..."
+    done: true
+  - upstream: DeadLetterTopicTest#testDeadLetterTopicHasOriginalInfo
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/api/DeadLetterTopicTest.java
+    lines: "573"
+    csharp: "tests/DotPulsar.Tests/Internal/DeadLetterTopicTests.cs#Receive_GivenMessagesRedeliveredPastMaxRedeliverCount_ShouldSendAllToDeadLetterTopicWithOriginalInfoAndAcknowledgeOriginals"
+    status: "Port"
+    spec: 06-prerequisites/dead-letter-policy.md
+    done: true
+  - upstream: DeadLetterTopicTest#testAutoConsumeSchemaDeadLetter
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/api/DeadLetterTopicTest.java
+    lines: "650"
+    csharp: null
+    status: "Excluded: AUTO_PRODUCE_BYTES and AUTO_CONSUME are not built"
+    spec: 06-prerequisites/dead-letter-policy.md
+  - upstream: DeadLetterTopicTest#testDuplicatedMessageSendToDeadLetterTopic
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/api/DeadLetterTopicTest.java
+    lines: "720"
+    csharp: "tests/DotPulsar.Tests/Internal/DeadLetterTopicTests.cs#Receive_GivenThreeConsumersNeverAcknowledging_ShouldNotSendDuplicatesToDeadLetterTopic"
+    status: "Port-partial"
+    spec: 06-prerequisites/dead-letter-policy.md
+    note: "missing: no C# test; wp7a-wp7-consumer-wiring.md lists it as not ported without a reason"
+    done: true
+  - upstream: DeadLetterTopicTest#testDeadLetterTopicWithMultiTopic
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/api/DeadLetterTopicTest.java
+    lines: "796"
+    csharp: null
+    status: "Excluded: @Test(enabled = false) upstream (issue #2647)"
+    spec: 06-prerequisites/dead-letter-policy.md
+  - upstream: DeadLetterTopicTest#testDeadLetterTopicByCustomTopicName
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/api/DeadLetterTopicTest.java
+    lines: "878"
+    csharp: "tests/DotPulsar.Tests/Internal/DeadLetterTopicTests.cs#Receive_GivenCustomDeadLetterTopic_ShouldSendToCustomTopic"
+    status: "Port"
+    spec: 06-prerequisites/dead-letter-policy.md
+    done: true
+  - upstream: DeadLetterTopicTest#testDeadLetterWithoutConsumerReceiveImmediately
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/api/DeadLetterTopicTest.java
+    lines: "951"
+    csharp: "tests/DotPulsar.Tests/Internal/DeadLetterTopicTests.cs#Receive_GivenConsumerNotReceivingForFiveSeconds_ShouldNotSendToDeadLetterTopic"
+    status: "Port"
+    spec: 06-prerequisites/dead-letter-policy.md
+    done: true
+  - upstream: DeadLetterTopicTest#testDeadLetterTopicUnderPartitionedTopicWithKeyShareType
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/api/DeadLetterTopicTest.java
+    lines: "976"
+    csharp: "tests/DotPulsar.Tests/Internal/DeadLetterTopicTests.cs#Receive_GivenPartitionedTopicWithKeySharedSubscription_ShouldSendToPerPartitionDeadLetterTopics"
+    status: "Port"
+    spec: 06-prerequisites/dead-letter-policy.md
+    note: "missing: no C# test; the spec says portable"
+    done: true
+  - upstream: DeadLetterTopicTest#testDeadLetterTopicWithInitialSubscription
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/api/DeadLetterTopicTest.java
+    lines: "1076"
+    csharp: "tests/DotPulsar.Tests/Internal/DeadLetterTopicTests.cs#Receive_GivenInitialSubscriptionName_ShouldCreateSubscriptionOnDeadLetterTopic"
+    status: "Port"
+    spec: 06-prerequisites/dead-letter-policy.md
+    done: true
+  - upstream: DeadLetterTopicTest#testDeadLetterTopicWithProducerBuilder
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/api/DeadLetterTopicTest.java
+    lines: "1150"
+    csharp: null
+    status: "Excluded: enableRetry, reconsumeLater and the producer customizer are not built (OD-1, OD-2)"
+    spec: 06-prerequisites/dead-letter-policy.md
+  - upstream: DeadLetterTopicTest#testDeadLetterTopicWithInitialSubscriptionAndMultiConsumers
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/api/DeadLetterTopicTest.java
+    lines: "1281"
+    csharp: "tests/DotPulsar.Tests/Internal/DeadLetterTopicTests.cs#Receive_GivenTwoConsumersWithInitialSubscriptionName_ShouldCreateOneDeadLetterProducerPerConsumer"
+    status: "Port"
+    spec: 06-prerequisites/dead-letter-policy.md
+    note: "missing: no C# test; wp7a-wp7-consumer-wiring.md lists it as not ported without a reason"
+    done: true
+  - upstream: DeadLetterTopicTest#testDeadLetterPolicyDeserialize
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/api/DeadLetterTopicTest.java
+    lines: "1365"
+    csharp: null
+    status: "Excluded: loadConf (configuration deserialization)"
+    spec: 06-prerequisites/dead-letter-policy.md
+  - upstream: DeadLetterTopicTest#testCloseDeadLetterTopicProducerOnExceptionToPreventProducerLeak
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/api/DeadLetterTopicTest.java
+    lines: "1403"
+    csharp: null
+    status: "Excluded: AVRO schemas and broker internals; covered by DeadLetterHandlerTests#TryDeadLetter_GivenFaultedProducer_ShouldDisposeAndRecreateProducerOnNextCall"
+    spec: 06-prerequisites/dead-letter-policy.md
+  - upstream: DeadLetterTopicTest#testDeadLetterTopicWithMaxUnackedMessagesBlocking
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/api/DeadLetterTopicTest.java
+    lines: "1464"
+    csharp: "tests/DotPulsar.Tests/Internal/DeadLetterTopicTests.cs#NegativeAcknowledge_GivenMaxUnackedMessagesPolicy_ShouldEventuallySendAllMessagesToDeadLetterTopic"
+    status: "Port-partial"
+    spec: 06-prerequisites/dead-letter-policy.md
+    note: "missing: no C# test; its dependency (negative ack) has landed"
+    done: true
+  - upstream: DeadLetterTopicTest#sendDeadLetterTopicWithMismatchSchemaProducer
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/api/DeadLetterTopicTest.java
+    lines: "1562"
+    csharp: null
+    status: "Excluded: AVRO(Long)/AUTO_CONSUME and a retry topic"
+    spec: 06-prerequisites/dead-letter-policy.md
+  - upstream: DeadLetterTopicTest#testCheckUnnecessaryGetPartitionedTopicMetadataWhenUseRetryAndDQL
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/api/DeadLetterTopicTest.java
+    lines: "1620"
+    csharp: null
+    status: "Excluded: retry topic and Mockito on client internals"
+    spec: 06-prerequisites/dead-letter-policy.md
+  - upstream: DeadLetterTopicTest#testAckedBatchMessageNotSentToDeadLetterTopicOnFinalRedeliveryRound
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/api/DeadLetterTopicTest.java
+    lines: "1695"
+    csharp: "tests/DotPulsar.Tests/Internal/DeadLetterTopicBatchIndexAckTests.cs#Receive_GivenBatchIndexesAcknowledgedOnFinalRound_ShouldNotSendAnyMessageToDeadLetterTopic"
+    status: "Port"
+    spec: 06-prerequisites/dead-letter-policy.md
+    done: true
+  - upstream: DeadLetterTopicTest#testDeadLetterTopicWithPoolMessages
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/api/DeadLetterTopicTest.java
+    lines: "1855"
+    csharp: "tests/DotPulsar.Tests/Internal/DeadLetterTopicTests.cs#RedeliverUnacknowledgedMessages_GivenCandidatesFromLastDelivery_ShouldSendAllToDeadLetterTopic"
+    status: "Port-partial"
+    spec: 06-prerequisites/dead-letter-policy.md
+    done: true
+  - upstream: NegativeAcksTest#testNegativeAcks
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/NegativeAcksTest.java
+    lines: "92"
+    csharp: "tests/DotPulsar.Tests/Internal/NegativeAcknowledgeTests.cs#NegativeAcknowledge_GivenVariations_ShouldRedeliverAllNegativelyAcknowledgedMessages"
+    status: "Port-partial"
+    spec: 06-prerequisites/dead-letter-policy.md
+    done: true
+  - upstream: NegativeAcksTest#testNegativeAcksWithBackoff
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/NegativeAcksTest.java
+    lines: "205"
+    csharp: null
+    status: "Excluded: RedeliveryBackoff is not built (OD-3)"
+    spec: 06-prerequisites/dead-letter-policy.md
+  - upstream: NegativeAcksTest#testNegativeAcksWithBatch
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/NegativeAcksTest.java
+    lines: "336"
+    csharp: "tests/DotPulsar.Tests/Internal/NegativeAcknowledgeTests.cs#NegativeAcknowledge_GivenTwoMessagesInSameBatchNackedTwoSecondsApart_ShouldRedeliverFirstWithinTwoSeconds"
+    status: "Port"
+    spec: 06-prerequisites/dead-letter-policy.md
+    done: true
+  - upstream: NegativeAcksTest#testNegativeAcksWithBatchAckEnabled
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/NegativeAcksTest.java
+    lines: "374"
+    csharp: "tests/DotPulsar.Tests/Internal/NegativeAcknowledgeTests.cs#NegativeAcknowledge_GivenTenBatchedMessages_ShouldRedeliverAllAndThenNoMore"
+    status: "Port"
+    spec: 06-prerequisites/dead-letter-policy.md
+    done: true
+  - upstream: NegativeAcksTest#testFailoverConsumerBatchCumulateAck
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/NegativeAcksTest.java
+    lines: "420"
+    csharp: "tests/DotPulsar.Tests/Internal/NegativeAcknowledgeBatchIndexAckTests.cs#AcknowledgeCumulative_GivenFailoverConsumerAndMessageOfBatch_ShouldRedeliverEveryOtherMessage"
+    status: "Excluded: the spec defers it to the ack-timeout and batching specs, which do not list it (no owner, no C# test)"
+    spec: 06-prerequisites/dead-letter-policy.md
+    note: "stale exclusion: the spec defers it to ack-timeout/batching specs that do not list it; no owner and no C# test"
+    done: true
+  - upstream: NegativeAcksTest#testMultiTopicConsumerConcurrentRedeliverAndReceive
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/NegativeAcksTest.java
+    lines: "494"
+    csharp: "tests/DotPulsar.Tests/Internal/NegativeAcknowledgeTests.cs#RedeliverUnacknowledgedMessages_GivenMessagesInReceiveQueueOfConsumerOfPartitionedTopic_ShouldReceiveEveryMessageAgain"
+    status: "Excluded: the spec defers it to the ack-timeout and batching specs, which do not list it (no owner, no C# test)"
+    spec: 06-prerequisites/dead-letter-policy.md
+    note: "stale exclusion: the spec defers it to ack-timeout/batching specs that do not list it; no owner and no C# test"
+    done: true
+  - upstream: NegativeAcksTest#testConfigureNegativeAckPrecisionBitCnt
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/NegativeAcksTest.java
+    lines: "557"
+    csharp: null
+    status: "Excluded: the precision is not configurable (OD-3)"
+    spec: 06-prerequisites/dead-letter-policy.md
+  - upstream: DefaultCryptoKeyReaderTest
+    path: pulsar-client/src/test/java/org/apache/pulsar/client/impl/crypto/DefaultCryptoKeyReaderTest.java
+    csharp: "tests/DotPulsar.Tests/DefaultCryptoKeyReaderTests.cs#GetKeys_GivenDefaultsAndKeyNameUris_ShouldUseTheKeyNameUriBeforeTheDefault"
+    status: "Port-unit"
+    spec: 06-prerequisites/encryption.md
+    done: true
+    note: "the spec names no methods; the C# comments name #testBuild and #testGetKeys"
+  - upstream: SimpleProducerConsumerTest#testRSAEncryption
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/api/SimpleProducerConsumerTest.java
+    lines: "2774-2868"
+    csharp: "tests/DotPulsar.Tests/Encryption/ConsumerEncryptionTests.cs#Receive_GivenRsaEncryptedMessagesFromThreeProducers_ShouldDecryptInOrder"
+    status: "Port"
+    spec: 06-prerequisites/encryption.md
+    note: "pending-wp9-producer: the test exists and is not skipped but only the consumer side runs; the messages come from the Java CLI, not from an encrypting IProducer"
+    done: true
+  - upstream: SimpleProducerConsumerTest#testECDSAEncryption
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/api/SimpleProducerConsumerTest.java
+    lines: "2687-2772"
+    csharp: "tests/DotPulsar.Tests/Encryption/ConsumerEncryptionTests.cs#Receive_GivenEcdsaEncryptedLz4Messages_ShouldDecrypt"
+    status: "Port"
+    spec: 06-prerequisites/encryption.md
+    note: "pending-wp9-producer: consumer side only (Java CLI producer); the admin peek of the upstream test is dropped"
+    done: true
+  - upstream: SimpleProducerConsumerTest#testCryptoWithChunking
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/api/SimpleProducerConsumerTest.java
+    lines: "2871-2903"
+    csharp: "tests/DotPulsar.Tests/Encryption/ConsumerEncryptionTests.cs#Receive_GivenEcdsaEncryptedChunkedMessage_ShouldDecryptEveryChunkAndAssembleThem"
+    status: "Port-partial"
+    spec: 06-prerequisites/encryption.md
+    note: "pending-wp9-producer: consumer side only (Java CLI producer); a 12 MB message and a length check replace 5100 random bytes with chunk size 1000 and the byte comparison"
+    done: true
+  - upstream: SimpleProducerConsumerTest#testDefaultCryptoKeyReader
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/api/SimpleProducerConsumerTest.java
+    lines: "2905-3042"
+    csharp: "tests/DotPulsar.Tests/Encryption/ConsumerEncryptionTests.cs#Receive_GivenDefaultCryptoKeyReaderWithFileAndDataUris_ShouldDecrypt"
+    status: "Port"
+    spec: 06-prerequisites/encryption.md
+    note: "pending-wp9-producer: consumer side only (Java CLI producer)"
+    done: true
+  - upstream: SimpleProducerConsumerTest#testEncryptionFailure
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/api/SimpleProducerConsumerTest.java
+    lines: "3192-3330"
+    csharp: "tests/DotPulsar.Tests/Encryption/ConsumerEncryptionTests.cs#Receive_GivenEncryptionFailureActionsOneAfterTheOther_ShouldFailConsumeDecryptAndDiscard"
+    status: "Port-partial"
+    spec: 06-prerequisites/encryption.md
+    note: "pending-wp9-producer: consumer side only (Java CLI producer); step 1 (producer create throws CryptoException) is not ported; 5 rows over 3 tests"
+    done: true
+  - upstream: SimpleProducerConsumerTest#testEncryptionConsumerWithoutCryptoReader
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/api/SimpleProducerConsumerTest.java
+    lines: "3332-3465"
+    csharp: "tests/DotPulsar.Tests/Encryption/ConsumerEncryptionTests.cs#Receive_GivenConsumeActionWithoutCryptoKeyReader_ShouldAllowManualDecryption"
+    status: "Port"
+    spec: 06-prerequisites/encryption.md
+    note: "pending-wp9-producer: consumer side only (Java CLI producer)"
+    done: true
+  - upstream: SimpleProducerConsumerTest#testEncryptionFailureWithBatchPublish
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/api/SimpleProducerConsumerTest.java
+    lines: "5264-5335"
+    csharp: "tests/DotPulsar.Tests/Encryption/ConsumerEncryptionTests.cs#Receive_GivenEncryptedBatchesAndDiscard_ShouldDiscardEveryBatchWithoutRunningOutOfPermits"
+    status: "Port"
+    spec: 06-prerequisites/encryption.md
+    note: "pending-wp9-producer: consumer side only (Java CLI producer); an RSA key and no ack timeout replace the ECDSA key and the 1 s ack timeout, and the cursor assertion is a backlog check"
+    done: true
+  - upstream: SimpleProducerConsumerTest#testE2EEncryptionWithCompression
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/api/SimpleProducerConsumerTest.java
+    lines: "5441-5487"
+    csharp: "tests/DotPulsar.Tests/Encryption/ConsumerEncryptionTests.cs#Receive_GivenMismatchedKeyAndConsumeAction_ShouldDeliverEncryptedCompressedPayload"
+    status: "Port"
+    spec: 06-prerequisites/encryption.md
+    note: "pending-wp9-producer: consumer side only (Java CLI producer)"
+    done: true
+  - upstream: SimpleProducerConsumerTest#testRedeliveryOfFailedMessages
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/api/SimpleProducerConsumerTest.java
+    lines: "3044-3190"
+    csharp: null
+    status: "Excluded: groups = quarantine upstream"
+    spec: 06-prerequisites/encryption.md
+  - upstream: ProducerEncryptionKeyFailureTest#testProducerWhoseKeyCannotBeLoadedIsNotLeftBehind
+    path: pulsar-broker/src/test/java/org/apache/pulsar/client/api/ProducerEncryptionKeyFailureTest.java
+    lines: "64-82"
+    csharp: "tests/DotPulsar.Tests/Encryption/ProducerEncryptionKeyFailureTests.cs#Create_GivenKeyThatCannotBeLoaded_ShouldThrowCryptoExceptionAndNotRegisterPublisher"
+    status: "Port-partial"
+    spec: 06-prerequisites/encryption.md
+    note: "pending-wp9-producer: no C# test and no skipped placeholder"
+    done: true
+  - upstream: "cpp:EncryptionTest.cc#testDecryptionSuccess/Failure"
+    lines: "132-145"
+    csharp: null
+    status: "Excluded: C++-only; covered by the CLI interop tests EncryptionInteropTests#Receive_GivenJavaProduced*"
+    spec: 06-prerequisites/encryption.md
+  - upstream: BatchMessageWithBatchIndexLevelTest#testBatchMessageNAck
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/service/BatchMessageWithBatchIndexLevelTest.java
+    csharp: "tests/DotPulsar.Tests/Prerequisites/BatchMessageWithBatchIndexLevelTests.cs#NegativeAcknowledge_GivenFirstMessageOfTwoEntriesOfTwentyMessages_ShouldDropTheEntryFromTheQueueAndTheUnackedMessagesOfTheBroker"
+    status: "Port"
+    spec: 06-prerequisites/batch-index-ack.md
+    done: true
+  - upstream: BatchMessageWithBatchIndexLevelTest#testBatchMessageMultiNegtiveAck
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/service/BatchMessageWithBatchIndexLevelTest.java
+    csharp: "tests/DotPulsar.Tests/Prerequisites/BatchMessageWithBatchIndexLevelTests.cs#NegativeAcknowledge_GivenEveryOtherMessageOfBatchNegativelyAcknowledged_ShouldKeepTheNegativelyAcknowledgedMessagesUnacked"
+    status: "Port"
+    spec: 06-prerequisites/batch-index-ack.md
+    done: true
+  - upstream: BatchMessageWithBatchIndexLevelTest#testAckMessageWithNotOwnerConsumerUnAckMessageCount
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/service/BatchMessageWithBatchIndexLevelTest.java
+    csharp: "tests/DotPulsar.Tests/Prerequisites/BatchMessageWithBatchIndexLevelTests.cs#Acknowledge_GivenMessagesOfBatchThatAreAcknowledgedByTheConsumerThatDoesNotOwnThem_ShouldCountTheUnackedMessagesOfTheOwnerCorrectly"
+    status: "Port"
+    spec: 06-prerequisites/batch-index-ack.md
+    done: true
+  - upstream: BatchMessageWithBatchIndexLevelTest#testNegativeAckAndLongAckDelayWillNotLeadRepeatConsume
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/service/BatchMessageWithBatchIndexLevelTest.java
+    csharp: "tests/DotPulsar.Tests/Prerequisites/BatchMessageWithBatchIndexLevelTests.cs#NegativeAcknowledge_GivenMessageOfBatchNegativelyAcknowledged_ShouldNotConsumeTheOtherMessagesAgain"
+    status: "Port"
+    spec: 06-prerequisites/batch-index-ack.md
+    done: true
+  - upstream: BatchMessageWithBatchIndexLevelTest#testUnAckMessagesWhenConcurrentDeliveryAndAck
+    path: pulsar-broker/src/test/java/org/apache/pulsar/broker/service/BatchMessageWithBatchIndexLevelTest.java
+    csharp: null
+    status: "Excluded"
+    spec: 06-prerequisites/batch-index-ack.md
+    note: "it replaces the broker's service Consumer in the dispatcher with a Mockito spy that holds back sendMessages until a signal, and then deletes a position with an ack set from the ManagedCursor directly; the race between the delivery of the replayed entries and an in-flight acknowledgment inside the broker can not be produced through the client protocol, the admin API or a TCP relay (a relay only holds the bytes after the broker has counted the messages as unacked)"

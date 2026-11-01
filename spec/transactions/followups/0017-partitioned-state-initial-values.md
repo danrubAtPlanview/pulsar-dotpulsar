@@ -1,0 +1,15 @@
+# 0017 - The state arrays of the partitioned producer and reader start as `Closed`
+
+Status: **fixed in WP10** for the consumer, the producer and the reader (pre-existing on master; the producer and reader parts are cosmetic).
+
+## What was found (consumer, fixed)
+
+`Consumer.Monitor` aggregates the states of its sub consumers in `var states = new ConsumerState[n]`. `ConsumerState.Active` is the zero value of the enum, so every sub consumer that had not reported a state yet counted as `Active`. The aggregate became `Active` when the first sub consumer of a partitioned topic (or of several topics, or of a topics pattern) became active, while the other partitions were not subscribed yet. A subscription with the default initial position (`Latest`) that is created after a message was published never sees that message, so a test or an application that waits for `Active` and then sends a message could lose it for good.
+
+Found by the first full Debug run of the integration collections on the merged branch: `PendingAckPersistentTests.Receive_GivenTopicsPatternAndPendingAckTopics_ShouldReceiveFromUserTopicsOnly` waited for the 5 minute limit in `Receive` in 1 of 9 runs of the class (it passed 6 of 6 when run alone, and 8 of 9 in the loop). The topic stats that the diagnostics printed showed `msgInCounter` 1 and `msgBacklog` 0 on partition 0 of the topic, with the consumer present: the subscription of that partition had been created after the message. The earlier WP10 workaround (`WaitForSubscription` in that test class, written for the pattern consumer) hid the same bug for one of the two consumers of the test.
+
+Fix: `Array.Fill(states, ConsumerState.Disconnected)`, the initial state of a sub consumer. Until every sub consumer has reported, the aggregate is `PartiallyConnected` (some `Disconnected`, some not) or `Disconnected`. Regression test: `ConsumerStateTests.State_GivenPartitionedTopicAndOnePartitionNotYetSubscribed_ShouldNotBeActiveUntilEveryPartitionIsSubscribed` (fails on the old code). CHANGELOG, Fixed.
+
+## The producer and the reader (fixed in WP10, in the commit `Start the partition states as Disconnected`)
+
+`Producer.cs` (`new ProducerState[n]`) and `Reader.cs` (`new ReaderState[n]`) had the same pattern, but the zero value of `ProducerState` and `ReaderState` is `Closed`, so nothing was reported as `Connected` too early. The visible effect was only a transient wrong state while a partitioned producer connected: `[Connected, Closed, Closed]` fell through to `WaitingForExclusive` (the reader ended up in its last `else` branch, `PartiallyConnected`, which was right by chance). Both start as `Disconnected` now, like the consumer, so a producer where only some partitions are connected is `PartiallyConnected`. Test: `ProducerStateTests.State_GivenPartitionedTopicAndOnePartitionNotYetConnected_ShouldBePartiallyConnectedUntilEveryPartitionIsConnected` (one partition is held back; it fails with the old initialisation after 30 seconds, because the state never becomes `PartiallyConnected`). CHANGELOG: Fixed. The unit tests did not depend on the old transient state.
