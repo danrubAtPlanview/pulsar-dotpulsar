@@ -475,6 +475,47 @@ public sealed class RequestResponseHandlerTests
         await Should.ThrowAsync<TaskCanceledException>(chunk.Task.WaitAsync(TimeSpan.FromSeconds(10), Current.CancellationToken));
     }
 
+    // Additional coverage (followup 0011 item 5)
+    // The chunks are matched to the answers of the broker by their order, so a request whose answer never comes shifts every later answer by one: the next message of a producer that has the same id and the same sequence id
+    // would never get the answer to its last chunk. A producer has the same id on every connection, so a command that registers the producer is the moment when what is left of an earlier channel is known to be stale.
+    [Fact]
+    public async Task Outgoing_GivenCommandProducerForProducerWithPendingChunks_ShouldCancelThemSoTheyCanNotTakeAnAnswerOfTheNextChannel()
+    {
+        //Arrange
+        using var uut = new RequestResponseHandler();
+        var stale = new TaskCompletionSource<BaseCommand>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var live = new TaskCompletionSource<BaseCommand>(TaskCreationOptions.RunContinuationsAsynchronously);
+        uut.Outgoing(new CommandSend { ProducerId = 3, SequenceId = 5, IsChunk = true }, stale);
+        var receipt = CreateSendReceipt(3, 5);
+
+        //Act
+        _ = uut.Outgoing(new CommandProducer { ProducerId = 3, Topic = "persistent://public/default/test" });
+        uut.Outgoing(new CommandSend { ProducerId = 3, SequenceId = 5, IsChunk = true }, live);
+        uut.Incoming(receipt);
+
+        //Assert
+        stale.Task.IsCanceled.ShouldBeTrue();
+        (await live.Task.WaitAsync(TimeSpan.FromSeconds(10), Current.CancellationToken)).ShouldBeSameAs(receipt);
+    }
+
+    // Additional coverage (followup 0011 item 5)
+    [Fact]
+    public async Task Outgoing_GivenCommandProducer_ShouldKeepTheChunksOfOtherProducers()
+    {
+        //Arrange
+        using var uut = new RequestResponseHandler();
+        var other = new TaskCompletionSource<BaseCommand>(TaskCreationOptions.RunContinuationsAsynchronously);
+        uut.Outgoing(new CommandSend { ProducerId = 4, SequenceId = 5, IsChunk = true }, other);
+
+        //Act
+        _ = uut.Outgoing(new CommandProducer { ProducerId = 3, Topic = "persistent://public/default/test" });
+        uut.Incoming(CreateSendReceipt(4, 5));
+
+        //Assert
+        other.Task.IsCanceled.ShouldBeFalse();
+        await other.Task.WaitAsync(TimeSpan.FromSeconds(10), Current.CancellationToken);
+    }
+
     private static int GetNumberOfRequests(RequestResponseHandler handler)
     {
         var field = typeof(RequestResponseHandler).GetField("_requests", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
