@@ -285,7 +285,7 @@ public sealed class SeekBatchIndexTests
         return command;
     }
 
-    private static SubConsumer<byte[]> CreateSubConsumer(IConsumerChannel<byte[]> channel)
+    private static SubConsumer<byte[]> CreateSubConsumer(IConsumerChannel<byte[]> channel, bool seekToBatchIndex = true)
     {
         var correlationId = Guid.NewGuid();
         var eventRegister = Substitute.For<IRegisterEvent>();
@@ -308,12 +308,13 @@ public sealed class SeekBatchIndexTests
             new NegativeAcknowledgeTracker(TimeSpan.FromMinutes(1), (ids, ct) => subConsumer!.RedeliverUnacknowledgedMessages(ids, ct)),
             null,
             ChunkTestData.CreateAssembler(),
-            null);
+            null,
+            seekToBatchIndex: seekToBatchIndex);
 
         return subConsumer;
     }
 
-    private static SubReader<byte[]> CreateSubReader(IConsumerChannel<byte[]> channel)
+    private static SubReader<byte[]> CreateSubReader(IConsumerChannel<byte[]> channel, bool seekToBatchIndex = true)
     {
         var correlationId = Guid.NewGuid();
         var eventRegister = Substitute.For<IRegisterEvent>();
@@ -328,6 +329,61 @@ public sealed class SeekBatchIndexTests
             Substitute.For<IState<ReaderState>>(),
             Substitute.For<IConsumerChannelFactory<byte[]>>(),
             ChunkTestData.CreateAssembler(),
-            null);
+            null,
+            seekToBatchIndex: seekToBatchIndex);
+    }
+
+    // Additional coverage (decision 0010: SeekToBatchIndex is the switch, and false restores the previous behaviour)
+    [Fact]
+    public void ToSeekMessageIdData_GivenNotSeekToBatchIndex_ShouldHaveNoAckSet()
+    {
+        //Arrange
+        var messageId = MessageIdInternals.Create(1, 2, 3, 2, Topic, 5);
+
+        //Act
+        var actual = messageId.ToSeekMessageIdData(false);
+
+        //Assert
+        actual.LedgerId.ShouldBe(1UL);
+        actual.EntryId.ShouldBe(2UL);
+        actual.AckSet.ShouldBeEmpty();
+    }
+
+    // Additional coverage (decision 0010)
+    [Fact]
+    public async Task SubConsumerSeek_GivenNotSeekToBatchIndex_ShouldSendTheEntryWithoutAckSet()
+    {
+        //Arrange
+        var channel = Substitute.For<IConsumerChannel<byte[]>>();
+        var sent = new List<CommandSeek>();
+        channel.Send(Arg.Do<CommandSeek>(command => sent.Add(command.Clone())), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
+        await using var uut = CreateSubConsumer(channel, false);
+
+        //Act
+        await uut.Seek(MessageIdInternals.Create(1, 12, 0, 2, Topic, 5), Current.CancellationToken);
+
+        //Assert
+        var messageId = sent.ShouldHaveSingleItem().MessageId;
+        messageId.EntryId.ShouldBe(12UL);
+        messageId.AckSet.ShouldBeEmpty();
+    }
+
+    // Additional coverage (decision 0010)
+    [Fact]
+    public async Task SubReaderSeek_GivenNotSeekToBatchIndex_ShouldSendTheEntryWithoutAckSet()
+    {
+        //Arrange
+        var channel = Substitute.For<IConsumerChannel<byte[]>>();
+        var sent = new List<CommandSeek>();
+        channel.Send(Arg.Do<CommandSeek>(command => sent.Add(command.Clone())), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
+        await using var uut = CreateSubReader(channel, false);
+
+        //Act
+        await uut.Seek(MessageIdInternals.Create(1, 12, 0, 2, Topic, 5), Current.CancellationToken);
+
+        //Assert
+        var messageId = sent.ShouldHaveSingleItem().MessageId;
+        messageId.EntryId.ShouldBe(12UL);
+        messageId.AckSet.ShouldBeEmpty();
     }
 }

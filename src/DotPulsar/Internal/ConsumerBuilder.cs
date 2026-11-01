@@ -47,6 +47,9 @@ public sealed class ConsumerBuilder<TMessage> : IConsumerBuilder<TMessage>
     private IRedeliveryBackoff? _negativeAcknowledgeRedeliveryBackoff;
     private uint _maxPendingChunkedMessage;
     private bool _autoAckOldestChunkedMessageOnQueueFull;
+    private bool _redeliverNothingForNoMessageIds;
+    private bool _seekToBatchIndex;
+    private bool _assembleChunkedMessages;
     private TimeSpan _expireTimeOfIncompleteChunkedMessage;
     private ICryptoKeyReader? _cryptoKeyReader;
     private ConsumerCryptoFailureAction _cryptoFailureAction;
@@ -63,6 +66,9 @@ public sealed class ConsumerBuilder<TMessage> : IConsumerBuilder<TMessage>
         _negativeAcknowledgeRedeliveryBackoff = null;
         _maxPendingChunkedMessage = ConsumerOptions<TMessage>.DefaultMaxPendingChunkedMessage;
         _autoAckOldestChunkedMessageOnQueueFull = ConsumerOptions<TMessage>.DefaultAutoAckOldestChunkedMessageOnQueueFull;
+        _redeliverNothingForNoMessageIds = ConsumerOptions<TMessage>.DefaultRedeliverNothingForNoMessageIds;
+        _seekToBatchIndex = ConsumerOptions<TMessage>.DefaultSeekToBatchIndex;
+        _assembleChunkedMessages = ConsumerOptions<TMessage>.DefaultAssembleChunkedMessages;
         _expireTimeOfIncompleteChunkedMessage = ConsumerOptions<TMessage>.DefaultExpireTimeOfIncompleteChunkedMessage;
         _cryptoFailureAction = ConsumerOptions<TMessage>.DefaultCryptoFailureAction;
         _initialPosition = ConsumerOptions<TMessage>.DefaultInitialPosition;
@@ -233,6 +239,24 @@ public sealed class ConsumerBuilder<TMessage> : IConsumerBuilder<TMessage>
         return this;
     }
 
+    public IConsumerBuilder<TMessage> RedeliverNothingForNoMessageIds(bool redeliverNothingForNoMessageIds)
+    {
+        _redeliverNothingForNoMessageIds = redeliverNothingForNoMessageIds;
+        return this;
+    }
+
+    public IConsumerBuilder<TMessage> SeekToBatchIndex(bool seekToBatchIndex)
+    {
+        _seekToBatchIndex = seekToBatchIndex;
+        return this;
+    }
+
+    public IConsumerBuilder<TMessage> AssembleChunkedMessages(bool assembleChunkedMessages)
+    {
+        _assembleChunkedMessages = assembleChunkedMessages;
+        return this;
+    }
+
     public IConsumerBuilder<TMessage> ExpireTimeOfIncompleteChunkedMessage(TimeSpan expireTimeOfIncompleteChunkedMessage)
     {
         _expireTimeOfIncompleteChunkedMessage = expireTimeOfIncompleteChunkedMessage;
@@ -287,6 +311,9 @@ public sealed class ConsumerBuilder<TMessage> : IConsumerBuilder<TMessage>
             NegativeAcknowledgeRedeliveryBackoff = _negativeAcknowledgeRedeliveryBackoff,
             MaxPendingChunkedMessage = _maxPendingChunkedMessage,
             AutoAckOldestChunkedMessageOnQueueFull = _autoAckOldestChunkedMessageOnQueueFull,
+            RedeliverNothingForNoMessageIds = _redeliverNothingForNoMessageIds,
+            SeekToBatchIndex = _seekToBatchIndex,
+            AssembleChunkedMessages = _assembleChunkedMessages,
             ExpireTimeOfIncompleteChunkedMessage = _expireTimeOfIncompleteChunkedMessage,
             CryptoKeyReader = _cryptoKeyReader,
             CryptoFailureAction = _cryptoFailureAction

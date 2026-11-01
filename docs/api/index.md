@@ -203,3 +203,17 @@ If your contribution adds Pulsar features for C# clients, you need to update bot
 ## License
 
 This project is licensed under [Apache License, Version 2.0](https://apache.org/licenses/LICENSE-2.0).
+
+## Restoring the previous behavior
+
+A few calls behave differently from the previous release (the [changelog](https://github.com/apache/pulsar-dotpulsar/blob/master/CHANGELOG.md) lists them under "Changed"). The new behavior is the default, and an option restores the previous one:
+
+| Behavior | Option that restores the previous one |
+|---|---|
+| A send that the broker rejects, and a message that is larger than the maximum message size, fail only that message | `FailOnlyTheRejectedMessage(false)` on the producer builder: the producer faults |
+| `RedeliverUnacknowledgedMessages` with an empty list does nothing | `RedeliverNothingForNoMessageIds(false)` on the consumer builder: an empty list redelivers everything (a consumer of one topic) |
+| A seek to a message in a batch replays the batch from that message | `SeekToBatchIndex(false)` on the consumer builder and the reader builder: the whole batch is replayed |
+| The chunks of a chunked message are delivered as one message | `AssembleChunkedMessages(false)` on the consumer builder and the reader builder: every chunk is delivered as a message |
+| A message that cannot be decrypted is not delivered | `CryptoFailureAction(ConsumerCryptoFailureAction.Consume)` on the consumer builder and the reader builder: the encrypted message is delivered |
+
+Like the other new calls, these builder methods are extension methods in `DotPulsar.Extensions`.

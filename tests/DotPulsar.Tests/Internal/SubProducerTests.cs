@@ -363,7 +363,7 @@ public class SubProducerTests
         return factory;
     }
 
-    private static SubProducer CreateSubProducer(IProducerChannelFactory factory, IRegisterEvent? registerEvent = null, bool useExecutorOfProducer = false, uint maxPendingMessages = 1000)
+    private static SubProducer CreateSubProducer(IProducerChannelFactory factory, IRegisterEvent? registerEvent = null, bool useExecutorOfProducer = false, uint maxPendingMessages = 1000, bool failOnlyTheRejectedMessage = true)
     {
         registerEvent ??= Substitute.For<IRegisterEvent>();
         var correlationId = Guid.NewGuid();
@@ -384,7 +384,8 @@ public class SubProducerTests
             batchingMaxBytes: ProducerOptions<string>.DefaultBatchingMaxBytes,
             batchingMaxPublishDelay: ProducerOptions<string>.DefaultBatchingMaxPublishDelay,
             initialSequenceId: 1,
-            sendTimeout: TimeSpan.Zero);
+            sendTimeout: TimeSpan.Zero,
+            failOnlyTheRejectedMessage: failOnlyTheRejectedMessage);
     }
 
     // A channel that writes nothing, but records the sequence ids of the messages it was asked to write and answers them
@@ -484,5 +485,46 @@ public class SubProducerTests
 
         public async ValueTask<ExecutionResult<TResult>> TryExecuteOnce<TResult>(Func<ValueTask<TResult>> func, CancellationToken cancellationToken = default)
             => new ExecutionResult<TResult>(true, await func().ConfigureAwait(false));
+    }
+
+    // Additional coverage (decision 0010: FailOnlyTheRejectedMessage is the switch, and false restores the previous behaviour)
+    [Fact]
+    public async Task ResponseProcessor_GivenNotAllowedSendErrorAndNotFailOnlyTheRejectedMessage_ShouldFaultProducer()
+    {
+        //Arrange
+        var registerEvent = Substitute.For<IRegisterEvent>();
+        var channel = new FakeChannel { Respond = sequenceId => CreateSendError(sequenceId, ServerError.NotAllowedError, "Not allowed") };
+        await using var sut = CreateSubProducer(CreateFactory(channel), registerEvent, true, failOnlyTheRejectedMessage: false);
+        await sut.EstablishNewChannel(Current.CancellationToken);
+        var sendOp = CreateSendOp(1);
+
+        //Act
+        await sut.Send(sendOp, Current.CancellationToken);
+
+        //Assert
+        await WaitFor.Until(() => registerEvent.ReceivedCalls().Select(x => x.GetArguments()[0]).Any(x => x is ExecutorFaulted { Exception: NotAllowedException }), "the producer is faulted");
+        sendOp.ReceiptTcs.Task.IsCompleted.ShouldBeFalse();
+    }
+
+    // Additional coverage (decision 0010)
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Send_GivenMessageThatIsTooLargeAndNotFailOnlyTheRejectedMessage_ShouldFaultProducer(bool failsAfterAwaiting)
+    {
+        //Arrange
+        var registerEvent = Substitute.For<IRegisterEvent>();
+        var exception = new TooLargeMessageException(10 * 1024 * 1024, 5 * 1024 * 1024);
+        var channel = new FakeChannel { Fail = sequenceId => sequenceId == 1 ? (failsAfterAwaiting ? FailAfterYield(exception) : Task.FromException(exception)) : null };
+        await using var sut = CreateSubProducer(CreateFactory(channel), registerEvent, true, failOnlyTheRejectedMessage: false);
+        await sut.EstablishNewChannel(Current.CancellationToken);
+        var tooLargeOp = CreateSendOp(1);
+
+        //Act
+        await sut.Send(tooLargeOp, Current.CancellationToken);
+
+        //Assert
+        await WaitFor.Until(() => registerEvent.ReceivedCalls().Select(x => x.GetArguments()[0]).Any(x => x is ExecutorFaulted { Exception: TooLargeMessageException }), "the producer is faulted");
+        tooLargeOp.ReceiptTcs.Task.IsCompleted.ShouldBeFalse();
     }
 }

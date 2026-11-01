@@ -486,4 +486,34 @@ public sealed class ProducerBuilderTests
             .Builder()
             .ServiceUrl(new Uri("pulsar://localhost:6650"))
             .Build();
+
+    // Additional coverage (decision 0010: the behaviour changes are opt-out, so the new behaviour is the default)
+    [Fact]
+    public void Create_GivenNoSwitch_ShouldKeepTheNewBehaviour()
+    {
+        //Arrange
+        var (uut, options) = CreateBuilder();
+
+        //Act
+        uut.Create();
+
+        //Assert
+        options().FailOnlyTheRejectedMessage.ShouldBeTrue();
+        ProducerOptions<string>.DefaultFailOnlyTheRejectedMessage.ShouldBeTrue();
+    }
+
+    // Additional coverage (decision 0010)
+    [Fact]
+    public void Create_GivenSwitchOff_ShouldPassItOnInTheOptions()
+    {
+        //Arrange
+        var (uut, options) = CreateBuilder();
+
+        //Act
+        uut.FailOnlyTheRejectedMessage(false).Create();
+
+        //Assert
+        options().FailOnlyTheRejectedMessage.ShouldBeFalse();
+        uut.FailOnlyTheRejectedMessage(true).ShouldBeSameAs(uut);
+    }
 }

@@ -441,4 +441,52 @@ public sealed class ConsumerBuilderTests
 
         return (builder, () => captured ?? throw new InvalidOperationException("The consumer was not created"));
     }
+
+    // Additional coverage (decision 0010: the behaviour changes are opt-out, so the new behaviour is the default)
+    [Fact]
+    public void Create_GivenNoSwitches_ShouldKeepTheNewBehaviour()
+    {
+        //Arrange
+        var (uut, options) = CreateBuilder();
+
+        //Act
+        uut.Create();
+
+        //Assert
+        options().RedeliverNothingForNoMessageIds.ShouldBeTrue();
+        options().SeekToBatchIndex.ShouldBeTrue();
+        options().AssembleChunkedMessages.ShouldBeTrue();
+        ConsumerOptions<string>.DefaultRedeliverNothingForNoMessageIds.ShouldBeTrue();
+        ConsumerOptions<string>.DefaultSeekToBatchIndex.ShouldBeTrue();
+        ConsumerOptions<string>.DefaultAssembleChunkedMessages.ShouldBeTrue();
+    }
+
+    // Additional coverage (decision 0010)
+    [Fact]
+    public void Create_GivenSwitchesOff_ShouldPassThemOnInTheOptions()
+    {
+        //Arrange
+        var (uut, options) = CreateBuilder();
+
+        //Act
+        uut.RedeliverNothingForNoMessageIds(false).SeekToBatchIndex(false).AssembleChunkedMessages(false).Create();
+
+        //Assert
+        options().RedeliverNothingForNoMessageIds.ShouldBeFalse();
+        options().SeekToBatchIndex.ShouldBeFalse();
+        options().AssembleChunkedMessages.ShouldBeFalse();
+    }
+
+    // Additional coverage (decision 0010)
+    [Fact]
+    public void Builder_GivenSwitches_ShouldReturnTheBuilder()
+    {
+        //Arrange
+        var (uut, _) = CreateBuilder();
+
+        //Act & Assert
+        uut.RedeliverNothingForNoMessageIds(false).ShouldBeSameAs(uut);
+        uut.SeekToBatchIndex(false).ShouldBeSameAs(uut);
+        uut.AssembleChunkedMessages(false).ShouldBeSameAs(uut);
+    }
 }

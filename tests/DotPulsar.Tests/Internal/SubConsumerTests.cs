@@ -1544,7 +1544,7 @@ public sealed class SubConsumerTests
         return connection;
     }
 
-    private SubConsumer<byte[]> CreateSubConsumer(bool ackReceiptEnabled, TimeSpan? operationTimeout = null, IConsumerChannel<byte[]>? channel = null, SubscriptionType subscriptionType = SubscriptionType.Exclusive, ConsumerEpoch? consumerEpoch = null, IUnAckedMessageTracker? tracker = null, NegativeAcknowledgeTracker? negativeAcknowledgeTracker = null, DeadLetterHandler<byte[]>? deadLetterHandler = null, Func<Func<MessageId[], CancellationToken, ValueTask>, NegativeAcknowledgeTracker>? negativeAcknowledgeTrackerFactory = null, ChunkedMessageAssembler? chunkAssembler = null)
+    private SubConsumer<byte[]> CreateSubConsumer(bool ackReceiptEnabled, TimeSpan? operationTimeout = null, IConsumerChannel<byte[]>? channel = null, SubscriptionType subscriptionType = SubscriptionType.Exclusive, ConsumerEpoch? consumerEpoch = null, IUnAckedMessageTracker? tracker = null, NegativeAcknowledgeTracker? negativeAcknowledgeTracker = null, DeadLetterHandler<byte[]>? deadLetterHandler = null, Func<Func<MessageId[], CancellationToken, ValueTask>, NegativeAcknowledgeTracker>? negativeAcknowledgeTrackerFactory = null, ChunkedMessageAssembler? chunkAssembler = null, bool redeliverNothingForNoMessageIds = true)
     {
         var correlationId = Guid.NewGuid();
         var executor = new Executor(correlationId, _eventRegister, new DefaultExceptionHandler());
@@ -1570,7 +1570,8 @@ public sealed class SubConsumerTests
             negativeAcknowledgeTracker ?? negativeAcknowledgeTrackerFactory?.Invoke((ids, ct) => subConsumer!.RedeliverUnacknowledgedMessages(ids, ct)) ?? new NegativeAcknowledgeTracker(TimeSpan.FromMinutes(1), (_, _) => default),
             deadLetterHandler,
             chunkAssembler ?? ChunkTestData.CreateAssembler(),
-            null);
+            null,
+            redeliverNothingForNoMessageIds: redeliverNothingForNoMessageIds);
 
         return subConsumer;
     }
@@ -1598,5 +1599,39 @@ public sealed class SubConsumerTests
     {
         await Task.Delay(Timeout.Infinite, cancellationToken);
         return CreateAckResponse(null);
+    }
+
+    // Additional coverage (decision 0010: RedeliverNothingForNoMessageIds is the switch, and false restores the previous behaviour)
+    [Theory]
+    [InlineData(SubscriptionType.Exclusive)]
+    [InlineData(SubscriptionType.Failover)]
+    [InlineData(SubscriptionType.Shared)]
+    [InlineData(SubscriptionType.KeyShared)]
+    public async Task RedeliverUnacknowledgedMessages_GivenNoMessageIdsAndNotRedeliverNothingForNoMessageIds_ShouldRedeliverEverything(SubscriptionType subscriptionType)
+    {
+        //Arrange
+        var sent = CaptureRedeliverCommands();
+        await using var uut = CreateSubConsumer(false, subscriptionType: subscriptionType, redeliverNothingForNoMessageIds: false);
+
+        //Act
+        await uut.RedeliverUnacknowledgedMessages(Array.Empty<MessageId>(), Current.CancellationToken);
+
+        //Assert
+        sent.ShouldHaveSingleItem().MessageIds.ShouldBeEmpty();
+    }
+
+    // Additional coverage (decision 0010)
+    [Fact]
+    public async Task RedeliverUnacknowledgedMessages_GivenMessageIdsAndNotRedeliverNothingForNoMessageIds_ShouldRedeliverOnlyThoseMessages()
+    {
+        //Arrange
+        var sent = CaptureRedeliverCommands();
+        await using var uut = CreateSubConsumer(false, subscriptionType: SubscriptionType.Shared, redeliverNothingForNoMessageIds: false);
+
+        //Act
+        await uut.RedeliverUnacknowledgedMessages([new MessageId(1, 2, 0, -1, "persistent://public/default/test")], Current.CancellationToken);
+
+        //Assert
+        sent.ShouldHaveSingleItem().MessageIds.Count.ShouldBe(1);
     }
 }

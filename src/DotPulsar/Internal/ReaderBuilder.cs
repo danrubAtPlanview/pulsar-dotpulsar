@@ -30,6 +30,8 @@ public sealed class ReaderBuilder<TMessage> : IReaderBuilder<TMessage>
     private string _subscriptionRolePrefix;
     private uint _maxPendingChunkedMessage;
     private bool _autoAckOldestChunkedMessageOnQueueFull;
+    private bool _seekToBatchIndex;
+    private bool _assembleChunkedMessages;
     private TimeSpan _expireTimeOfIncompleteChunkedMessage;
     private ICryptoKeyReader? _cryptoKeyReader;
     private ConsumerCryptoFailureAction _cryptoFailureAction;
@@ -42,6 +44,8 @@ public sealed class ReaderBuilder<TMessage> : IReaderBuilder<TMessage>
         _schema = schema;
         _maxPendingChunkedMessage = ReaderOptions<TMessage>.DefaultMaxPendingChunkedMessage;
         _autoAckOldestChunkedMessageOnQueueFull = ReaderOptions<TMessage>.DefaultAutoAckOldestChunkedMessageOnQueueFull;
+        _seekToBatchIndex = ReaderOptions<TMessage>.DefaultSeekToBatchIndex;
+        _assembleChunkedMessages = ReaderOptions<TMessage>.DefaultAssembleChunkedMessages;
         _expireTimeOfIncompleteChunkedMessage = ReaderOptions<TMessage>.DefaultExpireTimeOfIncompleteChunkedMessage;
         _cryptoFailureAction = ReaderOptions<TMessage>.DefaultCryptoFailureAction;
         _messagePrefetchCount = ReaderOptions<TMessage>.DefaultMessagePrefetchCount;
@@ -109,6 +113,18 @@ public sealed class ReaderBuilder<TMessage> : IReaderBuilder<TMessage>
         return this;
     }
 
+    public IReaderBuilder<TMessage> SeekToBatchIndex(bool seekToBatchIndex)
+    {
+        _seekToBatchIndex = seekToBatchIndex;
+        return this;
+    }
+
+    public IReaderBuilder<TMessage> AssembleChunkedMessages(bool assembleChunkedMessages)
+    {
+        _assembleChunkedMessages = assembleChunkedMessages;
+        return this;
+    }
+
     public IReaderBuilder<TMessage> ExpireTimeOfIncompleteChunkedMessage(TimeSpan expireTimeOfIncompleteChunkedMessage)
     {
         _expireTimeOfIncompleteChunkedMessage = expireTimeOfIncompleteChunkedMessage;
@@ -145,6 +161,8 @@ public sealed class ReaderBuilder<TMessage> : IReaderBuilder<TMessage>
             SubscriptionRolePrefix = _subscriptionRolePrefix,
             MaxPendingChunkedMessage = _maxPendingChunkedMessage,
             AutoAckOldestChunkedMessageOnQueueFull = _autoAckOldestChunkedMessageOnQueueFull,
+            SeekToBatchIndex = _seekToBatchIndex,
+            AssembleChunkedMessages = _assembleChunkedMessages,
             ExpireTimeOfIncompleteChunkedMessage = _expireTimeOfIncompleteChunkedMessage,
             CryptoKeyReader = _cryptoKeyReader,
             CryptoFailureAction = _cryptoFailureAction

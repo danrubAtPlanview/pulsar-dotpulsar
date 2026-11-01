@@ -54,6 +54,7 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
     private readonly Task? _sendTimeoutTask;
     private readonly MessageCrypto? _messageCrypto;
     private readonly TimeSpan _operationTimeout;
+    private readonly bool _failOnlyTheRejectedMessage;
     private SendOp? _sendingHead;
     private long _lastSequenceIdPushed;
     private int _flushRequests;
@@ -84,7 +85,8 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
         bool enableChunking = false,
         int chunkMaxMessageSize = 0,
         MessageCrypto? messageCrypto = null,
-        TimeSpan operationTimeout = default)
+        TimeSpan operationTimeout = default,
+        bool failOnlyTheRejectedMessage = true)
     {
         _sendQueue = new AsyncQueueWithCursor<SendOp>(maxPendingMessages);
         _correlationId = correlationId;
@@ -109,6 +111,7 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
         _dequeued = [];
         _messageCrypto = messageCrypto;
         _operationTimeout = operationTimeout;
+        _failOnlyTheRejectedMessage = failOnlyTheRejectedMessage;
         Topic = topic;
         _isDisposed = 0;
 
@@ -350,10 +353,11 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
         {
             await send.ConfigureAwait(false);
         }
-        catch (TooLargeMessageException exception)
+        catch (TooLargeMessageException exception) when (_failOnlyTheRejectedMessage)
         {
             // Upstream: ProducerImpl#processOpSendMsg
             // The message or the batch is not written, so no receipt will come. The messages of the group fail, and the producer is not faulted.
+            // Without FailOnlyTheRejectedMessage the exception is not caught, and the producer faults, as it did before.
             FailGroupAtCursor(head, exception);
         }
         catch (CryptoException exception)
@@ -704,7 +708,8 @@ public sealed class SubProducer : IContainsChannel, IStateHolder<ProducerState>
 
                 // Upstream: ClientCnx#handleSendError, ProducerImpl#recoverNotAllowedError
                 // A message that is not allowed fails on its own. The other send errors still fault the producer, because they are thrown by Expect.
-                if (response.Type == BaseCommand.Types.Type.SendError && response.SendError.Error == ServerError.NotAllowedError)
+                // Without FailOnlyTheRejectedMessage the error is thrown by Expect like the other send errors, and the producer faults, as it did before.
+                if (_failOnlyTheRejectedMessage && response.Type == BaseCommand.Types.Type.SendError && response.SendError.Error == ServerError.NotAllowedError)
                 {
                     ProcessNotAllowedSendError(response.SendError);
                     return;

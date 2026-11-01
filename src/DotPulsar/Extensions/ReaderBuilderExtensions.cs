@@ -87,6 +87,18 @@ public static class ReaderBuilderExtensions
         => ExtendedApi.Require<ReaderBuilder<TMessage>>(builder, nameof(builder), nameof(AutoAckOldestChunkedMessageOnQueueFull)).AutoAckOldestChunkedMessageOnQueueFull(autoAckOldestChunkedMessageOnQueueFull);
 
     /// <summary>
+    /// Whether a seek to the MessageId of a message in a batch makes the broker redeliver the batch from that message, so the messages of the batch before it are not redelivered. This needs the broker setting 'acknowledgmentAtBatchIndexLevelEnabled'. The default is 'true'. With 'false' the seek ignores the position in the batch, and the broker redelivers the whole batch, as it did before DotPulsar had this option.
+    /// </summary>
+    public static IReaderBuilder<TMessage> SeekToBatchIndex<TMessage>(this IReaderBuilder<TMessage> builder, bool seekToBatchIndex)
+        => ExtendedApi.Require<ReaderBuilder<TMessage>>(builder, nameof(builder), nameof(SeekToBatchIndex)).SeekToBatchIndex(seekToBatchIndex);
+
+    /// <summary>
+    /// Whether the chunks of a chunked message are delivered as one message. The default is 'true'. With 'false' every chunk is delivered as a message, as it was before DotPulsar had this option, and 'MaxPendingChunkedMessage', 'AutoAckOldestChunkedMessageOnQueueFull' and 'ExpireTimeOfIncompleteChunkedMessage' have no effect.
+    /// </summary>
+    public static IReaderBuilder<TMessage> AssembleChunkedMessages<TMessage>(this IReaderBuilder<TMessage> builder, bool assembleChunkedMessages)
+        => ExtendedApi.Require<ReaderBuilder<TMessage>>(builder, nameof(builder), nameof(AssembleChunkedMessages)).AssembleChunkedMessages(assembleChunkedMessages);
+
+    /// <summary>
     /// Set the time after which an incomplete chunked message is dropped. TimeSpan.Zero disables expiry. The default is 1 minute.
     /// </summary>
     public static IReaderBuilder<TMessage> ExpireTimeOfIncompleteChunkedMessage<TMessage>(this IReaderBuilder<TMessage> builder, TimeSpan expireTimeOfIncompleteChunkedMessage)

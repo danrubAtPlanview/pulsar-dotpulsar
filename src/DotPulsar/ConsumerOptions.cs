@@ -58,6 +58,21 @@ public sealed class ConsumerOptions<TMessage>
     public static readonly bool DefaultAutoAckOldestChunkedMessageOnQueueFull = false;
 
     /// <summary>
+    /// The default of whether 'IConsumer.RedeliverUnacknowledgedMessages' with an empty list of message ids does nothing.
+    /// </summary>
+    public static readonly bool DefaultRedeliverNothingForNoMessageIds = true;
+
+    /// <summary>
+    /// The default of whether a seek to the MessageId of a message in a batch makes the broker redeliver the batch from that message.
+    /// </summary>
+    public static readonly bool DefaultSeekToBatchIndex = true;
+
+    /// <summary>
+    /// The default of whether the chunks of a chunked message are delivered as one message.
+    /// </summary>
+    public static readonly bool DefaultAssembleChunkedMessages = true;
+
+    /// <summary>
     /// The default expire time of incomplete chunked messages.
     /// </summary>
     public static readonly TimeSpan DefaultExpireTimeOfIncompleteChunkedMessage = TimeSpan.FromMinutes(1);
@@ -111,6 +126,9 @@ public sealed class ConsumerOptions<TMessage>
         AckTimeoutTickTime = DefaultAckTimeoutTickTime;
         AckTimeoutRedeliveryBackoff = null;
         AutoAckOldestChunkedMessageOnQueueFull = DefaultAutoAckOldestChunkedMessageOnQueueFull;
+        RedeliverNothingForNoMessageIds = DefaultRedeliverNothingForNoMessageIds;
+        SeekToBatchIndex = DefaultSeekToBatchIndex;
+        AssembleChunkedMessages = DefaultAssembleChunkedMessages;
         BatchIndexAckEnabled = DefaultBatchIndexAckEnabled;
         CryptoFailureAction = DefaultCryptoFailureAction;
         ExpireTimeOfIncompleteChunkedMessage = DefaultExpireTimeOfIncompleteChunkedMessage;
@@ -329,6 +347,21 @@ public sealed class ConsumerOptions<TMessage>
     /// Whether to acknowledge (instead of redeliver) the chunks of the oldest pending chunked message when 'MaxPendingChunkedMessage' is exceeded. The default is 'false'.
     /// </summary>
     public bool AutoAckOldestChunkedMessageOnQueueFull { get; set; }
+
+    /// <summary>
+    /// Whether 'IConsumer.RedeliverUnacknowledgedMessages' with an empty list of message ids does nothing. The default is 'true'. With 'false' an empty list redelivers all unacknowledged messages of a consumer of one topic, as it did before DotPulsar had this option.
+    /// </summary>
+    public bool RedeliverNothingForNoMessageIds { get; set; }
+
+    /// <summary>
+    /// Whether a seek to the MessageId of a message in a batch makes the broker redeliver the batch from that message, so the messages of the batch before it are not redelivered. This needs the broker setting 'acknowledgmentAtBatchIndexLevelEnabled'. The default is 'true'. With 'false' the seek ignores the position in the batch, and the broker redelivers the whole batch, as it did before DotPulsar had this option.
+    /// </summary>
+    public bool SeekToBatchIndex { get; set; }
+
+    /// <summary>
+    /// Whether the chunks of a chunked message are delivered as one message. The default is 'true'. With 'false' every chunk is delivered as a message, as it was before DotPulsar had this option, and 'MaxPendingChunkedMessage', 'AutoAckOldestChunkedMessageOnQueueFull' and 'ExpireTimeOfIncompleteChunkedMessage' have no effect.
+    /// </summary>
+    public bool AssembleChunkedMessages { get; set; }
 
     /// <summary>
     /// The time after which an incomplete chunked message is dropped and its chunks are acknowledged. TimeSpan.Zero disables expiry. The default is 1 minute.

@@ -859,4 +859,26 @@ public sealed class MessageChunkingTests : IDisposable
             await Task.Delay(TimeSpan.FromMilliseconds(200), _cts.Token);
         }
     }
+
+    // Additional coverage (decision 0010: AssembleChunkedMessages is the switch, and false restores the previous behaviour)
+    // The message of ChunkedMessageSize bytes is 3 chunks with the default maximum message size of the broker, and every chunk is delivered as a message.
+    [Fact]
+    public async Task Receive_GivenChunkedMessageAndNotAssembleChunkedMessages_ShouldDeliverEveryChunkAsAMessage()
+    {
+        //Arrange
+        var topic = await _fixture.CreateTopic(_cts.Token);
+        await using var client = CreateClient();
+        await using var consumer = CreateConsumer(client, topic, SubscriptionType.Exclusive, configure: builder => builder.AssembleChunkedMessages(false));
+        await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+        await _fixture.ProduceChunkedMessages(topic, 1, ChunkedMessageSize, _cts.Token);
+
+        //Act
+        var chunks = new List<IMessage<byte[]>>();
+        for (var i = 0; i < 3; ++i)
+            chunks.Add(await consumer.Receive(_cts.Token));
+
+        //Assert
+        chunks.Sum(chunk => chunk.Data.Length).ShouldBe(ChunkedMessageSize);
+        chunks.Count(chunk => chunk.MessageId.FirstChunkMessageId is not null).ShouldBe(0);
+    }
 }

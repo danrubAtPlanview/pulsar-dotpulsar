@@ -262,9 +262,10 @@ public sealed class ConsumerSeekBatchIndexAckTests : IDisposable
         replayed.Select(message => message.Value()).ShouldBe(["3", "4"]);
     }
 
-    private IConsumer<string> CreateConsumer(IPulsarClient client, string topicName, string subscriptionName, bool batchIndexAckEnabled)
+    private IConsumer<string> CreateConsumer(IPulsarClient client, string topicName, string subscriptionName, bool batchIndexAckEnabled, bool seekToBatchIndex = true)
         => client.NewConsumer(Schema.String)
             .BatchIndexAckEnabled(batchIndexAckEnabled)
+            .SeekToBatchIndex(seekToBatchIndex)
             .InitialPosition(SubscriptionInitialPosition.Earliest)
             .StateChangedHandler(_testOutputHelper.Log)
             .SubscriptionName(subscriptionName)
@@ -321,5 +322,30 @@ public sealed class ConsumerSeekBatchIndexAckTests : IDisposable
         }
 
         return messages;
+    }
+
+    // Additional coverage (decision 0010: SeekToBatchIndex is the switch, and false restores the previous behaviour)
+    // The seek does not write the ack set, so the broker replays the whole batch although the broker has acknowledgmentAtBatchIndexLevelEnabled.
+    [Fact]
+    public async Task Seek_GivenMessageIdOfBatchMessageAndNotSeekToBatchIndex_ShouldReplayTheWholeBatch()
+    {
+        //Arrange
+        const int batchSize = 5;
+        const int seekIndex = 3;
+        var topicName = TransactionFixture.CreateTopicName("seek-without-batch-index");
+        await _fixture.CreateTopic(topicName, _cts.Token);
+        await using var client = _fixture.CreateClient(_testOutputHelper.Log);
+        await using var consumer = CreateConsumer(client, topicName, $"subscription-{Guid.NewGuid():N}", false, seekToBatchIndex: false);
+        await using var producer = CreateProducer(client, topicName, batchSize);
+        await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+        _ = await Send(producer, batchSize);
+        var received = await ReceiveAll(consumer, batchSize);
+
+        //Act
+        await consumer.Seek(received[seekIndex].MessageId, _cts.Token);
+        var replayed = await ReceiveAll(consumer, batchSize);
+
+        //Assert
+        replayed.Select(message => message.Value()).ShouldBe(Enumerable.Range(0, batchSize).Select(i => i.ToString()));
     }
 }

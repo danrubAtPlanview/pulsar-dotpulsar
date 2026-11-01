@@ -472,9 +472,10 @@ public sealed class ConsumerChannelChunkingTests
         IUnAckedMessageTracker? tracker = null,
         DeadLetterHandler<byte[]>? deadLetterHandler = null,
         IDecompressorFactory? decompressor = null,
-        uint prefetchCount = 100)
+        uint prefetchCount = 100,
+        bool assembleChunkedMessages = true)
     {
-        var assembler = ChunkTestData.CreateAssembler(maxPendingChunkedMessage, autoAckOldestChunkedMessageOnQueueFull, TimeSpan.FromSeconds(60), () => Now);
+        var assembler = ChunkTestData.CreateAssembler(maxPendingChunkedMessage, autoAckOldestChunkedMessageOnQueueFull, TimeSpan.FromSeconds(60), () => Now, enabled: assembleChunkedMessages);
         var acks = new List<CommandAck>();
         var connection = Substitute.For<IConnection>();
         connection.Send(Arg.Do<CommandAck>(ack => acks.Add(ack.Clone())), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
@@ -545,5 +546,31 @@ public sealed class ConsumerChannelChunkingTests
 
         public void Enqueue(MessagePackage messagePackage)
             => _queue.Enqueue(messagePackage);
+    }
+
+    // Additional coverage (decision 0010: AssembleChunkedMessages is the switch, and false restores the previous behaviour)
+    [Fact(Timeout = 30_000)]
+    public async Task Receive_GivenChunksAndNotAssembleChunkedMessages_ShouldDeliverEveryChunkAsAMessage()
+    {
+        //Arrange
+        var uut = CreateUut(assembleChunkedMessages: false);
+        uut.Enqueue(ChunkTestData.CreateChunkPackage("a", 0, 3, 10));
+        uut.Enqueue(ChunkTestData.CreateChunkPackage("a", 1, 3, 11));
+        uut.Enqueue(ChunkTestData.CreateChunkPackage("a", 2, 3, 12));
+
+        //Act
+        var first = await uut.Channel.Receive(Current.CancellationToken);
+        var second = await uut.Channel.Receive(Current.CancellationToken);
+        var third = await uut.Channel.Receive(Current.CancellationToken);
+
+        //Assert
+        Text(first).ShouldBe("chunk-a-0|");
+        Text(second).ShouldBe("chunk-a-1|");
+        Text(third).ShouldBe("chunk-a-2|");
+        first.MessageId.EntryId.ShouldBe(10UL);
+        third.MessageId.EntryId.ShouldBe(12UL);
+        third.MessageId.FirstChunkMessageId.ShouldBeNull();
+        uut.Assembler.PendingCount.ShouldBe(0);
+        uut.Acks.ShouldBeEmpty();
     }
 }
