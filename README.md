@@ -62,7 +62,7 @@ For a more in-depth tour of the API, please visit the [Wiki](https://github.com/
 - [X] Consumer - multi-topic subscriptions
 - [X] Consumer - receive and single + cumulative acknowledge
 - [X] Consumer - acknowledgment receipts and batch index acknowledgment
-- [X] Consumer - ack timeout (with an optional redelivery backoff) and negative acknowledgment
+- [X] Consumer - ack timeout and negative acknowledgment (both with an optional redelivery backoff)
 - [X] Consumer - dead letter topic
 - [X] Consumer/Reader - seek on message-id (also to a message in a batch) and publish time
 - [X] Consumer - unsubscribe

@@ -229,6 +229,49 @@ public sealed class ConsumerBuilderTests
 
     // Additional coverage
     [Fact]
+    public void Create_GivenNegativeAcknowledgeRedeliveryBackoff_ShouldPassItOnInTheOptions()
+    {
+        //Arrange
+        var (uut, options) = CreateBuilder();
+        var backoff = new MultiplierRedeliveryBackoff(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(10));
+
+        //Act
+        uut.NegativeAcknowledgeRedeliveryBackoff(backoff).Create();
+
+        //Assert
+        options().NegativeAcknowledgeRedeliveryBackoff.ShouldBeSameAs(backoff);
+    }
+
+    // Additional coverage
+    [Fact]
+    public void Create_GivenNoNegativeAcknowledgeRedeliveryBackoff_ShouldNotSetIt()
+    {
+        //Arrange
+        var (uut, options) = CreateBuilder();
+
+        //Act
+        uut.NegativeAcknowledgeRedeliveryDelay(TimeSpan.FromSeconds(5)).Create();
+
+        //Assert
+        options().NegativeAcknowledgeRedeliveryBackoff.ShouldBeNull();
+    }
+
+    // Additional coverage
+    [Fact]
+    public void NegativeAcknowledgeRedeliveryBackoff_ShouldReturnTheBuilder()
+    {
+        //Arrange
+        var (uut, _) = CreateBuilder();
+
+        //Act
+        var actual = uut.NegativeAcknowledgeRedeliveryBackoff(new MultiplierRedeliveryBackoff());
+
+        //Assert
+        actual.ShouldBeSameAs(uut);
+    }
+
+    // Additional coverage
+    [Fact]
     public void Builder_GivenAckTimeoutDeadLetterPolicyAndNegativeAcknowledgeRedeliveryDelay_ShouldReturnTheBuilder()
     {
         //Arrange

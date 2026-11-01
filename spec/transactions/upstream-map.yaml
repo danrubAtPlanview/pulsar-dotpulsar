@@ -1966,9 +1966,9 @@ tests:
   - upstream: MessageChunkingTest#testPublishWithFailure
     lines: "291-312"
     csharp: "tests/DotPulsar.Tests/MessageChunkingSmallMessageSizeTests.cs#Send_GivenConnectionCutWhileTheChunksAreOnTheWay_ShouldFailWithOperationTimeoutExceptionAndSendAgainWhenTheConnectionIsBack"
-    status: "Excluded: stops the broker (the send timeout it also needed exists now, see note)"
+    status: "Port-partial (the relay cuts the connection while the chunks are on the way, instead of stopping the broker)"
     spec: 06-prerequisites/chunking.md
-    note: "stale exclusion: the send timeout it waited for exists now (SendTimeout option and tests)"
+    note: "Was Excluded while the send timeout did not exist. The C# test checks the OperationTimeoutException of the send and that the producer sends again when the connection is back"
     done: true
   - upstream: MessageChunkingTest#testOrphanedLastChunkDoesNotStallDispatch
     lines: "669-721"
@@ -1992,9 +1992,9 @@ tests:
   - upstream: MessageChunkingTest#testNonPersistentMessageOverLimitOnlyWithMetadataIsRejectedLocally
     lines: "791-833"
     csharp: "tests/DotPulsar.Tests/MessageChunkingSmallMessageSizeTests.cs#Send_GivenNonPersistentMessageOverLimitOnlyWithMetadata_ShouldThrowTooLargeMessageExceptionAndKeepTheProducerUsable"
-    status: "Excluded: client-side setMaxMessageSize on a live producer (an equivalent test exists, see note)"
+    status: "Port-partial (the maximum message size is the 100 bytes of the broker; upstream sets 1024 on the connection of the producer)"
     spec: 06-prerequisites/chunking.md
-    note: "stale exclusion: an equivalent test exists (MessageChunkingSmallMessageSizeTests), its Upstream comment names another Java method"
+    note: "Was Excluded as a client-side setMaxMessageSize on a live producer. The C# test makes the metadata alone exceed the limit, checks the TooLargeMessageException and that the producer stays usable"
     done: true
   - upstream: MessageChunkingTest#testResendChunkMessages
     lines: "909-949"
@@ -2282,10 +2282,11 @@ tests:
   - upstream: NegativeAcksTest#testNegativeAcksWithBackoff
     path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/NegativeAcksTest.java
     lines: "205"
-    csharp: null
-    status: "Excluded: the negative-ack redelivery backoff is not built (OD-3)"
-    note: "WP11-B added IRedeliveryBackoff and MultiplierRedeliveryBackoff for the ack timeout; a negative-ack option and the use of the policy in the negative-ack tracker are still missing (followup 0019)"
+    csharp: "tests/DotPulsar.Tests/Internal/NegativeAcknowledgeTests.cs#NegativeAcknowledge_GivenRedeliveryBackoff_ShouldRedeliverAllMessagesAfterTheDelaysOfTheBackoff"
+    status: "Port-partial (16 of the 24 rows: the rows with a minimum delay of 0 are listed twice upstream; a round receives its messages before it negatively acknowledges them; 50 ms tolerance on the total delay)"
     spec: 06-prerequisites/dead-letter-policy.md
+    done: true
+    note: "WP11-D (the negative-ack redelivery backoff was built after WP11-A to C, on the same day): ConsumerOptions.NegativeAcknowledgeRedeliveryBackoff; unit tests NegativeAcknowledgeTrackerTests (9), SubConsumerTests (2), ConsumerBuilderTests (3), ConsumerExtensionsNegativeAcknowledgeTests (1)"
   - upstream: NegativeAcksTest#testNegativeAcksWithBatch
     path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/NegativeAcksTest.java
     lines: "336"
@@ -2304,17 +2305,17 @@ tests:
     path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/NegativeAcksTest.java
     lines: "420"
     csharp: "tests/DotPulsar.Tests/Internal/NegativeAcknowledgeBatchIndexAckTests.cs#AcknowledgeCumulative_GivenFailoverConsumerAndMessageOfBatch_ShouldRedeliverEveryOtherMessage"
-    status: "Excluded: the spec defers it to the ack-timeout and batching specs, which do not list it (no owner, no C# test)"
+    status: "Port-partial (DotPulsar acknowledges at once, upstream in groups of 100 ms; the 10 messages are two batches of 5 on the 2 partitions)"
     spec: 06-prerequisites/dead-letter-policy.md
-    note: "stale exclusion: the spec defers it to ack-timeout/batching specs that do not list it; no owner and no C# test"
+    note: "Was Excluded as deferred to specs that did not list it. The C# test acknowledges cumulatively a message of a batch with a failover consumer and expects every other message to come back"
     done: true
   - upstream: NegativeAcksTest#testMultiTopicConsumerConcurrentRedeliverAndReceive
     path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/NegativeAcksTest.java
     lines: "494"
     csharp: "tests/DotPulsar.Tests/Internal/NegativeAcknowledgeTests.cs#RedeliverUnacknowledgedMessages_GivenMessagesInReceiveQueueOfConsumerOfPartitionedTopic_ShouldReceiveEveryMessageAgain"
-    status: "Excluded: the spec defers it to the ack-timeout and batching specs, which do not list it (no owner, no C# test)"
+    status: "Port-partial (5 rows for the invocation count; the incoming queue is not visible, so one message is received and the test waits until the broker has sent all of them)"
     spec: 06-prerequisites/dead-letter-policy.md
-    note: "stale exclusion: the spec defers it to ack-timeout/batching specs that do not list it; no owner and no C# test"
+    note: "Was Excluded as deferred to specs that did not list it. The C# test redelivers the unacknowledged messages of a consumer of a partitioned topic and expects all 10 messages again, including the one that was received"
     done: true
   - upstream: NegativeAcksTest#testConfigureNegativeAckPrecisionBitCnt
     path: pulsar-broker/src/test/java/org/apache/pulsar/client/impl/NegativeAcksTest.java

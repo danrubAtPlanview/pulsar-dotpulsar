@@ -19,8 +19,8 @@ namespace DotPulsar.Abstractions;
 /// A policy that decides how long to wait before a message is redelivered, given the number of times it has been redelivered.
 /// </summary>
 /// <remarks>
-/// An implementation is called by the consumer, while the consumer is tracking its unacknowledged messages. It must be thread-safe, fast, and it should not throw.
-/// If it throws, the message is redelivered without a delay.
+/// An implementation is called by the consumer, while the consumer is tracking its unacknowledged messages (the ack timeout), and when a message is negatively acknowledged. It must be thread-safe, fast, and it should not throw.
+/// If it throws while the ack timeout is tracked, the message is redelivered without a delay. If it throws when a message is negatively acknowledged, the exception is thrown by 'NegativeAcknowledge' and the message is not tracked.
 /// A consumer that loses its connection is not delayed by the policy, because the broker redelivers all its unacknowledged messages at once when the consumer reconnects.
 /// </remarks>
 public interface IRedeliveryBackoff

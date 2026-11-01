@@ -44,6 +44,7 @@ public sealed class ConsumerBuilder<TMessage> : IConsumerBuilder<TMessage>
     private IRedeliveryBackoff? _ackTimeoutRedeliveryBackoff;
     private DeadLetterPolicy? _deadLetterPolicy;
     private TimeSpan _negativeAcknowledgeRedeliveryDelay;
+    private IRedeliveryBackoff? _negativeAcknowledgeRedeliveryBackoff;
     private uint _maxPendingChunkedMessage;
     private bool _autoAckOldestChunkedMessageOnQueueFull;
     private TimeSpan _expireTimeOfIncompleteChunkedMessage;
@@ -59,6 +60,7 @@ public sealed class ConsumerBuilder<TMessage> : IConsumerBuilder<TMessage>
         _ackTimeout = ConsumerOptions<TMessage>.DefaultAckTimeout;
         _ackTimeoutTickTime = ConsumerOptions<TMessage>.DefaultAckTimeoutTickTime;
         _negativeAcknowledgeRedeliveryDelay = ConsumerOptions<TMessage>.DefaultNegativeAcknowledgeRedeliveryDelay;
+        _negativeAcknowledgeRedeliveryBackoff = null;
         _maxPendingChunkedMessage = ConsumerOptions<TMessage>.DefaultMaxPendingChunkedMessage;
         _autoAckOldestChunkedMessageOnQueueFull = ConsumerOptions<TMessage>.DefaultAutoAckOldestChunkedMessageOnQueueFull;
         _expireTimeOfIncompleteChunkedMessage = ConsumerOptions<TMessage>.DefaultExpireTimeOfIncompleteChunkedMessage;
@@ -213,6 +215,12 @@ public sealed class ConsumerBuilder<TMessage> : IConsumerBuilder<TMessage>
         return this;
     }
 
+    public IConsumerBuilder<TMessage> NegativeAcknowledgeRedeliveryBackoff(IRedeliveryBackoff redeliveryBackoff)
+    {
+        _negativeAcknowledgeRedeliveryBackoff = redeliveryBackoff;
+        return this;
+    }
+
     public IConsumerBuilder<TMessage> MaxPendingChunkedMessage(uint maxPendingChunkedMessage)
     {
         _maxPendingChunkedMessage = maxPendingChunkedMessage;
@@ -276,6 +284,7 @@ public sealed class ConsumerBuilder<TMessage> : IConsumerBuilder<TMessage>
             AckTimeoutRedeliveryBackoff = _ackTimeoutRedeliveryBackoff,
             DeadLetterPolicy = _deadLetterPolicy,
             NegativeAcknowledgeRedeliveryDelay = _negativeAcknowledgeRedeliveryDelay,
+            NegativeAcknowledgeRedeliveryBackoff = _negativeAcknowledgeRedeliveryBackoff,
             MaxPendingChunkedMessage = _maxPendingChunkedMessage,
             AutoAckOldestChunkedMessageOnQueueFull = _autoAckOldestChunkedMessageOnQueueFull,
             ExpireTimeOfIncompleteChunkedMessage = _expireTimeOfIncompleteChunkedMessage,

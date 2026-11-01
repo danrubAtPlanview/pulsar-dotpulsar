@@ -1237,6 +1237,44 @@ public sealed class SubConsumerTests
         negativeAcknowledgeTracker.Count.ShouldBe(1);
     }
 
+    // Upstream: NegativeAcksTracker#add (the redelivery count of the message goes to the backoff)
+    [Fact]
+    public async Task NegativeAcknowledge_GivenRedeliveryCountAndBackoff_ShouldPassTheCountOnAndTrackTheEntry()
+    {
+        //Arrange
+        var backoff = new FakeRedeliveryBackoff(_ => TimeSpan.FromSeconds(1));
+        using var negativeAcknowledgeTracker = new NegativeAcknowledgeTracker(TimeSpan.FromMinutes(1), (_, _) => default, redeliveryBackoff: backoff);
+        await using var uut = CreateSubConsumer(false, negativeAcknowledgeTracker: negativeAcknowledgeTracker);
+
+        //Act
+        await uut.NegativeAcknowledge(new MessageId(1, 2, 0, -1, _messageId.Topic), 4, Current.CancellationToken);
+        await uut.NegativeAcknowledge(new MessageId(1, 3, 0, -1, _messageId.Topic), Current.CancellationToken);
+
+        //Assert
+        backoff.Counts.ShouldBe([4u, 0u]);
+        negativeAcknowledgeTracker.Count.ShouldBe(2);
+    }
+
+    // Additional coverage
+    [Fact]
+    public async Task NegativeAcknowledge_GivenBackoffThatThrows_ShouldThrowAndKeepTheEntryInTheAckTimeoutTracker()
+    {
+        //Arrange
+        var backoff = new FakeRedeliveryBackoff(_ => throw new InvalidOperationException("Backoff failed"));
+        using var tracker = CreateTracker();
+        using var negativeAcknowledgeTracker = new NegativeAcknowledgeTracker(TimeSpan.FromMinutes(1), (_, _) => default, redeliveryBackoff: backoff);
+        await using var uut = CreateSubConsumer(false, tracker: tracker, negativeAcknowledgeTracker: negativeAcknowledgeTracker);
+        uut.Track(CreateMessage(new MessageId(1, 2, 0, 0, _messageId.Topic)));
+
+        //Act
+        var exception = await Record.ExceptionAsync(async () => await uut.NegativeAcknowledge(new MessageId(1, 2, 0, 0, _messageId.Topic), 1, Current.CancellationToken));
+
+        //Assert
+        exception.ShouldBeOfType<InvalidOperationException>();
+        tracker.Count.ShouldBe(1);
+        negativeAcknowledgeTracker.Count.ShouldBe(0);
+    }
+
     // Additional coverage
     [Fact]
     public async Task NegativeAcknowledge_GivenMessageIdsOfTheSameEntry_ShouldTrackTheEntryOnce()

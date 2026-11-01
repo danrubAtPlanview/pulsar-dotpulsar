@@ -14,6 +14,7 @@
 
 namespace DotPulsar.Internal;
 
+using DotPulsar.Abstractions;
 using DotPulsar.Internal.Abstractions;
 using System.Diagnostics;
 
@@ -26,6 +27,7 @@ public sealed class NegativeAcknowledgeTracker : IDisposable
 
     private readonly object _lock;
     private readonly long _delayMs;
+    private readonly IRedeliveryBackoff? _redeliveryBackoff;
     private readonly Func<MessageId[], CancellationToken, ValueTask> _redeliver;
     private readonly Func<TimeSpan> _clock;
     private readonly Func<Action, IOneShotTimer> _timerFactory;
@@ -36,18 +38,23 @@ public sealed class NegativeAcknowledgeTracker : IDisposable
     private readonly CancellationToken _cancellationToken;
     private IOneShotTimer? _timer;
     private bool _isScheduled;
+    private long _scheduledAtMs;
     private int _isDisposed;
 
     // The 'redeliver' delegate receives the entry-level message ids that are due, outside of the lock, and a token that is cancelled when the tracker is disposed.
     // The 'clock' (monotonic) and 'timerFactory' are test seams. A delay below the minimum is raised to the minimum.
+    // With a 'redeliveryBackoff' the delay of an entry is the one that the policy returns for its redelivery count, instead of 'delay' (and without the minimum, as in Java).
+    // Upstream: NegativeAcksTracker#NegativeAcksTracker
     public NegativeAcknowledgeTracker(
         TimeSpan delay,
         Func<MessageId[], CancellationToken, ValueTask> redeliver,
         Func<TimeSpan>? clock = null,
-        Func<Action, IOneShotTimer>? timerFactory = null)
+        Func<Action, IOneShotTimer>? timerFactory = null,
+        IRedeliveryBackoff? redeliveryBackoff = null)
     {
         _lock = new();
         _delayMs = Math.Max((long) delay.TotalMilliseconds, (long) MinimumDelay.TotalMilliseconds);
+        _redeliveryBackoff = redeliveryBackoff;
         _redeliver = redeliver;
         _clock = clock ?? CreateClock();
         _timerFactory = timerFactory ?? CreateTimer;
@@ -58,6 +65,7 @@ public sealed class NegativeAcknowledgeTracker : IDisposable
         _cancellationToken = _cts.Token;
         _timer = null;
         _isScheduled = false;
+        _scheduledAtMs = 0;
         _isDisposed = 0;
     }
 
@@ -75,9 +83,14 @@ public sealed class NegativeAcknowledgeTracker : IDisposable
         => timestamp & (-1L << bits);
 
     // The batch index is discarded, so all the messages of a batch are redelivered with their entry. Returns false if the entry is already pending.
-    // Upstream: NegativeAcksTracker#add (C# deviation: an entry that is already pending is not added again, so it is redelivered once and keeps its first deadline)
-    public bool Add(MessageId messageId)
+    // The 'redeliveryCount' is the number of times that the message has been redelivered ('IMessage.RedeliveryCount'). It only matters with a redelivery backoff.
+    // Upstream: NegativeAcksTracker#add (C# deviations: an entry that is already pending is not added again, so it is redelivered once and keeps its first deadline,
+    // and the timer is brought forward when an entry is due before the one that it waits for, which can only happen with a redelivery backoff)
+    public bool Add(MessageId messageId, uint redeliveryCount = 0)
     {
+        // The policy is asked before anything changes, so a policy that throws leaves the tracker as it was and the exception reaches the caller, as in Java
+        var delayMs = GetDelayMs(redeliveryCount);
+
         lock (_lock)
         {
             if (_isDisposed != 0)
@@ -86,7 +99,8 @@ public sealed class NegativeAcknowledgeTracker : IDisposable
             if (!_pending.Add((messageId.LedgerId, messageId.EntryId)))
                 return false;
 
-            var dueTimestamp = TrimLowerBits(GetTimestamp() + _delayMs, PrecisionBitCount);
+            var now = GetTimestamp();
+            var dueTimestamp = TrimLowerBits(now + delayMs, PrecisionBitCount);
 
             if (!_buckets.TryGetValue(dueTimestamp, out var ids))
             {
@@ -96,8 +110,8 @@ public sealed class NegativeAcknowledgeTracker : IDisposable
 
             ids.Add(ToEntryLevel(messageId));
 
-            if (!_isScheduled)
-                Schedule(_delayMs);
+            if (!_isScheduled || now + delayMs < _scheduledAtMs)
+                Schedule(delayMs, now);
 
             return true;
         }
@@ -140,12 +154,23 @@ public sealed class NegativeAcknowledgeTracker : IDisposable
     private long GetTimestamp()
         => (long) _clock().TotalMilliseconds;
 
+    // Upstream: NegativeAcksTracker#add (backoffMs)
+    private long GetDelayMs(uint redeliveryCount)
+    {
+        if (_redeliveryBackoff is null)
+            return _delayMs;
+
+        var delay = _redeliveryBackoff.Next(redeliveryCount);
+        return delay <= TimeSpan.Zero ? 0 : (long) delay.TotalMilliseconds;
+    }
+
     // The timer is only scheduled while there are pending entries
-    private void Schedule(long delayMs)
+    private void Schedule(long delayMs, long now)
     {
         _timer ??= _timerFactory(OnTimer);
         _timer.Schedule(TimeSpan.FromMilliseconds(delayMs));
         _isScheduled = true;
+        _scheduledAtMs = now + delayMs;
     }
 
     // Upstream: NegativeAcksTracker#triggerRedelivery
@@ -199,7 +224,7 @@ public sealed class NegativeAcknowledgeTracker : IDisposable
             using var enumerator = _buckets.GetEnumerator();
 
             if (enumerator.MoveNext())
-                Schedule(Math.Max(enumerator.Current.Key - timestamp, 0));
+                Schedule(Math.Max(enumerator.Current.Key - timestamp, 0), timestamp);
         }
 
         if (due is not null)

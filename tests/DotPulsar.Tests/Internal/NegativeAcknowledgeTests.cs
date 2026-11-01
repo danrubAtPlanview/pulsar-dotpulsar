@@ -17,6 +17,7 @@ namespace DotPulsar.Tests.Internal;
 using DotPulsar.Abstractions;
 using DotPulsar.Extensions;
 using DotPulsar.Internal;
+using System.Diagnostics;
 using System.Text.Json;
 
 [Collection("Integration"), Trait("Category", "Integration")]
@@ -135,6 +136,115 @@ public sealed class NegativeAcknowledgeTests : IDisposable
         //Assert
         trackedAfterNegativeAcknowledge.ShouldBe(0);
         receivedMessages.ShouldBe(sentMessages, true);
+        (await TransactionFixture.ReceiveOrNull(consumer, TimeSpan.FromMilliseconds(500), _cts.Token)).ShouldBeNull();
+    }
+
+    // Upstream: NegativeAcksTest#testNegativeAcksWithBackoff
+    // The columns are batching, partitions, subscription type, and the minimum and maximum delay of the backoff in milliseconds. The upstream data provider lists the rows with a minimum delay of 0 twice; they are listed once.
+    // The 10 messages are received and negatively acknowledged 5 times, and then received once more. Upstream a batching row negatively acknowledges only the last message of a round, which is enough when the messages
+    // are in one batch; here every message of a partitioned row is negatively acknowledged too, because the producer sends them to both partitions, so there are two batches (the tracker takes the first message of an entry
+    // and ignores the others). Upstream negatively acknowledges every message of a row without batching right after it is received; here a round receives all its 10 messages first. With a delay of 0 a message is
+    // redelivered at once, and on a partitioned topic it can then arrive before a message of the same round that was not received yet, so a round receives one message twice and misses another (seen in the rows with a
+    // minimum delay of 0 of a partitioned topic). On a 'Shared' subscription the broker counts the redeliveries, so the delay grows with the backoff, and the whole takes at least the sum of the delays (with 50 ms for
+    // the granularity of the timers). On 'Failover' the count stays 0.
+    [Theory]
+    [InlineData(false, false, SubscriptionType.Shared, 100, 1000)]
+    [InlineData(false, false, SubscriptionType.Failover, 100, 1000)]
+    [InlineData(false, true, SubscriptionType.Shared, 100, 1000)]
+    [InlineData(false, true, SubscriptionType.Failover, 100, 1000)]
+    [InlineData(true, false, SubscriptionType.Shared, 100, 1000)]
+    [InlineData(true, false, SubscriptionType.Failover, 100, 1000)]
+    [InlineData(true, true, SubscriptionType.Shared, 100, 1000)]
+    [InlineData(true, true, SubscriptionType.Failover, 100, 1000)]
+    [InlineData(false, false, SubscriptionType.Shared, 0, 1000)]
+    [InlineData(false, false, SubscriptionType.Failover, 0, 1000)]
+    [InlineData(false, true, SubscriptionType.Shared, 0, 1000)]
+    [InlineData(false, true, SubscriptionType.Failover, 0, 1000)]
+    [InlineData(true, false, SubscriptionType.Shared, 0, 1000)]
+    [InlineData(true, false, SubscriptionType.Failover, 0, 1000)]
+    [InlineData(true, true, SubscriptionType.Shared, 0, 1000)]
+    [InlineData(true, true, SubscriptionType.Failover, 0, 1000)]
+    public async Task NegativeAcknowledge_GivenRedeliveryBackoff_ShouldRedeliverAllMessagesAfterTheDelaysOfTheBackoff(bool batching, bool usePartitions, SubscriptionType subscriptionType, int minimumDelayMilliseconds, int maximumDelayMilliseconds)
+    {
+        //Arrange
+        const int numberOfMessages = 10;
+        const int numberOfRedeliveries = 5;
+        var backoff = new MultiplierRedeliveryBackoff(TimeSpan.FromMilliseconds(minimumDelayMilliseconds), TimeSpan.FromMilliseconds(maximumDelayMilliseconds));
+        var negativeAcknowledgeEveryMessage = !batching || usePartitions;
+        var topicName = usePartitions ? await _fixture.CreatePartitionedTopic(2, _cts.Token) : await _fixture.CreateTopic(_cts.Token);
+        await using var client = CreateClient();
+        await using var consumer = client.NewConsumer(Schema.String)
+            .InitialPosition(SubscriptionInitialPosition.Earliest)
+            .NegativeAcknowledgeRedeliveryBackoff(backoff)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .SubscriptionName($"subscription-{Guid.NewGuid():N}")
+            .SubscriptionType(subscriptionType)
+            .Topic(topicName)
+            .Create();
+        await using var producer = client.NewProducer(Schema.String)
+            .BatchingMaxMessages(numberOfMessages)
+            .BatchingMaxPublishDelay(TimeSpan.FromSeconds(30))
+            .EnableBatching(batching)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .Topic(topicName)
+            .Create();
+        await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+
+        var sentMessages = new HashSet<string>();
+        var receipts = new List<Task<MessageId>>();
+        for (var i = 0; i < numberOfMessages; i++)
+        {
+            var value = $"test-{i}";
+            sentMessages.Add(value);
+            receipts.Add(await SendAsync(producer, value));
+        }
+
+        await producer.Flush(_cts.Token);
+        var sentIds = await Task.WhenAll(receipts).WaitAsync(TimeSpan.FromSeconds(30), _cts.Token);
+        sentIds.Any(messageId => messageId.BatchIndex >= 0).ShouldBe(batching);
+
+        //Act
+        var expectedTotalDelay = TimeSpan.Zero;
+        var stopwatch = Stopwatch.StartNew();
+        for (var i = 0; i < numberOfRedeliveries; i++)
+        {
+            var round = new List<IMessage<string>>();
+            for (var j = 0; j < numberOfMessages; j++)
+                round.Add(await ReceiveMessage(consumer));
+
+            if (negativeAcknowledgeEveryMessage)
+            {
+                foreach (var message in round)
+                    await consumer.NegativeAcknowledge(message, _cts.Token);
+            }
+            else
+            {
+                await consumer.NegativeAcknowledge(round[^1], _cts.Token);
+            }
+
+            expectedTotalDelay += backoff.Next((uint) i);
+        }
+
+        var receivedMessages = new HashSet<string>();
+        var redeliveryCounts = new List<uint>();
+        for (var i = 0; i < numberOfMessages; i++)
+        {
+            var message = await ReceiveMessage(consumer);
+            receivedMessages.Add(message.Value());
+            redeliveryCounts.Add(message.RedeliveryCount);
+            await consumer.Acknowledge(message, _cts.Token);
+        }
+
+        stopwatch.Stop();
+
+        //Assert
+        receivedMessages.ShouldBe(sentMessages, true);
+        if (subscriptionType == SubscriptionType.Shared)
+        {
+            redeliveryCounts.ShouldAllBe(count => count == numberOfRedeliveries);
+            stopwatch.Elapsed.ShouldBeGreaterThanOrEqualTo(expectedTotalDelay - TimeSpan.FromMilliseconds(50));
+        }
+
         (await TransactionFixture.ReceiveOrNull(consumer, TimeSpan.FromMilliseconds(500), _cts.Token)).ShouldBeNull();
     }
 

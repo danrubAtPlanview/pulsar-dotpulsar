@@ -2,9 +2,9 @@
 
 Generated from `upstream-map.yaml` on 2026-11-01 (the end of WP10). The map is the source of truth; this file is a reading aid for the reviewer. `Excluded` rows have no C# test; `Port-partial` rows have a C# test that checks less than the Java test, or checks it by another route (the part in brackets of the status says how); `Port-unit` rows are covered by client unit tests because the Java test needs a mocked or in-process broker.
 
-Counts: 335 rows, 81 excluded, 87 port-partial, 46 port-unit.
+Counts: 335 rows, 76 excluded, 92 port-partial, 46 port-unit.
 
-## Excluded rows (81), by Java test class
+## Excluded rows (76), by Java test class
 
 | Java class | Rows |
 |---|---|
@@ -13,9 +13,7 @@ Counts: 335 rows, 81 excluded, 87 port-partial, 46 port-unit.
 | `DeadLetterTopicTest` | 7 |
 | `BatchMessageContainerImplTest` | 6 |
 | `TopicTransactionBufferTest` | 6 |
-| `NegativeAcksTest` | 4 |
 | `PendingAckPersistentTest` | 4 |
-| `MessageChunkingTest` | 3 |
 | `BatchMessageIdImplTest` | 2 |
 | `ProducerImplTest` | 2 |
 | `TransactionCoordinatorClientTest` | 2 |
@@ -25,6 +23,8 @@ Counts: 335 rows, 81 excluded, 87 port-partial, 46 port-unit.
 | `BatchMessageWithBatchIndexLevelTest` | 1 |
 | `ChunkMessageIdImplTest` | 1 |
 | `ConsumerRedeliveryTest` | 1 |
+| `MessageChunkingTest` | 1 |
+| `NegativeAcksTest` | 1 |
 | `SimpleProducerConsumerTest` | 1 |
 | `TransactionAndSchemaAuthZTest` | 1 |
 | `TransactionConsumeTest` | 1 |
@@ -57,12 +57,7 @@ Counts: 335 rows, 81 excluded, 87 port-partial, 46 port-unit.
 | `DeadLetterTopicTest#testCloseDeadLetterTopicProducerOnExceptionToPreventProducerLeak` | Excluded: AVRO schemas and broker internals; covered by DeadLetterHandlerTests#TryDeadLetter_GivenFaultedProducer_ShouldDisposeAndRecreateProducerOnNextCall |
 | `DeadLetterTopicTest#sendDeadLetterTopicWithMismatchSchemaProducer` | Excluded: AVRO(Long)/AUTO_CONSUME and a retry topic |
 | `DeadLetterTopicTest#testCheckUnnecessaryGetPartitionedTopicMetadataWhenUseRetryAndDQL` | Excluded: retry topic and Mockito on client internals |
-| `MessageChunkingTest#testPublishWithFailure` | stale exclusion: the send timeout it waited for exists now (SendTimeout option and tests) |
-| `MessageChunkingTest#testNonPersistentMessageOverLimitOnlyWithMetadataIsRejectedLocally` | stale exclusion: an equivalent test exists (MessageChunkingSmallMessageSizeTests), its Upstream comment names another Java method |
 | `MessageChunkingTest#testChunksEnqueueFailed` | Excluded: memory limit controller and ProducerQueueIsFullError are not built |
-| `NegativeAcksTest#testNegativeAcksWithBackoff` | WP11-B added IRedeliveryBackoff and MultiplierRedeliveryBackoff for the ack timeout; a negative-ack option and the use of the policy in the negative-ack tracker are still missing (followup 0019) |
-| `NegativeAcksTest#testFailoverConsumerBatchCumulateAck` | stale exclusion: the spec defers it to ack-timeout/batching specs that do not list it; no owner and no C# test |
-| `NegativeAcksTest#testMultiTopicConsumerConcurrentRedeliverAndReceive` | stale exclusion: the spec defers it to ack-timeout/batching specs that do not list it; no owner and no C# test |
 | `NegativeAcksTest#testConfigureNegativeAckPrecisionBitCnt` | Excluded: the precision is not configurable (OD-3) |
 | `PendingAckPersistentTest#testBuildConsumerEncounterPendingAckInitFailure ×3` | Excluded: Mockito replaces `transactionPendingAckStoreProvider` |
 | `PendingAckPersistentTest#testDeleteUselessLogDataWhenSubCursorMoved` | Excluded: `groups = \"quarantine\"`; reflection on `MLPendingAckStore.pendingAckLogIndex` / `maxIndexLag` |
@@ -120,7 +115,7 @@ Counts: 335 rows, 81 excluded, 87 port-partial, 46 port-unit.
 | `cpp:EncryptionTest.cc#testDecryptionSuccess/Failure` | Excluded: C++-only; covered by the CLI interop tests EncryptionInteropTests#Receive_GivenJavaProduced* |
 | `cpp:MessageChunkingTest.cc#ChunkMessageIdTest.testSetChunkMessageId` | Excluded: C++ serialization API |
 
-## Port-partial rows (87)
+## Port-partial rows (92)
 
 | Upstream test | How it is ported (status) | C# test |
 |---|---|---|
@@ -194,8 +189,10 @@ Counts: 335 rows, 81 excluded, 87 port-partial, 46 port-unit.
 | `MessageChunkingTest#testReaderChunkingConfiguration` | Port-partial | `Create_GivenChunkSettings_ShouldPassThemOnInTheOptions` |
 | `MessageChunkingTest#testLargeMessage` | Port-partial | `Send_GivenMessagesAboveMaxMessageSize_ShouldDeliverThemAssembledInOrderAndAcknowledgeEveryChunk` |
 | `MessageChunkingTest#testLargeMessageAckTimeOut` | Port-partial | `Receive_GivenChunkedMessagesNotAcknowledgedBeforeAckTimeout_ShouldDeliverThemAgainInOrderAndAcknowledgeAllWithCumulativeAcknowledgment` |
+| `MessageChunkingTest#testPublishWithFailure` | the relay cuts the connection while the chunks are on the way, instead of stopping the broker | `Send_GivenConnectionCutWhileTheChunksAreOnTheWay_ShouldFailWithOperationTimeoutExceptionAndSendAgainWhenTheConnectionIsBack` |
 | `MessageChunkingTest#testOrphanedLastChunkDoesNotStallDispatch` | Port-partial | `Receive_GivenTwelveOrphanedLastChunks_ShouldStillDeliverTheNextMessage` |
 | `MessageChunkingTest#testLargeMessageOnNonPersistentTopicAboveBrokerLimitIsRejectedLocally` | Port-partial | `Send_GivenNonPersistentMessageAboveBrokerLimit_ShouldThrowTooLargeMessageException` |
+| `MessageChunkingTest#testNonPersistentMessageOverLimitOnlyWithMetadataIsRejectedLocally` | the maximum message size is the 100 bytes of the broker; upstream sets 1024 on the connection of the producer | `Send_GivenNonPersistentMessageOverLimitOnlyWithMetadata_ShouldThrowTooLargeMessageExceptionAndKeepTheProducerUsable` |
 | `MessageChunkingTest#testResendChunkMessages` | Port-partial | `Receive_GivenResentAndInterleavedChunks_ShouldAssembleBothMessages` |
 | `MessageChunkingTest#testSeekChunkMessages` | Port-partial | `Seek_GivenChunkedMessageId_ShouldDeliverTheMessageAgain` |
 | `MessageChunkingTest#testRepeatedSeekDoesNotRetainFilteredChunkMessageIds` | Port-partial | `Seek_GivenIdOfEachChunkedMessage_ShouldDeliverTheMessagesFromThatMessageAndTheMarkerThatIsNotChunked` |
@@ -208,6 +205,9 @@ Counts: 335 rows, 81 excluded, 87 port-partial, 46 port-unit.
 | `DeadLetterTopicTest#testDeadLetterTopicWithMaxUnackedMessagesBlocking` | Port-partial | `NegativeAcknowledge_GivenMaxUnackedMessagesPolicy_ShouldEventuallySendAllMessagesToDeadLetterTopic` |
 | `DeadLetterTopicTest#testDeadLetterTopicWithPoolMessages` | Port-partial | `RedeliverUnacknowledgedMessages_GivenCandidatesFromLastDelivery_ShouldSendAllToDeadLetterTopic` |
 | `NegativeAcksTest#testNegativeAcks` | Port-partial | `NegativeAcknowledge_GivenVariations_ShouldRedeliverAllNegativelyAcknowledgedMessages` |
+| `NegativeAcksTest#testNegativeAcksWithBackoff` | 16 of the 24 rows: the rows with a minimum delay of 0 are listed twice upstream; a round receives its messages before it negatively acknowledges them; 50 ms tolerance on the total delay | `NegativeAcknowledge_GivenRedeliveryBackoff_ShouldRedeliverAllMessagesAfterTheDelaysOfTheBackoff` |
+| `NegativeAcksTest#testFailoverConsumerBatchCumulateAck` | DotPulsar acknowledges at once, upstream in groups of 100 ms; the 10 messages are two batches of 5 on the 2 partitions | `AcknowledgeCumulative_GivenFailoverConsumerAndMessageOfBatch_ShouldRedeliverEveryOtherMessage` |
+| `NegativeAcksTest#testMultiTopicConsumerConcurrentRedeliverAndReceive` | 5 rows for the invocation count; the incoming queue is not visible, so one message is received and the test waits until the broker has sent all of them | `RedeliverUnacknowledgedMessages_GivenMessagesInReceiveQueueOfConsumerOfPartitionedTopic_ShouldReceiveEveryMessageAgain` |
 | `SimpleProducerConsumerTest#testCryptoWithChunking` | Port-partial | `Receive_GivenEcdsaEncryptedChunkedMessage_ShouldDecryptEveryChunkAndAssembleThem` |
 | `SimpleProducerConsumerTest#testEncryptionFailure` | Port-partial | `Receive_GivenEncryptionFailureActionsOneAfterTheOther_ShouldFailConsumeDecryptAndDiscard` |
 | `ProducerEncryptionKeyFailureTest#testProducerWhoseKeyCannotBeLoadedIsNotLeftBehind` | Port-partial | `Create_GivenKeyThatCannotBeLoaded_ShouldThrowCryptoExceptionAndNotRegisterPublisher` |

@@ -132,6 +132,11 @@ public interface IConsumerBuilder<TMessage>
     IConsumerBuilder<TMessage> NegativeAcknowledgeRedeliveryDelay(TimeSpan delay);
 
     /// <summary>
+    /// Set the backoff that decides how long to wait before a negatively acknowledged message is redelivered, instead of the redelivery delay. This is optional.
+    /// </summary>
+    IConsumerBuilder<TMessage> NegativeAcknowledgeRedeliveryBackoff(IRedeliveryBackoff redeliveryBackoff);
+
+    /// <summary>
     /// Set the max number of chunked messages that are being assembled at the same time. When it is exceeded, the oldest is dropped. 0 means no limit. The default is 10.
     /// </summary>
     IConsumerBuilder<TMessage> MaxPendingChunkedMessage(uint maxPendingChunkedMessage);
