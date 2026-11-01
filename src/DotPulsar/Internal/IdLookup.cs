@@ -16,6 +16,8 @@ namespace DotPulsar.Internal;
 
 public sealed class IdLookup<T> where T : class
 {
+    // The lock is not the array, because the array is replaced when the lookup grows
+    private readonly object _lock = new();
     private T?[] _items;
 
     public IdLookup()
@@ -23,7 +25,7 @@ public sealed class IdLookup<T> where T : class
 
     public bool IsEmpty()
     {
-        lock (_items)
+        lock (_lock)
         {
             for (var i = 0; i < _items.Length; ++i)
             {
@@ -37,7 +39,7 @@ public sealed class IdLookup<T> where T : class
 
     public ulong Add(T item)
     {
-        lock (_items)
+        lock (_lock)
         {
             for (var i = 0; i < _items.Length; ++i)
             {
@@ -59,8 +61,12 @@ public sealed class IdLookup<T> where T : class
 
     public T? Remove(ulong id)
     {
-        lock (_items)
+        lock (_lock)
         {
+            // An id that was never given out can come from the broker, and must not be taken for another one: the cast of 4294967296 to an int is 0
+            if (id >= (ulong) _items.Length)
+                return null;
+
             var item = _items[(int) id];
             _items[(int) id] = null;
             return item;
@@ -69,7 +75,7 @@ public sealed class IdLookup<T> where T : class
 
     public T[] RemoveAll()
     {
-        lock (_items)
+        lock (_lock)
         {
             var items = new List<T>();
 
@@ -92,9 +98,9 @@ public sealed class IdLookup<T> where T : class
     {
         get
         {
-            lock (_items)
+            lock (_lock)
             {
-                return _items[(int) id];
+                return id < (ulong) _items.Length ? _items[(int) id] : null;
             }
         }
     }

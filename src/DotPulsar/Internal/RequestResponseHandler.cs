@@ -64,6 +64,11 @@ public sealed class RequestResponseHandler : IDisposable
 
     public Task<BaseCommand> Outgoing(CommandProducer command)
     {
+        // The chunks are matched to the answers of the broker by their order. A producer has the same id on every connection, so when it registers again the chunk requests that this connection still holds for its id
+        // belong to an earlier channel of it. The broker has answered them, or it never will (it replaced or closed the producer), and one that is left would take the answer to a chunk of the next channel.
+        if (Volatile.Read(ref _chunkRequestCount) != 0)
+            CancelChunkRequests(command.ProducerId);
+
         command.RequestId = _requestId.FetchNext();
         var request = StandardRequest.WithProducerId(command.RequestId, command.ProducerId);
         return _requests.CreateTask(request);

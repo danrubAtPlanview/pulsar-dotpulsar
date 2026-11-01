@@ -57,3 +57,7 @@ What is verified without the broker fix: the client handles the answer of the fi
 ## Closing
 
 Decided by the requester on 2026-11-01: closed as an external item that is owned by the maintainers. The two skipped rows of `ConsumerTests` run when the test image has apache/pulsar#27128; the client side is covered by unit tests (see above). It is listed in the pull request description.
+
+## Update after WP11-D (the image no longer has to be edited in code)
+
+The test image is configurable since the commit `Make the broker image of the tests configurable`: `DOTPULSAR_TESTS_PULSAR_IMAGE` replaces `apachepulsar/pulsar:4.0.9`, and `DOTPULSAR_TESTS_BROKER_FIXES` lists the apache/pulsar pull requests that the image has (`27128`, and `27082` for the other skipped row). The two unload rows are skipped unless 27128 is listed, so they run against an image that has the fix with `DOTPULSAR_TESTS_PULSAR_IMAGE=<image> DOTPULSAR_TESTS_BROKER_FIXES=27128 dotnet test tests/DotPulsar.Tests --filter FullyQualifiedName~Acknowledge_GivenDelayedAckReceipt`. Checked on 2026-11-01 with the default image: without the variables the two rows are skipped (the same 14 skipped integration tests as before); with `DOTPULSAR_TESTS_BROKER_FIXES=27128` on 4.0.9 they run and fail with `OperationTimeoutException` after about 33 s, which is this bug. Checked on the same day: no published image has the fix (newest `5.0.1` of 2026-10-26; the pull request has the labels `release/4.0.15`, `release/4.2.6`, `release/5.0.2`, none released).

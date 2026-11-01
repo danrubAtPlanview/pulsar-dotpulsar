@@ -97,3 +97,20 @@ The merge (tip `3e1c6055`, 153 commits over `master`) was verified as a whole; o
 - Unit tests: Release 2306 passed (3 of 3 runs), Debug 2295 passed and 11 skipped.
 - Stress of the unit suite under CPU load (4 parallel suites, 12 busy loops, `Category=Unit`, a snapshot of the build): 12 rounds of 4 processes, 48 of 48 runs passed with 2306 tests, none aborted (`Test Run Aborted` checked, see followup 0009).
 - Integration tests, `Category=Integration`, one run in Debug and one in Release, each with 2 brokers at a time: 569 tests, 555 passed, 14 skipped, 0 failed, none aborted, 43 minutes each. The 14 skips are the same as before (11 rows of `TransactionEndToEndWithoutBatchIndexAckTests`, 2 rows of `ConsumerTests` for apache/pulsar#27128, 1 row of `TopicTransactionBufferPublishOrderTests` for apache/pulsar#27082). The 16 rows of the new test of D are among the 555. The integration suite is now run in Debug as well after WP11.
+
+## Follow-up items done after WP11-D (2026-11-01)
+
+The requester asked for three of the doable followups ("do 1,2,3"). They are three commits on top of `f96b0a03`, not pushed yet:
+
+| Commit | What | Followup |
+|---|---|---|
+| `8e15d544` `Ignore ids that the lookup never gave out` | `IdLookup`: the indexer and `Remove` return `null` for an id that is outside the array (an exception before; the id 4294967296 was cast to 0 and reached the consumer with id 0, and a `CloseConsumer` for it closed that consumer). The lock is an object of its own, because the array that was the lock is replaced in `Add` (concurrent `Add` threw `ArgumentException`). 18 new tests, all failing before the fix. | 0005 item 4 |
+| `b545b614` `Make the broker image of the tests configurable` | `BrokerImage`: `DOTPULSAR_TESTS_PULSAR_IMAGE` replaces the default image, `DOTPULSAR_TESTS_BROKER_FIXES` lists the apache/pulsar pull requests that the image has (27128, 27082); the three broker-bug rows skip at runtime unless their number is listed (they had a static `Skip`). 14 new unit tests of the two pure functions. Checked: default configuration skips the same 3 rows, a missing tag is passed to Docker, `DOTPULSAR_TESTS_BROKER_FIXES=27128` on 4.0.9 runs the 2 unload rows and they fail after about 33 s (the known bug). | 0002, 0019 G2 |
+| `fc04185d` `Cancel stale chunk requests at registration` | Review of `RequestResponseHandler` (the FIFO per key of the chunk sends): sound on every reachable path; one guard added: `Outgoing(CommandProducer)` cancels the chunk requests that the connection still holds for the producer id, so a producer that registers again on the same connection cannot have the answer to its next chunk taken by a stale request. 2 new tests (the first failed before the fix). Found by reading, not seen on a real broker. | 0011 item 5 |
+
+### Verification of the tip `fc04185d` (161 commits)
+
+- Build: Release and Debug, the four warnings of `master` only.
+- Unit tests: Release 2340 passed (3 of 3 runs), Debug 2329 passed and 11 skipped (the +34 over WP11-D are the 18 + 14 + 2 rows above).
+- Stress of the unit suite under CPU load (4 parallel suites, 12 busy loops, `Category=Unit`, a snapshot of the build): 8 rounds of 4 processes, 32 of 32 runs passed with 2340 tests, none aborted (`Test Run Aborted` checked, see followup 0009).
+- Integration tests, `Category=Integration`, one run in Debug (45 minutes) and one in Release (40 minutes), each with 2 brokers at a time: 569 tests, 555 passed, 14 skipped, 0 failed, none aborted. The same 14 skips as before. The new tests are all `Category=Unit`, so the integration count did not change.

@@ -61,7 +61,7 @@ public class IntegrationFixture : IAsyncLifetime
             .WithWaitStrategy(Wait.ForUnixContainer().UntilHttpRequestIsSucceeded(strategy => strategy.ForPath("/version").ForPort(ToxiProxyControlPort)))
             .Build();
 
-        var pulsarBuilder = new PulsarBuilder("apachepulsar/pulsar:4.0.9")
+        var pulsarBuilder = new PulsarBuilder(BrokerImage.Name)
             .WithAuthentication()
             .WithNetwork(_network)
             .WithHostname("pulsar")

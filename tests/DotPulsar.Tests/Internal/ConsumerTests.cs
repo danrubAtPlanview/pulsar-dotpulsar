@@ -594,10 +594,14 @@ public sealed class ConsumerTests : IDisposable
     [Theory]
     [InlineData(false, false)]
     [InlineData(true, false)]
-    [InlineData(false, true, Skip = "Requires broker fix apache/pulsar#27128 (AckResponse for discarded acks), which is not in apachepulsar/pulsar:4.0.9")]
-    [InlineData(true, true, Skip = "Requires broker fix apache/pulsar#27128 (AckResponse for discarded acks), which is not in apachepulsar/pulsar:4.0.9")]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
     public async Task Acknowledge_GivenDelayedAckReceipt_ShouldCompleteOrFailWithConsumerNotFound(bool cumulative, bool unload)
     {
+        // The rows that unload the topic need the broker to answer an ack for a consumer that it removed (the image of the tests answers it only with the fix, see BrokerImage)
+        if (unload)
+            BrokerImage.SkipUnlessItHasFix(BrokerImage.AckResponseForRemovedConsumer, "AckResponse for discarded acks");
+
         //Arrange
         var topicName = await _fixture.CreateTopic(_cts.Token);
         var subscription = CreateSubscriptionName();

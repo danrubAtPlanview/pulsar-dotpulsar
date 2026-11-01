@@ -194,7 +194,7 @@ public abstract class TransactionFixtureBase : IAsyncLifetime
 
     private async Task StartCluster(CancellationToken cancellationToken)
     {
-        var builder = new PulsarBuilder("apachepulsar/pulsar:4.0.9")
+        var builder = new PulsarBuilder(BrokerImage.Name)
             .WithAuthentication()
             .WithBrokerMemory()
             .WithEnvironment("PULSAR_PREFIX_transactionCoordinatorEnabled", "true")

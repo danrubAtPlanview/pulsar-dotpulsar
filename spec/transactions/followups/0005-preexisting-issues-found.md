@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Items 1 and 2 fixed, item 3 is followup 0001, item 5 documented and worked around in the fixtures; item 4 is open (a separate upstream issue or PR). |
+| **Status** | Items 1 and 2 fixed, item 3 is followup 0001, item 5 documented and worked around in the fixtures; item 4 was fixed after WP11-D (see "Update after WP11-D"). |
 | **Severity** | Low to medium. None blocks a work package unless noted. |
 
 | # | Where | Finding | Found by | Suggested handling |
@@ -18,3 +18,15 @@
 Items 1 and 2 are fixed (the schema version is sent since WP10, `NumMessages` is reset with the batching wiring). Item 3 is followup 0001. Item 4 (`IdLookup` / `ChannelManager` with a consumer id outside the array) is not changed and open. Item 5 (the environment variables only apply with `.WithAuthentication()`, and the transaction coordinator is loaded by the first connect request) is documented in the comments of `IntegrationFixture` and `TransactionFixtureBase`, and the fixtures work around it.
 
 Item 4 (`IdLookup` with an id outside the array) is optional hardening of master, low priority: it can only happen with an id that the client never handed out (a faulty broker, or a unit test that fakes an id). It is left as it is, and can be an upstream issue.
+
+## Update after WP11-D (item 4 fixed)
+
+Item 4 was done on 2026-11-01 in the commit `Ignore ids that the lookup never gave out` (it was left open as optional hardening of master before). Looking at it again showed more than the exception:
+
+- An id that is outside the array threw `IndexOutOfRangeException` in the indexer and in `Remove`, in the loop that reads the commands of the connection (`ChannelManager.Incoming(CommandMessage)`, `ReachedEndOfTopic`, `CloseConsumer`, and the removal of a handler of the transaction meta store).
+- An id such as 4294967296 (2^32) did not throw: the cast `(int) id` turned it into 0, so the command reached the consumer that has the id 0, and a `CloseConsumer` for it closed that consumer (shown by the test before the fix).
+- `IdLookup` used the array as the object of its lock and replaces the array in `Add`, so two callers could hold the lock of the old and of the new array at the same time. A stress test with 8 callers fails with `ArgumentException` (`CopyTo`) before the fix.
+
+The indexer and `Remove` return `null` for an id outside the array (the callers already handle a missing channel), and the lock is an object of its own. The lookup was not replaced by `SparseIdLookup`: the consumer lookup is read for every message that arrives, and an array read is cheaper than a dictionary read there.
+
+Tests: `IdLookupTests` (10 new rows) and `ChannelManagerConsumerIdTests` (8 rows, new class). All 18 fail before the fix and pass after it.

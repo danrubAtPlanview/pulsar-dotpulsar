@@ -72,6 +72,7 @@ Same procedure (4 parallel processes per round, 12 busy loops, `Category=Unit`, 
 | `LossyRelayTests` alone, 16 rounds (64 runs), with the fix (commit `Register the relay client before the broker`) | 0 of 64 aborted | the client is added first; if `DropConnections` runs before the broker is connected, the broker socket is closed |
 | 15 rounds (60 runs) of the whole unit suite, with the fix | 60 of 60 runs: 2290 passed, none aborted | |
 | 12 rounds (48 runs) of the whole unit suite after the negative-ack redelivery backoff (WP11-D, tip `f96b0a03`) | 48 of 48 runs: 2306 passed, none aborted | |
+| 8 rounds (32 runs) of the whole unit suite after the follow-up items (tip `fc04185d`: ids outside the lookups, configurable broker image, stale chunk requests) | 32 of 32 runs: 2340 passed, none aborted | |
 
 The two integration classes that use the relay (`ProducerReconnectTests`, `BatchMessageTests`) ran again with the fix: 45 passed. As in the earlier passes this does not prove that no other test of this kind is left; it is the same list that is still not finished.
 
