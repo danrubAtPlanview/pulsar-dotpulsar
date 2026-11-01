@@ -19,13 +19,15 @@ using System.Net.Sockets;
 
 // A TCP relay between a client and a broker that can lose what the broker sends. After SwallowBrokerToClient, the relay reads what the broker sends and throws it away, but it keeps both sockets open
 // and still delivers what the client sends. The broker acts on what it receives, and the client never gets the answers, like the receipts of a producer. DropConnections closes the sockets, and the
-// connections that the client opens after that are normal again.
+// connections that the client opens after that are normal again. DropClientConnections closes only the sockets towards the client, so the client sees the connection close, and the broker does not:
+// like a network that is cut, the broker keeps the connection and the producers and consumers on it until it finds out that the other end is gone.
 public sealed class LossyRelay : IAsyncDisposable
 {
     private readonly TcpListener _listener;
     private readonly Uri _brokerServiceUrl;
     private readonly CancellationTokenSource _cts;
     private readonly List<TcpClient> _sockets;
+    private readonly List<TcpClient> _clientSockets;
     private readonly List<Task> _tasks;
     private Task? _acceptTask;
     private volatile bool _swallow;
@@ -36,6 +38,7 @@ public sealed class LossyRelay : IAsyncDisposable
         _brokerServiceUrl = brokerServiceUrl;
         _cts = new CancellationTokenSource();
         _sockets = [];
+        _clientSockets = [];
         _tasks = [];
         _swallow = false;
     }
@@ -69,6 +72,24 @@ public sealed class LossyRelay : IAsyncDisposable
             }
 
             _sockets.Clear();
+            _clientSockets.Clear();
+        }
+    }
+
+    // Closes the sockets towards the client, and keeps the sockets towards the broker open. What the broker sends on them is not read any more, so it does not get an answer to a ping either.
+    // The connections that are opened later are not swallowed.
+    public void DropClientConnections()
+    {
+        _swallow = false;
+
+        lock (_sockets)
+        {
+            foreach (var socket in _clientSockets)
+            {
+                socket.Dispose();
+            }
+
+            _clientSockets.Clear();
         }
     }
 
@@ -112,6 +133,7 @@ public sealed class LossyRelay : IAsyncDisposable
             {
                 _sockets.Add(client);
                 _sockets.Add(broker);
+                _clientSockets.Add(client);
                 _tasks.Add(Pump(client, broker, false, cancellationToken));
                 _tasks.Add(Pump(broker, client, true, cancellationToken));
             }
