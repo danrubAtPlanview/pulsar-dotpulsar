@@ -20,6 +20,7 @@ using DotPulsar.Internal.Abstractions;
 using DotPulsar.Internal.Chunking;
 using DotPulsar.Internal.Crypto;
 using DotPulsar.Internal.Events;
+using DotPulsar.Internal.Extensions;
 using DotPulsar.Internal.PulsarApi;
 
 public sealed class SubReader<TMessage> : IContainsChannel, IReader<TMessage>
@@ -91,10 +92,10 @@ public sealed class SubReader<TMessage> : IContainsChannel, IReader<TMessage>
     }
 
     // Upstream: ConsumerImpl#seekAsync(MessageId)
-    // A chunked message is seeked to by its first chunk, because the broker redelivers entries
+    // A chunked message is seeked to by its first chunk, because the broker redelivers entries, and a message in a batch by the entry with an ack set that has the messages before it acknowledged
     public async ValueTask Seek(MessageId messageId, CancellationToken cancellationToken)
     {
-        var seek = new CommandSeek { MessageId = (messageId.FirstChunkMessageId ?? messageId).ToMessageIdData() };
+        var seek = new CommandSeek { MessageId = messageId.ToSeekMessageIdData() };
         await _executor.Execute(() => InternalSeek(seek, cancellationToken), cancellationToken).ConfigureAwait(false);
     }
 

@@ -149,7 +149,7 @@ You can implement `ICryptoKeyReader` to get the keys from somewhere else. `Crypt
 - Consumer - acknowledgment receipts and batch index acknowledgment
 - Consumer - ack timeout (with an optional redelivery backoff) and negative acknowledgment
 - Consumer - dead letter topic
-- Consumer/Reader - seek on message-id and publish time
+- Consumer/Reader - seek on message-id (also to a message in a batch) and publish time
 - Consumer - unsubscribe
 - Consumer - compacted topics
 - Reader API
