@@ -70,6 +70,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) 
 - A consumer or a reader published the state Active or Connected when the broker had answered the subscribe command, before it had its channel, so a Receive that followed the state change could wait for the retry interval (3 seconds by default). The state is published when the channel is in place
 - Disposing a producer, a consumer or a reader waited without a limit for the answer to the command that closes it, which was 91 seconds when the connection was dead but not detected yet. It waits as long as the OperationTimeout of the client (30 seconds by default) and then goes on
 - A producer of a partitioned topic reported the state WaitingForExclusive, and not PartiallyConnected, while only some of its partitions were connected
+- A producer without a ProducerName was a new producer for the broker every time it connected again, so the broker did not deduplicate the messages that it sent again after a reconnect. It now sends the name that the broker generated, the same producer id and a growing epoch when it connects again, like the Java client, so deduplication works for it too. A producer with a ProducerName is sent as before. A broker that does not check whether the old connection is still alive (for example Pulsar 3.1.0) refuses the name until it has closed the old connection, so a reconnect that the broker has not noticed can take as long as the keep alive of the broker, like it does for the Java client
 
 ## [5.3.4] - 2026-10-09
 
