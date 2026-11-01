@@ -17,12 +17,19 @@ namespace DotPulsar.Tests.Internal;
 using DotPulsar.Abstractions;
 using DotPulsar.Extensions;
 using DotPulsar.Internal;
+using System.Diagnostics;
 
-// The ack timeout tests of Java UnAcknowledgedMessagesTimeoutTest, PerMessageUnAcknowledgedRedeliveryTest and ConsumerRedeliveryTest that do not need the redelivery backoff (not supported).
+// The ack timeout tests of Java UnAcknowledgedMessagesTimeoutTest, PerMessageUnAcknowledgedRedeliveryTest and ConsumerRedeliveryTest. The rows of UnAcknowledgedMessagesTimeoutTest that use the
+// redelivery backoff (the data provider variationsRedeliveryTracker) use the backoff of the upstream test: a minimum delay of 1 second, a maximum delay of 20 seconds, and the multiplier 2.
+// A message is redelivered when the ack timeout has passed and the delay has passed after that, at the first tick of the tracker (1 second) after that. The waits of the rows with a backoff are
+// longer than the ones of the rows without it by the delay, plus 2 seconds that the ticks may need.
 [Collection("Integration"), Trait("Category", "Integration")]
 public sealed class AckTimeoutTests : IDisposable
 {
     private static readonly TimeSpan _ackTimeout = TimeSpan.FromSeconds(2);
+    private static readonly MultiplierRedeliveryBackoff _redeliveryBackoff = new(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(20));
+    // The timer of a tracker may fire a few milliseconds before the time that was asked for, so a redelivery can come a little earlier than the sum of the ack timeout and the delay
+    private static readonly TimeSpan _timerTolerance = TimeSpan.FromMilliseconds(100);
     private readonly CancellationTokenSource _cts;
     private readonly IntegrationFixture _fixture;
     private readonly ITestOutputHelper _testOutputHelper;
@@ -36,15 +43,17 @@ public sealed class AckTimeoutTests : IDisposable
 
     public void Dispose() => _cts.Dispose();
 
-    // Upstream: UnAcknowledgedMessagesTimeoutTest#testExclusiveSingleAckedNormalTopic (ackTimeoutRedeliveryBackoff = false)
-    [Fact]
-    public async Task Receive_GivenExclusiveSubscriptionAndUnacknowledgedMessages_ShouldRedeliverAfterAckTimeout()
+    // Upstream: UnAcknowledgedMessagesTimeoutTest#testExclusiveSingleAckedNormalTopic (isRedeliveryTracker = false, true)
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Receive_GivenExclusiveSubscriptionAndUnacknowledgedMessages_ShouldRedeliverAfterAckTimeout(bool useRedeliveryBackoff)
     {
         //Arrange
         const int totalMessages = 10;
         var topicName = await _fixture.CreateTopic(_cts.Token);
         await using var client = CreateClient();
-        await using var consumer = CreateConsumer(client, topicName, SubscriptionType.Exclusive, 7);
+        await using var consumer = CreateConsumer(client, topicName, SubscriptionType.Exclusive, 7, useRedeliveryBackoff: useRedeliveryBackoff);
         await using var producer = CreateProducer(client, topicName);
         await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
         await Send(producer, totalMessages);
@@ -58,7 +67,7 @@ public sealed class AckTimeoutTests : IDisposable
         var trackedAfterReceive = UnAckedMessageCount(consumer);
 
         //Act
-        await Task.Delay(_ackTimeout + TimeSpan.FromSeconds(2), _cts.Token);
+        await Task.Delay(_ackTimeout + TimeSpan.FromSeconds(2) + RedeliveryBackoffWait(useRedeliveryBackoff, 0), _cts.Token);
 
         //Assert
         trackedAfterReceive.ShouldBe(5);
@@ -72,15 +81,17 @@ public sealed class AckTimeoutTests : IDisposable
         redelivered.Count.ShouldBe(totalMessages);
     }
 
-    // Upstream: UnAcknowledgedMessagesTimeoutTest#testExclusiveCumulativeAckedNormalTopic (ackTimeoutRedeliveryBackoff = false)
-    [Fact]
-    public async Task AcknowledgeCumulative_GivenAckTimeout_ShouldUntrackAllAndNotRedeliver()
+    // Upstream: UnAcknowledgedMessagesTimeoutTest#testExclusiveCumulativeAckedNormalTopic (isRedeliveryTracker = false, true)
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AcknowledgeCumulative_GivenAckTimeout_ShouldUntrackAllAndNotRedeliver(bool useRedeliveryBackoff)
     {
         //Arrange
         const int totalMessages = 10;
         var topicName = await _fixture.CreateTopic(_cts.Token);
         await using var client = CreateClient();
-        await using var consumer = CreateConsumer(client, topicName, SubscriptionType.Exclusive, 7);
+        await using var consumer = CreateConsumer(client, topicName, SubscriptionType.Exclusive, 7, useRedeliveryBackoff: useRedeliveryBackoff);
         await using var producer = CreateProducer(client, topicName);
         await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
         await Send(producer, totalMessages);
@@ -139,6 +150,69 @@ public sealed class AckTimeoutTests : IDisposable
         trackedAfterAcknowledge.ShouldBe(0);
         UnAckedMessageCount(consumer).ShouldBe(0);
         (await TransactionFixture.ReceiveOrNull(consumer, TimeSpan.FromSeconds(1), _cts.Token)).ShouldBeNull();
+    }
+
+    // Upstream: UnAcknowledgedMessagesTimeoutTest#testCheckUnAcknowledgedMessageRedeliveryTimer
+    // The message that is not acknowledged is redelivered five times. Every redelivery comes when the ack timeout has passed and the delay of the backoff has passed after that, and the delay grows with
+    // the number of redeliveries. A Shared subscription has the number of redeliveries in the redelivery count of the message, which the broker counts. The consumer counts them for the other subscriptions.
+    // The lower bound of the time has the tolerance of the timer, and the tracker may be a tick later than the bound, which the upstream test does not check.
+    [Theory]
+    [InlineData(2000, 1000, 2000, 2, SubscriptionType.Shared)]
+    [InlineData(3000, 1000, 3000, 3, SubscriptionType.Shared)]
+    [InlineData(2000, 1000, 2000, 2, SubscriptionType.Exclusive)]
+    [InlineData(3000, 1000, 3000, 3, SubscriptionType.Exclusive)]
+    public async Task Receive_GivenAckTimeoutRedeliveryBackoff_ShouldRedeliverWhenTheAckTimeoutAndTheDelayHavePassed(int ackTimeoutMs, int minDelayMs, int maxDelayMs, int multiplier, SubscriptionType subscriptionType)
+    {
+        //Arrange
+        const int totalMessages = 3;
+        const int redeliveries = 5;
+        var ackTimeout = TimeSpan.FromMilliseconds(ackTimeoutMs);
+        var topicName = await _fixture.CreateTopic(_cts.Token);
+        await using var client = CreateClient();
+        await using var consumer = client.NewConsumer(Schema.String)
+            .AckTimeout(ackTimeout)
+            .AckTimeoutRedeliveryBackoff(new MultiplierRedeliveryBackoff(TimeSpan.FromMilliseconds(minDelayMs), TimeSpan.FromMilliseconds(maxDelayMs), multiplier))
+            .InitialPosition(SubscriptionInitialPosition.Earliest)
+            .MessagePrefetchCount(7)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .SubscriptionName($"subscription-{Guid.NewGuid():N}")
+            .SubscriptionType(subscriptionType)
+            .Topic(topicName)
+            .Create();
+        await using var producer = CreateProducer(client, topicName);
+        await consumer.StateChangedTo(ConsumerState.Active, _cts.Token);
+        await Send(producer, totalMessages);
+
+        for (var i = 0; i < totalMessages; i++)
+        {
+            var message = await Receive(consumer, TimeSpan.FromSeconds(5));
+
+            if (i != totalMessages - 1)
+                await consumer.Acknowledge(message, _cts.Token);
+        }
+
+        //Act
+        var measurements = new List<(int TrackedBefore, TimeSpan Elapsed, TimeSpan Expected, uint RedeliveryCount, uint LocalRedeliveryCount, int TrackedAfter)>();
+        for (var i = 0; i < redeliveries; i++)
+        {
+            var expectedDelay = TimeSpan.FromMilliseconds(Math.Min(minDelayMs * (int) Math.Pow(multiplier, i), maxDelayMs));
+            var trackedBefore = UnAckedMessageCount(consumer);
+            var stopwatch = Stopwatch.StartNew();
+            var redelivered = await TransactionFixture.ReceiveOrNull(consumer, ackTimeout + TimeSpan.FromMilliseconds(maxDelayMs) + TimeSpan.FromSeconds(10), _cts.Token);
+            var elapsed = stopwatch.Elapsed;
+            redelivered.ShouldNotBeNull();
+            measurements.Add((trackedBefore, elapsed, ackTimeout + expectedDelay, redelivered.RedeliveryCount, ((Consumer<string>) consumer).GetLocalRedeliveryCount(redelivered.MessageId), UnAckedMessageCount(consumer)));
+        }
+
+        //Assert
+        measurements.Select(measurement => measurement.TrackedBefore).ShouldAllBe(tracked => tracked == 1);
+        measurements.Select(measurement => measurement.TrackedAfter).ShouldAllBe(tracked => tracked == 1);
+        measurements.ShouldAllBe(measurement => measurement.Elapsed >= measurement.Expected - _timerTolerance);
+
+        var counts = subscriptionType == SubscriptionType.Shared
+            ? measurements.Select(measurement => measurement.RedeliveryCount)
+            : measurements.Select(measurement => measurement.LocalRedeliveryCount);
+        counts.ShouldBe(Enumerable.Range(1, redeliveries).Select(count => (uint) count));
     }
 
     // Upstream: PerMessageUnAcknowledgedRedeliveryTest#testSharedAckedNormalTopic
@@ -322,19 +396,21 @@ public sealed class AckTimeoutTests : IDisposable
         (await TransactionFixture.ReceiveOrNull(consumer, TimeSpan.FromSeconds(2), _cts.Token)).ShouldBeNull();
     }
 
-    // Upstream: UnAcknowledgedMessagesTimeoutTest#testSharedSingleAckedPartitionedTopic (the row {false}; the row {true} uses ackTimeoutRedeliveryBackoff, which DotPulsar does not support)
+    // Upstream: UnAcknowledgedMessagesTimeoutTest#testSharedSingleAckedPartitionedTopic (isRedeliveryTracker = false, true)
     // Consumer-1 receives its messages and does not acknowledge them, so they are redelivered to one of the consumers after the ack timeout. Consumer-2 acknowledges everything it receives,
-    // and what is redelivered to it is not acknowledged until the last round.
-    [Fact]
-    public async Task Receive_GivenSharedPartitionedTopicAndOneConsumerNotAcknowledging_ShouldRedeliverAfterAckTimeout()
+    // and what is redelivered to it is not acknowledged until the last round. The messages that are redelivered once have a redelivery count of 1, so they are delayed by the backoff for 1.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Receive_GivenSharedPartitionedTopicAndOneConsumerNotAcknowledging_ShouldRedeliverAfterAckTimeout(bool useRedeliveryBackoff)
     {
         //Arrange
         const int totalMessages = 20;
         const string subscriptionName = "my-shared-subscription";
         var topicName = await _fixture.CreatePartitionedTopic(3, _cts.Token);
         await using var client = CreateClient();
-        await using var consumer1 = CreateConsumer(client, topicName, SubscriptionType.Shared, 100, subscriptionName, "Consumer-1");
-        await using var consumer2 = CreateConsumer(client, topicName, SubscriptionType.Shared, 100, subscriptionName, "Consumer-2");
+        await using var consumer1 = CreateConsumer(client, topicName, SubscriptionType.Shared, 100, subscriptionName, "Consumer-1", useRedeliveryBackoff);
+        await using var consumer2 = CreateConsumer(client, topicName, SubscriptionType.Shared, 100, subscriptionName, "Consumer-2", useRedeliveryBackoff);
         await using var producer = CreateProducer(client, topicName);
         await consumer1.StateChangedTo(ConsumerState.Active, _cts.Token);
         await consumer2.StateChangedTo(ConsumerState.Active, _cts.Token);
@@ -347,7 +423,7 @@ public sealed class AckTimeoutTests : IDisposable
         var totalAfterFirstRound = messageCount1 + messageCount2;
 
         // The messages of Consumer-1 are redelivered after the ack timeout
-        await Task.Delay(TimeSpan.FromMilliseconds(_ackTimeout.TotalMilliseconds * 1.1), _cts.Token);
+        await Task.Delay(TimeSpan.FromMilliseconds(_ackTimeout.TotalMilliseconds * 1.1) + RedeliveryBackoffWait(useRedeliveryBackoff, 0), _cts.Token);
         messageCount1 = (await ReceiveAll(consumer1, TimeSpan.FromSeconds(1), true, false)).Count;
         messageCount2 += (await ReceiveAll(consumer2, TimeSpan.FromSeconds(1), false, false)).Count;
         var ackCount1 = messageCount1;
@@ -355,7 +431,7 @@ public sealed class AckTimeoutTests : IDisposable
         var acknowledgedAfterSecondRound = ackCount1 + messageCount2;
 
         // The messages that were redelivered to Consumer-2 and not acknowledged are redelivered again after the ack timeout
-        await Task.Delay(_ackTimeout * 2, _cts.Token);
+        await Task.Delay(_ackTimeout * 2 + RedeliveryBackoffWait(useRedeliveryBackoff, 1), _cts.Token);
         ackCount1 += (await ReceiveAll(consumer1, TimeSpan.FromSeconds(1), true, false)).Count;
         ackCount2 += (await ReceiveAll(consumer2, TimeSpan.FromSeconds(1), true, false)).Count;
 
@@ -366,18 +442,20 @@ public sealed class AckTimeoutTests : IDisposable
         (ackCount1 + ackCount2).ShouldBe(totalMessages);
     }
 
-    // Upstream: UnAcknowledgedMessagesTimeoutTest#testFailoverSingleAckedPartitionedTopic (the row {false}; the row {true} uses ackTimeoutRedeliveryBackoff, which DotPulsar does not support)
+    // Upstream: UnAcknowledgedMessagesTimeoutTest#testFailoverSingleAckedPartitionedTopic (isRedeliveryTracker = false, true)
     // Despite its name, the upstream test uses a Shared subscription, and so does this test.
-    [Fact]
-    public async Task Receive_GivenTwoSharedConsumersOnPartitionedTopicOneNotAcknowledging_ShouldRedeliverOnlyUnacknowledged()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Receive_GivenTwoSharedConsumersOnPartitionedTopicOneNotAcknowledging_ShouldRedeliverOnlyUnacknowledged(bool useRedeliveryBackoff)
     {
         //Arrange
         const int totalMessages = 10;
         const string subscriptionName = "my-failover-subscription";
         var topicName = await _fixture.CreatePartitionedTopic(3, _cts.Token);
         await using var client = CreateClient();
-        await using var consumer1 = CreateConsumer(client, topicName, SubscriptionType.Shared, 7, subscriptionName, "Consumer-1");
-        await using var consumer2 = CreateConsumer(client, topicName, SubscriptionType.Shared, 7, subscriptionName, "Consumer-2");
+        await using var consumer1 = CreateConsumer(client, topicName, SubscriptionType.Shared, 7, subscriptionName, "Consumer-1", useRedeliveryBackoff);
+        await using var consumer2 = CreateConsumer(client, topicName, SubscriptionType.Shared, 7, subscriptionName, "Consumer-2", useRedeliveryBackoff);
         await using var producer = CreateProducer(client, topicName);
         await consumer1.StateChangedTo(ConsumerState.Active, _cts.Token);
         await consumer2.StateChangedTo(ConsumerState.Active, _cts.Token);
@@ -390,7 +468,7 @@ public sealed class AckTimeoutTests : IDisposable
         var totalAfterFirstRound = messagesReceived;
 
         // The messages of Consumer-1 are redelivered after the ack timeout
-        await Task.Delay(_ackTimeout * 2, _cts.Token);
+        await Task.Delay(_ackTimeout * 2 + RedeliveryBackoffWait(useRedeliveryBackoff, 0), _cts.Token);
         messagesReceived = (await ReceiveAll(consumer1, TimeSpan.FromMilliseconds(500), false, false)).Count;
         messagesReceived += (await ReceiveAll(consumer2, TimeSpan.FromMilliseconds(500), false, false)).Count;
 
@@ -446,9 +524,9 @@ public sealed class AckTimeoutTests : IDisposable
         UnAckedMessageCount(consumer).ShouldBe(notAcknowledged.Count);
     }
 
-    // Upstream: UnAcknowledgedMessagesTimeoutTest#testSingleMessageBatch (the first half, the second half uses the redelivery backoff that is not supported)
+    // Upstream: UnAcknowledgedMessagesTimeoutTest#testSingleMessageBatch
     // The producer batches the message with a publish delay of 10 seconds, so the message is only sent because of the flush. The entry of the single message batch is tracked after the message
-    // is received, and it is not tracked after the message is acknowledged.
+    // is received, and it is not tracked after the message is acknowledged. The second half of the test does the same with a consumer that has the redelivery backoff.
     [Fact]
     public async Task Acknowledge_GivenSingleMessageBatch_ShouldUntrackEntry()
     {
@@ -479,10 +557,31 @@ public sealed class AckTimeoutTests : IDisposable
         var message = await Receive(consumer, TimeSpan.FromSeconds(5));
         var trackedAfterReceive = UnAckedMessageCount(consumer);
         await consumer.Acknowledge(message, _cts.Token);
+        var trackedAfterAcknowledge = UnAckedMessageCount(consumer);
+
+        // The consumer with the backoff, on the same subscription
+        await consumer.DisposeAsync();
+        await using var consumerWithBackoff = client.NewConsumer(Schema.String)
+            .AckTimeout(TimeSpan.FromHours(1))
+            .AckTimeoutRedeliveryBackoff(new MultiplierRedeliveryBackoff(TimeSpan.FromMilliseconds(1000), TimeSpan.FromMilliseconds(60000)))
+            .InitialPosition(SubscriptionInitialPosition.Earliest)
+            .StateChangedHandler(_testOutputHelper.Log)
+            .SubscriptionName("subscription")
+            .Topic(topicName)
+            .Create();
+        await consumerWithBackoff.StateChangedTo(ConsumerState.Active, _cts.Token);
+        receipt = await SendAsync(producer, "hello");
+        await producer.Flush(_cts.Token);
+        await receipt.WaitAsync(TimeSpan.FromSeconds(5), _cts.Token);
+        var messageWithBackoff = await Receive(consumerWithBackoff, TimeSpan.FromSeconds(5));
+        var trackedWithBackoffAfterReceive = UnAckedMessageCount(consumerWithBackoff);
+        await consumerWithBackoff.Acknowledge(messageWithBackoff, _cts.Token);
 
         //Assert
         trackedAfterReceive.ShouldBe(1);
-        UnAckedMessageCount(consumer).ShouldBe(0);
+        trackedAfterAcknowledge.ShouldBe(0);
+        trackedWithBackoffAfterReceive.ShouldBe(1);
+        UnAckedMessageCount(consumerWithBackoff).ShouldBe(0);
     }
 
     // Upstream: ConsumerRedeliveryTest#testUnAckMessageRedeliveryWithReceiveAsync
@@ -592,10 +691,14 @@ public sealed class AckTimeoutTests : IDisposable
         return message;
     }
 
-    private IConsumer<string> CreateConsumer(IPulsarClient client, string topicName, SubscriptionType subscriptionType, uint prefetchCount, string? subscriptionName = null, string? consumerName = null)
+    // The time that the redelivery of a message that was redelivered 'redeliveryCount' times is later with the backoff, which is the delay and the ticks that may be needed. Zero without the backoff.
+    private static TimeSpan RedeliveryBackoffWait(bool useRedeliveryBackoff, uint redeliveryCount)
+        => useRedeliveryBackoff ? _redeliveryBackoff.Next(redeliveryCount) + TimeSpan.FromSeconds(2) : TimeSpan.Zero;
+
+    private IConsumer<string> CreateConsumer(IPulsarClient client, string topicName, SubscriptionType subscriptionType, uint prefetchCount, string? subscriptionName = null, string? consumerName = null, bool useRedeliveryBackoff = false, TimeSpan? ackTimeout = null)
     {
         var builder = client.NewConsumer(Schema.String)
-            .AckTimeout(_ackTimeout)
+            .AckTimeout(ackTimeout ?? _ackTimeout)
             .InitialPosition(SubscriptionInitialPosition.Earliest)
             .MessagePrefetchCount(prefetchCount)
             .StateChangedHandler(_testOutputHelper.Log)
@@ -605,6 +708,9 @@ public sealed class AckTimeoutTests : IDisposable
 
         if (consumerName is not null)
             builder = builder.ConsumerName(consumerName);
+
+        if (useRedeliveryBackoff)
+            builder = builder.AckTimeoutRedeliveryBackoff(_redeliveryBackoff);
 
         return builder.Create();
     }
